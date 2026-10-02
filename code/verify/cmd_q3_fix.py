@@ -2,7 +2,7 @@
 """核对二 Q3/Q4 修复补丁：DICOM IOP 解读 + 坐标换算检查（修正引号与f-string错误）"""
 import os, json, re
 
-SHARE = r"G:\参加比赛\罕见无界黑客松\赛题3-鼻腔气流分析\项目\P0-鼻塞设计工具\阶段5-交互查看器"
+SHARE = r"%DATA_ROOT%\项目\P0-鼻塞设计工具\阶段5-交互查看器"
 PIPE = r"G:\程序开发\qidicode\qidicode-portable-windows-x64\qidicode-portable\contest3_workspace\pipeline"
 
 # Q3: ImageOrientationPatient 解读（独立修复）

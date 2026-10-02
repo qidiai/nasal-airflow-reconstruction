@@ -2,7 +2,7 @@
 """T9-3 幽灵alpha终态核验（共享文件夹当前版）"""
 import os
 
-SHARE = r"G:\参加比赛\罕见无界黑客松\赛题3-鼻腔气流分析\项目\P0-鼻塞设计工具\阶段5-交互查看器"
+SHARE = r"%DATA_ROOT%\项目\P0-鼻塞设计工具\阶段5-交互查看器"
 WORK = r"G:\程序开发\qidicode\qidicode-portable-windows-x64\qidicode-portable\contest3_workspace\pipeline\out\step5"
 
 v = open(os.path.join(SHARE, "viewer.html"), encoding="utf-8").read()

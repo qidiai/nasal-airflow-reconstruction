@@ -2,7 +2,7 @@
 """环节③指挥官抽验 + 占位量-ΔP曲线拟合与最终推荐"""
 import re, numpy as np
 
-RES = r"G:\参加比赛\罕见无界黑客松\赛题3-鼻腔气流分析\项目\P0-鼻塞设计工具\阶段2-CFD算例包\结果"
+RES = r"%DATA_ROOT%\项目\P0-鼻塞设计工具\阶段2-CFD算例包\结果"
 RHO = 1.2
 
 def read_scalar_list(path):

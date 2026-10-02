@@ -31,8 +31,8 @@ import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT_STEP5 = os.path.join(HERE, "out", "step5")
 MASK_NPZ = os.path.join(HERE, "out", "step2", "mask_full.npz")
-VTU = r"G:\参加比赛\罕见无界黑客松\赛题3-鼻腔气流分析\项目\P0-鼻塞设计工具\阶段2-CFD算例包\结果\P0-result-pA-v5\VTK\P0-case-v5_1500\internal.vtu"
-PH_DIR = r"G:\参加比赛\罕见无界黑客松\赛题3-鼻腔气流分析\项目\P0-鼻塞设计工具\阶段4-模型输出"
+VTU = r"%DATA_ROOT%\项目\P0-鼻塞设计工具\阶段2-CFD算例包\结果\P0-result-pA-v5\VTK\P0-case-v5_1500\internal.vtu"
+PH_DIR = r"%DATA_ROOT%\项目\P0-鼻塞设计工具\阶段4-模型输出"
 
 # mask 全分辨率体素间距（mm）
 SX_FULL, SY_FULL, SZ_FULL = 0.3496, 0.3496, 0.35
@@ -60,10 +60,10 @@ SMOOTH_ITERS = 20        # Taubin 迭代数（λ 步 + μ 步各 SMOOTH_ITERS �
 TAUBIN_LAMBDA = 0.5      # λ 收缩步长
 TAUBIN_MU = -0.53        # μ 膨胀步长（负值；|μ|>λ 抑制体积收缩）
 # [F3] 六板偏离报表落盘路径（共享树唯一事实源目录）与皮肤壳数据（帧校验用）
-F3_BOARDS_JSON = r"G:\参加比赛\罕见无界黑客松\赛题3-鼻腔气流分析\项目\P0-鼻塞设计工具\阶段5-交互查看器\升级施工-T10\out_f3\six_boards.json"
-F3_SKIN_DATA_JS = r"G:\参加比赛\罕见无界黑客松\赛题3-鼻腔气流分析\项目\P0-鼻塞设计工具\阶段5-交互查看器\skin_data.js"
+F3_BOARDS_JSON = r"%DATA_ROOT%\项目\P0-鼻塞设计工具\阶段5-交互查看器\升级施工-T10\out_f3\six_boards.json"
+F3_SKIN_DATA_JS = r"%DATA_ROOT%\项目\P0-鼻塞设计工具\阶段5-交互查看器\skin_data.js"
 # [F3 裁决（本轮）] 共享目录 viewer_data.js（外科手术式写盘基底 = 09-30 未平滑原版）
-SHARED_VIEWER_DATA_JS = r"G:\参加比赛\罕见无界黑客松\赛题3-鼻腔气流分析\项目\P0-鼻塞设计工具\阶段5-交互查看器\viewer_data.js"
+SHARED_VIEWER_DATA_JS = r"%DATA_ROOT%\项目\P0-鼻塞设计工具\阶段5-交互查看器\viewer_data.js"
 # [F3] 门禁阈值（工单：④比率变化>0.1% 即停；⑤逐轴偏差>2mm 即上报；⑥最小值<0 即停）
 F3_LR_RATIO_TOL = 0.001      # 左右半体积比 相对变化 0.1%
 F3_BBOX_TOL_MM = 2.0         # 帧校验容差 mm（与 viewer.html initSkin 帧校验同口径）

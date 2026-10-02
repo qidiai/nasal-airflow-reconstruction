@@ -2,7 +2,7 @@
 """v4 正式指标 v3：流式解析，零大正则"""
 import re, numpy as np, json
 
-R4 = r"G:\参加比赛\罕见无界黑客松\赛题3-鼻腔气流分析\项目\P0-鼻塞设计工具\阶段2-CFD算例包\结果\P0-result-pA-v4"
+R4 = r"%DATA_ROOT%\项目\P0-鼻塞设计工具\阶段2-CFD算例包\结果\P0-result-pA-v4"
 RHO = 1.2
 
 def count_and_paren(path):

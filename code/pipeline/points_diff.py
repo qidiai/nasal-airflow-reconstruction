@@ -2,7 +2,7 @@
 """决定性测试：笔记本返回网格的坐标点是否偏离我的均匀网格（体积异常溯源）"""
 import re, numpy as np
 
-RET = r"G:\参加比赛\罕见无界黑客松\赛题3-鼻腔气流分析\项目\P0-鼻塞设计工具\阶段2-CFD算例包\结果\P0-result-pA-v4\constant\polyMesh\points"
+RET = r"%DATA_ROOT%\项目\P0-鼻塞设计工具\阶段2-CFD算例包\结果\P0-result-pA-v4\constant\polyMesh\points"
 LOC = r"G:\程序开发\qidicode\qidicode-portable-windows-x64\qidicode-portable\contest3_workspace\pipeline\out\step2\P0-OF-case-pA-v4\constant\polyMesh\points"
 
 def load_points(path):

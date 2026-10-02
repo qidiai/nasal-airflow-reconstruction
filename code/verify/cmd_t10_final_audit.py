@@ -2,7 +2,7 @@
 """T10 完工态审计（常驻回归工具）——完工态断言 + 双份同步 + 记录在案检查"""
 import sys, os, re, json, hashlib
 sys.stdout.reconfigure(encoding="utf-8")
-PROJ = r"G:\参加比赛\罕见无界黑客松\赛题3-鼻腔气流分析\项目"
+PROJ = r"%DATA_ROOT%\项目"
 S5 = os.path.join(PROJ, "P0-鼻塞设计工具", "阶段5-交互查看器")
 T10 = os.path.join(S5, "升级施工-T10")
 PIPE = r"G:\程序开发\qidicode\qidicode-portable-windows-x64\qidicode-portable\contest3_workspace\pipeline"

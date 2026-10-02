@@ -28,8 +28,8 @@ import os  # T11 开源脱敏
 import sys, os, re, json
 sys.stdout.reconfigure(encoding="utf-8")
 
-SHARE = r"G:\参加比赛\罕见无界黑客松\赛题3-鼻腔气流分析\项目\P0-鼻塞设计工具\阶段5-交互查看器"
-RES = r"G:\参加比赛\罕见无界黑客松\赛题3-鼻腔气流分析\项目\P0-鼻塞设计工具\阶段2-CFD算例包\结果"
+SHARE = r"%DATA_ROOT%\项目\P0-鼻塞设计工具\阶段5-交互查看器"
+RES = r"%DATA_ROOT%\项目\P0-鼻塞设计工具\阶段2-CFD算例包\结果"
 PIPE = os.path.dirname(os.path.abspath(__file__))
 
 ok_all = True
