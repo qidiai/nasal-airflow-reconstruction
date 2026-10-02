@@ -1,0 +1,43 @@
+# =============================================================
+# 患者数据（任何形式）—— 严禁入库
+# =============================================================
+*.dcm
+*.dicom
+**/DICOM/
+**/CT/
+**/患者*/
+**/*患者*
+*.nrrd
+*.mha
+*.mhd
+*.npz
+*.nii
+*.nii.gz
+
+# 患者几何 / 体数据 / 皮肤层（需自行生成，不随仓库发布）
+skin_data.js
+volume_data.js
+**/P0-OF-case*/
+**/P0-result*/
+**/结果/
+**/out/
+*.stl
+
+# 哈希档案
+*.md5
+**/hash*.json
+**/*hash*.json
+hashes.json
+
+# 备份与缓存
+*.bak-*
+*.bak
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# 编辑器/系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
