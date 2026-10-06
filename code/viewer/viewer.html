@@ -145,7 +145,7 @@ footer{flex:0 0 32px;display:flex;align-items:center;justify-content:center;back
         <div class="metric-row"><span class="k">壁面剪切应力 WSS</span><span class="v" id="m-wss">—</span></div>
         <div class="metric-row"><span class="k">总阻力</span><span class="v" id="m-res">—</span></div>
         <div class="metric-row" id="row-splitdp" style="display:none"><span class="k">分侧压降（Run-A 口径）</span><span class="v" id="m-splitdp">—</span></div>
-        <div class="caliber" id="row-splitdp-note" style="display:none">ΔP 18.45 Pa 系 v5 定流量口径；R 66.2 与分侧数字系 v5C 等压法口径（见方法学面板）；两口径不可互换</div>
+        <div class="caliber" id="row-splitdp-note" style="display:none">ΔP 系定流量口径；R 与分侧数字系等压法口径（见方法学面板）；两口径不可互换，具体数值随加载数据变化（演示口径）</div>
       </section>
 
       <section class="card" id="flow-card">
@@ -173,19 +173,19 @@ footer{flex:0 0 32px;display:flex;align-items:center;justify-content:center;back
 
       <section class="card">
         <h2>方法学</h2>
-        <div class="methodology" id="methodology-box">几何：鼻窦CT 0.35mm 各向同性 → HU&lt;-400 空气域阈值 → 体素六面体正交网格
+        <div class="methodology" id="methodology-box">几何：合成示例数据（gen_demo_data.py 参数化模型，非患者 CT；真实管线口径：鼻窦 CT 各向同性 → HU&lt;-400 空气域阈值 → 体素六面体正交网格）
 头部外形（受扫描视野限制：颅顶/枕后/颈项未完整采集）
 仿真：OpenFOAM simpleFoam 稳态层流 @15 L/min；ν=1.8e-5 m²/s
 验证：通量闭合 0.44%；ΔP 稳定性 1.36%；双机双后处理互验；三轮模型审计
 色标：流线/切片/壳层 = 速度 m/s（0–动态上限）；CT 窗控 = HU（显示用）；CT 染色 = 密度分档（显示用）
 口径：全部为仿真结果（非临床结论）；占位壳层为仿真工况（非推荐）
-侧向：分侧数字按患者自身左右显示（面对患者判读，患者左=画面右）；当前为右 51.9% / 左 48.1%，系等压法（Run-B/v5C）实测通气分配——患者右鼻孔开口面积占比约 39%，通气却过半；分侧压降 R 13.99 / L 21.30 Pa 为 Run-A 面积分流口径；临床意义待主诊医师复核，不作诊断依据；画面方位导航用工具条「患者左/患者右」按钮</div>
+侧向：分侧数字按患者自身左右显示（面对患者判读，患者左=画面右）；分侧通气分配与分侧压降为演示口径、随加载数据变化（本仓库为合成示例数据，非患者数据；以页面加载的 viewer_data.js meta 为准）；临床意义待主诊医师复核，不作诊断依据；画面方位导航用工具条「患者左/患者右」按钮</div>
       </section>
 
       <section class="card" id="ct-thumb-card" style="display:none">
         <h2>CT 缩略图</h2>
         <div id="ct-thumbs"></div>
-        <div class="caption" id="ct-thumb-caption">本模型由此重建（鼻窦CT 0.35mm 各向同性）</div>
+        <div class="caption" id="ct-thumb-caption">本模型由此重建（合成示例数据 · gen_demo_data.py 参数化模型，非患者 CT）</div>
       </section>
 
       <section class="card">
@@ -275,20 +275,20 @@ window.VIEWER_DATA = (function () {
   }
   return {
     meta: {
-      title: '鼻腔气流 3D 交互查看器（DEV-MOCK 模拟数据）',
-      caseBaseline: '模拟病例 · 15 L/min（层流）',
+      title: '鼻腔气流仿真查看器（合成示例数据）',
+      caseBaseline: 'demo-synthetic @15 L/min 层流（非患者数据）',
       units: { resistance: 'Pa·min/L' },
       metrics: {
-        dP_baseline_Pa: 18.45,
-        dP_1mm_Pa: 28.55,
-        dP_2mm_Pa: 47.32,
-        dP_3mm_Pa: 52.40,
-        dP_note: '层流下界估计，不确定度±20-50%（占位档为仿真工况，非推荐）',
-        split_L_pct: 55.3,
-        split_R_pct: 44.7,
-        wss_mean_Pa: 1.84,
-        wss_p95_Pa: 6.72,
-        resistance_total: 1.23
+        dP_baseline_Pa: 23.7,
+        dP_1mm_Pa: 35.2,
+        dP_2mm_Pa: 58.9,
+        dP_3mm_Pa: 66.1,
+        dP_note: '合成示例·参数化估计，仅供演示，非诊疗依据',
+        split_L_pct: 50.0,
+        split_R_pct: 50.0,
+        wss_mean_Pa: 0.013,
+        wss_p95_Pa: 0.061,
+        resistance_total: '78.5 Pa/(L/s)（合成示例）'
       }
     },
     airwayMesh: air,
@@ -297,7 +297,7 @@ window.VIEWER_DATA = (function () {
     streamlines: lines,
     slices: slices,
     placeholders: ph,
-    curve: { volumes_cm3: [0, 4.37, 8.24, 10.42], dP_Pa: [18.45, 28.55, 47.32, 52.40], band_Pa: [30, 150] }
+    curve: { volumes_cm3: [0.0, 5.5, 11.0, 16.5], dP_Pa: [18.0, 27.6, 37.2, 46.8], band_Pa: [28.08, 70.2] }
   };
 })();
 
@@ -355,8 +355,8 @@ window.VOLUME_DATA = (function () {
       { z_mm: 0, img_b64: makeThumb('z=0mm'), wc: -450, ww: 900 },
       { z_mm: 8, img_b64: makeThumb('z=8mm'), wc: -450, ww: 900 }
     ],
-    metrics_deltaP: { dP_L_Pa: 13.99, dP_R_Pa: 21.30, note: 'Run-A 面积分流口径 @15 L/min' },
-    meta: { patient: 'A（数据捐献者授权）', source: '鼻窦CT 0.35mm 各向同性', units: 'HU / mm' }
+    metrics_deltaP: { dP_L_Pa: 11.85, dP_R_Pa: 11.85, note: '合成示例·对称口径（50/50 分流），演示口径随数据变化' },
+    meta: { patient: '合成示例（非患者数据）', source: '合成示例·参数化模型（非 CT）', units: 'HU / mm' }
   };
 })();
 <!--

@@ -3,7 +3,7 @@
 import os
 
 SHARE = r"%DATA_ROOT%\项目\P0-鼻塞设计工具\阶段5-交互查看器"
-WORK = r"G:\程序开发\qidicode\qidicode-portable-windows-x64\qidicode-portable\contest3_workspace\pipeline\out\step5"
+WORK = r"%QIDI_WORKSPACE%\contest3_workspace\pipeline\out\step5"
 
 v = open(os.path.join(SHARE, "viewer.html"), encoding="utf-8").read()
 w = open(os.path.join(WORK, "viewer.html"), encoding="utf-8").read()

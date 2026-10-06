@@ -2,8 +2,8 @@
 """T9-1 受理核验（第二批）：skin_data.js 路径剥离防泄漏预演 + 单文件预算终核"""
 import os, json
 
-BASE = r"G:\程序开发\qidicode\qidicode-portable-windows-x64\qidicode-portable\contest3_workspace\pipeline\out\step5"
-S7 = r"G:\程序开发\qidicode\qidicode-portable-windows-x64\qidicode-portable\contest3_workspace\pipeline\out\step7"
+BASE = r"%QIDI_WORKSPACE%\contest3_workspace\pipeline\out\step5"
+S7 = r"%QIDI_WORKSPACE%\contest3_workspace\pipeline\out\step7"
 
 # ===== T0 复演：皮肤数据路径剥离预演（build 脚本管不到，这里先把"进单文件前"的产物算出） =====
 sd = open(os.path.join(S7, "skin_data.js"), encoding="utf-8").read()

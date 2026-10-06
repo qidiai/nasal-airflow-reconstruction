@@ -56,7 +56,7 @@ python code/pipeline/step6_build_volume_data.py  # 体数据层（需原始 CT�
 python code/pipeline/step7_build_skin_data.py    # 皮肤壳层（需原始 CT，本仓库不发布产物）
 ```
 
-各脚本默认参数与内部路径已参数化（`P0_DICOM_DIR`），无硬编码绝对路径。
+各脚本默认参数与内部路径已参数化（`P0_DICOM_DIR`），核心管线无硬编码患者路径（审计/验证脚本为参考件，含本机路径占位，见 %QIDI_WORKSPACE%/%DATA_ROOT%）。
 `step2_make_ofcase.py` 支持 `--case/--ext/--iso` 等选项（延长段、去窦对照）。
 
 ### 3. 验证与审计工具

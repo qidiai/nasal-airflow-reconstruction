@@ -3,7 +3,7 @@
 import re, numpy as np
 
 RET = r"%DATA_ROOT%\项目\P0-鼻塞设计工具\阶段2-CFD算例包\结果\P0-result-pA-v4\constant\polyMesh\points"
-LOC = r"G:\程序开发\qidicode\qidicode-portable-windows-x64\qidicode-portable\contest3_workspace\pipeline\out\step2\P0-OF-case-pA-v4\constant\polyMesh\points"
+LOC = r"%QIDI_WORKSPACE%\contest3_workspace\pipeline\out\step2\P0-OF-case-pA-v4\constant\polyMesh\points"
 
 def load_points(path):
     lines = open(path, encoding="utf-8", errors="replace").read().splitlines()

@@ -2,7 +2,7 @@
 """指挥官独立核验 T2/T3 交付物"""
 import os, re, json
 
-D = r"G:\程序开发\qidicode\qidicode-portable-windows-x64\qidicode-portable\contest3_workspace\pipeline\out\step5"
+D = r"%QIDI_WORKSPACE%\contest3_workspace\pipeline\out\step5"
 
 print("===== 文件清单 =====")
 for f in sorted(os.listdir(D)):

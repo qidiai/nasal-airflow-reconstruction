@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """README 演示纪律追加 10-12 条"""
-p = r"G:\程序开发\qidicode\qidicode-portable-windows-x64\qidicode-portable\contest3_workspace\查看器使用说明.md"
+p = r"%QIDI_WORKSPACE%\contest3_workspace\查看器使用说明.md"
 t = open(p, encoding="utf-8").read()
 add = (
     "10. **皮肤壳透明度随视角变化（轮廓浓/正面淡）是展示特性，不是诊断依据**；"

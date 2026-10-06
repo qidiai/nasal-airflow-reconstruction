@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """单文件内联终验（FND-1 闭环）"""
-D = r"G:\程序开发\qidicode\qidicode-portable-windows-x64\qidicode-portable\contest3_workspace\pipeline\out\step5"
+D = r"%QIDI_WORKSPACE%\contest3_workspace\pipeline\out\step5"
 s = open(D + r"\viewer_single.html", encoding="utf-8").read()
 checks = {
     "window.VOLUME_DATA 内联": "window.VOLUME_DATA" in s,

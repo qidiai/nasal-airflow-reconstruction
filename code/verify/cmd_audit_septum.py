@@ -3,7 +3,7 @@
 import numpy as np
 from scipy import ndimage
 
-NPZ = r"G:\程序开发\qidicode\qidicode-portable-windows-x64\qidicode-portable\contest3_workspace\pipeline\out\step2\mask_full.npz"
+NPZ = r"%QIDI_WORKSPACE%\contest3_workspace\pipeline\out\step2\mask_full.npz"
 ZLO, ZHI = 100, 160
 
 data = np.load(NPZ)

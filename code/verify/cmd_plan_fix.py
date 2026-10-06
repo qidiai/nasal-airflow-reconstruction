@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """恢复被覆盖的 T8 记录行（插回审计链段落）"""
-p = r"G:\程序开发\qidicode\qidicode-portable-windows-x64\qidicode-portable\contest3_workspace\P0项目计划.md"
+p = r"%QIDI_WORKSPACE%\contest3_workspace\P0项目计划.md"
 t = open(p, encoding="utf-8").read()
 anchor = "- 审计链：step-5 v2 全量审计（1项P0：F2颜色三张皮——已修复）"
 insert = (

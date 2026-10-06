@@ -23,7 +23,7 @@ import matplotlib.pyplot as plt
 
 # T11 开源脱敏：CT 数据目录由环境变量 P0_DICOM_DIR 指定（默认相对路径 ./dicom）
 DATA_DIR = os.environ.get("P0_DICOM_DIR", "./dicom")
-OUT_DIR = r"G:\程序开发\qidicode\qidicode-portable-windows-x64\qidicode-portable\contest3_workspace\pipeline\out\step1"
+OUT_DIR = r"%QIDI_WORKSPACE%\contest3_workspace\pipeline\out\step1"
 os.makedirs(OUT_DIR, exist_ok=True)
 
 # ---------- 1. 读入 ----------

@@ -28,6 +28,6 @@ ax.set_title("Patient A - Personalized Nasal Plug Design Curve (Occupancy vs Air
 ax.set_xlim(0, 12); ax.set_ylim(0, 80)
 ax.legend(fontsize=8.5, loc="upper left"); ax.grid(alpha=0.3)
 fig.tight_layout()
-out = r"G:\程序开发\qidicode\qidicode-portable-windows-x64\qidicode-portable\contest3_workspace\pipeline\out\step4\占位量-ΔP曲线.png"
+out = r"%QIDI_WORKSPACE%\contest3_workspace\pipeline\out\step4\占位量-ΔP曲线.png"
 fig.savefig(out, dpi=150)
 print("saved:", out)

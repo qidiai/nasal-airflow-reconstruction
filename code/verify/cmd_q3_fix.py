@@ -3,7 +3,7 @@
 import os, json, re
 
 SHARE = r"%DATA_ROOT%\项目\P0-鼻塞设计工具\阶段5-交互查看器"
-PIPE = r"G:\程序开发\qidicode\qidicode-portable-windows-x64\qidicode-portable\contest3_workspace\pipeline"
+PIPE = r"%QIDI_WORKSPACE%\contest3_workspace\pipeline"
 
 # Q3: ImageOrientationPatient 解读（独立修复）
 import pydicom, glob

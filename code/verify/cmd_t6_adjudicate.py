@@ -5,8 +5,8 @@ import numpy as np
 from scipy import ndimage
 from scipy.spatial import cKDTree
 
-NPZ = r"G:\程序开发\qidicode\qidicode-portable-windows-x64\qidicode-portable\contest3_workspace\pipeline\out\step2\mask_full.npz"
-QC = r"G:\程序开发\qidicode\qidicode-portable-windows-x64\qidicode-portable\contest3_workspace\pipeline\out\step6\volume_qc.json"
+NPZ = r"%QIDI_WORKSPACE%\contest3_workspace\pipeline\out\step2\mask_full.npz"
+QC = r"%QIDI_WORKSPACE%\contest3_workspace\pipeline\out\step6\volume_qc.json"
 CENTER = np.array([79.224894, 71.872321, 56.979602])
 SP = (0.3496, 0.3496, 0.35)
 

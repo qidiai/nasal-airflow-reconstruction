@@ -5,7 +5,7 @@ import os, re, json
 import numpy as np
 
 SHARE = r"%DATA_ROOT%\项目\P0-鼻塞设计工具\阶段5-交互查看器"
-PIPE = r"G:\程序开发\qidicode\qidicode-portable-windows-x64\qidicode-portable\contest3_workspace\pipeline"
+PIPE = r"%QIDI_WORKSPACE%\contest3_workspace\pipeline"
 
 # viewer_data.js 的 airwayMesh positions（已减 CENTER 的世界坐标）
 js = open(os.path.join(SHARE, "viewer_data.js"), encoding="utf-8").read()

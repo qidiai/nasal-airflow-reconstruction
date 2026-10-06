@@ -3,7 +3,7 @@
 import re, numpy as np
 
 RET = r"%DATA_ROOT%\项目\P0-鼻塞设计工具\阶段2-CFD算例包\结果\P0-result-pA-v4\constant\polyMesh"
-LOC = r"G:\程序开发\qidicode\qidicode-portable-windows-x64\qidicode-portable\contest3_workspace\pipeline\out\step2\P0-OF-case-pA-v4\constant\polyMesh"
+LOC = r"%QIDI_WORKSPACE%\contest3_workspace\pipeline\out\step2\P0-OF-case-pA-v4\constant\polyMesh"
 
 def read_count(path):
     """读 OpenFOAM ASCII 列表文件的元素个数（header后第一个 (N 行）"""

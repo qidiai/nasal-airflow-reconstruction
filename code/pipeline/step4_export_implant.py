@@ -6,8 +6,8 @@ from scipy import ndimage
 from skimage.measure import marching_cubes
 import trimesh
 
-NPZ = r"G:\程序开发\qidicode\qidicode-portable-windows-x64\qidicode-portable\contest3_workspace\pipeline\out\step2\mask_full.npz"
-OUT = r"G:\程序开发\qidicode\qidicode-portable-windows-x64\qidicode-portable\contest3_workspace\pipeline\out\step4"
+NPZ = r"%QIDI_WORKSPACE%\contest3_workspace\pipeline\out\step2\mask_full.npz"
+OUT = r"%QIDI_WORKSPACE%\contest3_workspace\pipeline\out\step4"
 os.makedirs(OUT, exist_ok=True)
 ZLO, ZHI = 100, 160
 VOX = 0.3496 * 0.3496 * 0.35  # mm^3（实际ps）

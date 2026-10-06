@@ -4,7 +4,7 @@ import json, re
 import numpy as np
 from scipy.spatial import cKDTree
 
-s = open(r"G:\程序开发\qidicode\qidicode-portable-windows-x64\qidicode-portable\contest3_workspace\pipeline\out\step5\viewer_data.js", encoding="utf-8").read()
+s = open(r"%QIDI_WORKSPACE%\contest3_workspace\pipeline\out\step5\viewer_data.js", encoding="utf-8").read()
 d = json.loads(re.search(r"window\.VIEWER_DATA = (\{.*\});", s, re.S).group(1))
 pos = np.array(d["airwayMesh"]["positions"]).reshape(-1, 3)
 mn, mx = pos.min(0), pos.max(0)

@@ -22,7 +22,7 @@ ARGS = _ap.parse_args()
 
 # T11 开源脱敏：CT 数据目录由环境变量 P0_DICOM_DIR 指定（默认相对路径 ./dicom）
 DATA_DIR = os.environ.get("P0_DICOM_DIR", "./dicom")
-WS_OUT = r"G:\程序开发\qidicode\qidicode-portable-windows-x64\qidicode-portable\contest3_workspace\pipeline\out"
+WS_OUT = r"%QIDI_WORKSPACE%\contest3_workspace\pipeline\out"
 CASE_DIR = os.path.join(WS_OUT, "step2", f"P0-OF-case-pA-{ARGS.case}")
 MESH_DIR = os.path.join(CASE_DIR, "constant", "polyMesh")
 os.makedirs(MESH_DIR, exist_ok=True)
