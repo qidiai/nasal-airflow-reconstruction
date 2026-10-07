@@ -36,6 +36,18 @@ __pycache__/
 *.pyc
 .pytest_cache/
 
+# 虚拟环境（venv 命名见 README QUICKSTART）
+venv/
+.venv/
+env/
+
+# 环境变量占位字面量目录（QIDI_WORKSPACE/DATA_ROOT 未设置时脚本可能生成）
+%QIDI_WORKSPACE/
+%DATA_ROOT/
+
+# 运行日志
+*.log
+
 # 编辑器/系统
 .vscode/
 .idea/

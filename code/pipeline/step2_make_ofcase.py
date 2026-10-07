@@ -18,13 +18,22 @@ _ap.add_argument("--ext", action="store_true", help="入口鼻孔+出口鼻咽�
 _ap.add_argument("--ext-l-mm", type=float, default=15.0, help="延长段长度 mm（默认 15.0，§5.3）")
 _ap.add_argument("--ext-r-factor", type=float, default=1.05, help="延长段半径=开口外接圆半径×系数（默认 1.05）")
 _ap.add_argument("--iso", action="store_true", help="去窦对照算例（默认关）")
+_ap.add_argument("--dicom-dir", default=None,
+                 help="DICOM 目录（默认取环境变量 P0_DICOM_DIR，再缺省 ./dicom）")
 ARGS = _ap.parse_args()
 
-# T11 开源脱敏：CT 数据目录由环境变量 P0_DICOM_DIR 指定（默认相对路径 ./dicom）
-DATA_DIR = os.environ.get("P0_DICOM_DIR", "./dicom")
-WS_OUT = r"%QIDI_WORKSPACE%\contest3_workspace\pipeline\out"
+# T11 开源脱敏：CT 数据目录由 --dicom-dir 或环境变量 P0_DICOM_DIR 指定（默认相对路径 ./dicom）
+DATA_DIR = os.path.expandvars(ARGS.dicom_dir or os.environ.get("P0_DICOM_DIR", "./dicom"))
+WS_OUT = os.path.expandvars(r"%QIDI_WORKSPACE%\contest3_workspace\pipeline\out")
 CASE_DIR = os.path.join(WS_OUT, "step2", f"P0-OF-case-pA-{ARGS.case}")
 MESH_DIR = os.path.join(CASE_DIR, "constant", "polyMesh")
+
+# 开箱友好检查（裸跑/路径错误时给出可操作报错，避免 IndexError 裸崩；检查通过才建输出目录）
+if not os.path.isdir(DATA_DIR):
+    raise SystemExit(f"DICOM 目录不存在：{DATA_DIR} —— 请设置环境变量 P0_DICOM_DIR 或用 --dicom-dir 指定")
+files = sorted(glob.glob(os.path.join(DATA_DIR, "*.dcm")))
+if len(files) == 0:
+    raise SystemExit(f"目录不含 DICOM 文件：请检查 --dicom-dir（或环境变量 P0_DICOM_DIR，当前目录：{DATA_DIR}）")
 os.makedirs(MESH_DIR, exist_ok=True)
 os.makedirs(os.path.join(CASE_DIR, "0"), exist_ok=True)
 os.makedirs(os.path.join(CASE_DIR, "system"), exist_ok=True)
@@ -37,6 +46,8 @@ print("[1/6] 读 DICOM 分割 ...")
 files = sorted(glob.glob(os.path.join(DATA_DIR, "*.dcm")))
 slices = [pydicom.dcmread(f) for f in files]
 slices.sort(key=lambda s: float(s.ImagePositionPatient[2]))
+if len(slices) < 2:
+    raise SystemExit(f"DICOM 层数不足：仅 {len(slices)} 层（分割至少需 2 层），请检查 --dicom-dir")
 nz, rows, cols = len(slices), slices[0].Rows, slices[0].Columns
 ps = [float(x) for x in slices[0].PixelSpacing]
 dz = abs(float(slices[1].ImagePositionPatient[2]) - float(slices[0].ImagePositionPatient[2]))

@@ -1,0 +1,13 @@
+# P0 鼻腔气流分析工具 · 运行依赖
+# 安装：pip install -r requirements.txt
+# 管线（step1-7）与合成示例数据生成器所需全部第三方库；
+# 查看器（code/viewer/viewer.html）为纯静态页面，无依赖。
+numpy
+scipy
+pydicom
+scikit-image
+trimesh
+matplotlib
+
+# 测试（pytest 冒烟套件，见 tests/）
+pytest

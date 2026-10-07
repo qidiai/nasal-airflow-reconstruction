@@ -6,6 +6,18 @@
 
 本项目由 **患者社区 K-Hub** 发布。
 
+## QUICKSTART（10 分钟开箱）
+
+```bash
+py -3 -m venv .venv && .venv\Scripts\activate   # ① 虚拟环境（Linux/Mac: python3 -m venv .venv && source .venv/bin/activate）
+pip install -r requirements.txt                 # ② 装依赖（numpy/scipy/pydicom/scikit-image/trimesh/matplotlib/pytest）
+cd code/viewer && python gen_demo_data.py       # ③ demo：重生成合成示例数据 viewer_data.js（无需患者数据）
+cd ../.. && pytest                              # ④ 冒烟测试（全绿 = 开箱正常）
+```
+
+- 输出路径占位（Windows 示例，示例值格式 `<盘符>:\目录名`）：`set QIDI_WORKSPACE=C:\p0work`（管线输出工作区）、`set DATA_ROOT=D:\p0data`（数据根目录）；PowerShell 写作 `$env:QIDI_WORKSPACE="C:\p0work"`、`$env:DATA_ROOT="D:\p0data"`。设置后 step1/step2 输出到该工作区（未设置则使用字面量占位目录）。
+- 真实 CT 输入：`set P0_DICOM_DIR=C:\p0work\dicom`（目录内放 `*.dcm`；本仓库不含患者数据，上述 ①-④ 步无需设置）。
+
 ## 数据说明（重要）
 
 **本仓库不含任何患者数据。**
@@ -56,8 +68,10 @@ python code/pipeline/step6_build_volume_data.py  # 体数据层（需原始 CT�
 python code/pipeline/step7_build_skin_data.py    # 皮肤壳层（需原始 CT，本仓库不发布产物）
 ```
 
+开箱自检（先 `cd code`）：`python -m pipeline.cli capabilities` —— 打印依赖/输入目录/输出占位环境变量就绪状态。
 各脚本默认参数与内部路径已参数化（`P0_DICOM_DIR`），核心管线无硬编码患者路径（审计/验证脚本为参考件，含本机路径占位，见 %QIDI_WORKSPACE%/%DATA_ROOT%）。
-`step2_make_ofcase.py` 支持 `--case/--ext/--iso` 等选项（延长段、去窦对照）。
+`step1_airway_segment.py` 与 `step2_make_ofcase.py` 支持 `--dicom-dir`（覆盖 `P0_DICOM_DIR`）；`step2_make_ofcase.py` 支持 `--case/--ext/--iso` 等选项（延长段、去窦对照）。
+裸跑（无 DICOM）时 step1/step2 给出中文可操作报错并中止，不产生 IndexError 裸崩。
 
 ### 3. 验证与审计工具
 

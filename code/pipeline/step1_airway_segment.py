@@ -4,7 +4,7 @@ P0 阶段1 v2：鼻腔气道三维重建（修正版）
 修正点：鼻孔开放导致 3D 连通失败 → 改用"逐层2D头部填充"法：
   气道 = 空气 ∧ 头部组织二值图填洞后的头内部
 """
-import os, json, glob
+import os, json, glob, argparse
 import numpy as np
 import pydicom
 from scipy import ndimage
@@ -21,16 +21,28 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-# T11 开源脱敏：CT 数据目录由环境变量 P0_DICOM_DIR 指定（默认相对路径 ./dicom）
-DATA_DIR = os.environ.get("P0_DICOM_DIR", "./dicom")
-OUT_DIR = r"%QIDI_WORKSPACE%\contest3_workspace\pipeline\out\step1"
+# T11 开源脱敏：CT 数据目录由 --dicom-dir 或环境变量 P0_DICOM_DIR 指定（默认相对路径 ./dicom）
+_ap = argparse.ArgumentParser(description="P0 阶段1 鼻腔气道三维重建")
+_ap.add_argument("--dicom-dir", default=None,
+                 help="DICOM 目录（默认取环境变量 P0_DICOM_DIR，再缺省 ./dicom）")
+ARGS = _ap.parse_args()
+DATA_DIR = os.path.expandvars(ARGS.dicom_dir or os.environ.get("P0_DICOM_DIR", "./dicom"))
+OUT_DIR = os.path.expandvars(r"%QIDI_WORKSPACE%\contest3_workspace\pipeline\out\step1")
+
+# ---------- 0. 输入检查（开箱友好：裸跑/路径错误时给出可操作报错，不产生 IndexError 裸崩） ----------
+if not os.path.isdir(DATA_DIR):
+    raise SystemExit(f"DICOM 目录不存在：{DATA_DIR} —— 请检查 --dicom-dir 或环境变量 P0_DICOM_DIR")
+files = sorted(glob.glob(os.path.join(DATA_DIR, "*.dcm")))
+if len(files) == 0:
+    raise SystemExit(f"目录不含 DICOM 文件：请检查 --dicom-dir（或环境变量 P0_DICOM_DIR，当前目录：{DATA_DIR}）")
 os.makedirs(OUT_DIR, exist_ok=True)
 
 # ---------- 1. 读入 ----------
-files = sorted(glob.glob(os.path.join(DATA_DIR, "*.dcm")))
 print(f"[1/7] 读取 {len(files)} 层 DICOM ...")
 slices = [pydicom.dcmread(f) for f in files]
 slices.sort(key=lambda s: float(s.ImagePositionPatient[2]))
+if len(slices) < 2:
+    raise SystemExit(f"DICOM 层数不足：仅 {len(slices)} 层（气道重建至少需 2 层），请检查 --dicom-dir")
 nz, rows, cols = len(slices), slices[0].Rows, slices[0].Columns
 ps = [float(x) for x in slices[0].PixelSpacing]
 dz = abs(float(slices[1].ImagePositionPatient[2]) - float(slices[0].ImagePositionPatient[2]))
