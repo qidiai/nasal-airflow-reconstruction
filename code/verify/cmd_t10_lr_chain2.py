@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-import os  # T11 开源脱敏
 """T10 左右符号链决定性测试 v2（真投影比对版 · 替代 cmd_lr_chain.py 的 print 结论版）
 
 背景：cmd_lr_chain.py docstring 承诺"把 split_L/R 的原始 patch 体素质心投影到查看器世界坐标验证"，
@@ -92,7 +91,7 @@ print("    Y1 翻转时保留 13.99 以与环节②/诊断报告3/单文件存�
 
 # ---- A6 DICOM IOP 全量实测（规则 R2 自证：列+ = 患者坐标 +x = 患者左）----
 import glob as _glob
-_D = os.environ.get("P0_DICOM_DIR", "./dicom")
+_D = r"%DATA_ROOT%\参赛群资料\患者A\脱敏后图像数据\ISO_Soft_0.35mm_合并"
 _f0 = sorted(_glob.glob(os.path.join(_D, "*.dcm")))
 _bad_iop = 0
 if _f0:

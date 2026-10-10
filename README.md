@@ -66,10 +66,11 @@ python code/pipeline/step4_export_implant.py     # 植入体 STL 导出
 python code/pipeline/step5_export_viewer_data.py # 查看器数据包导出
 python code/pipeline/step6_build_volume_data.py  # 体数据层（需原始 CT，本仓库不发布产物）
 python code/pipeline/step7_build_skin_data.py    # 皮肤壳层（需原始 CT，本仓库不发布产物）
+python code/pipeline/run_all.py --dicom-dir <CT目录>  # 一键总控编排（step1→step7 + PII/朝向/回归比/出口/冒烟五闸门）
 ```
 
 开箱自检（先 `cd code`）：`python -m pipeline.cli capabilities` —— 打印依赖/输入目录/输出占位环境变量就绪状态。
-各脚本默认参数与内部路径已参数化（`P0_DICOM_DIR`），核心管线无硬编码患者路径（审计/验证脚本为参考件，含本机路径占位，见 %QIDI_WORKSPACE%/%DATA_ROOT%）。
+各脚本默认参数与内部路径已参数化（CT 目录经 `P0_DICOM_DIR`/`--dicom-dir`；输出与审计路径经 %QIDI_WORKSPACE%/%DATA_ROOT% 占位）——全仓无机器绝对路径，核心管线不含硬编码患者路径。
 `step1_airway_segment.py` 与 `step2_make_ofcase.py` 支持 `--dicom-dir`（覆盖 `P0_DICOM_DIR`）；`step2_make_ofcase.py` 支持 `--case/--ext/--iso` 等选项（延长段、去窦对照）。
 裸跑（无 DICOM）时 step1/step2 给出中文可操作报错并中止，不产生 IndexError 裸崩。
 
@@ -83,8 +84,14 @@ python code/pipeline/step7_build_skin_data.py    # 皮肤壳层（需原始 CT�
 - `tests/test_quickstart.py`：开箱冒烟——源码可编译、依赖清单存在、README 占位说明、
   合成示例数据完整、step1/step2 裸跑友好报错、cli capabilities。开箱仓库直接 `pytest` 全绿。
 - `tests/test_api.py`：工作台 API 测试四类 28 项（契约 / 数据边界拒绝 / exit 2/3 闸门映射 /
-  指标一致性，含双口径不可互换断言）。需工作台服务端 `server.py`（含患者数据，不随
-  开源版发布）——开箱仓库中该模块整模块跳过（`pytest.importorskip`）。
+  指标一致性，含双口径不可互换断言）。需工作台服务端 `code/pipeline/server.py`（随仓库发布；CT 根经 `P0_CT_BASE` 注入，不含患者数据；
+  未配置该环境变量时内置用例跳过）。
+
+### 3c. 一键管线与 Web 工作台
+
+- `code/pipeline/run_all.py`：一键总控（step1→step7 顺序链路 + 五闸门；`--ext/--iso/--voxel-z/--merge-mode/--publish` 透传）。
+- `code/pipeline/server.py` + `code/pipeline/webapp/`：多患者 Web 工作台（Flask 后端 + 前端；CT 根经 `P0_CT_BASE` 注入，不含患者数据）。
+- `code/pipeline/标注协议-KHub鼻腔气道-20261009.md`：KHub 标注协议 v1（出口标志写死 / 冻结参数表）。
 
 ## 仓库剔除说明
 

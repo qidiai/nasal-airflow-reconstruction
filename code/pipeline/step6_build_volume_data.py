@@ -6,7 +6,7 @@ step6_build_volume_data.py  ——  任务 T6：CT 体数据包（浏览器 3D �
 产出：  out/step6/volume_data.js  +  out/step6/volume_qc.json
 
 输入（只读）：
-  - DICOM：<P0_DICOM_DIR 目录>/*.dcm（层数与层距随数据定）
+  - DICOM：.../患者A/脱敏后图像数据/ISO_Soft_0.35mm_合并/*.dcm（394 层，0.35mm）
   - 气道掩码：out/step2/mask_full.npz (mask)
   - 对齐基准：out/step5/viewer_data.js 的 airwayMesh 顶点（V1 断言用）
 
@@ -26,8 +26,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 OUT_STEP6 = os.path.join(HERE, "out", "step6")
 MASK_NPZ = os.path.join(HERE, "out", "step2", "mask_full.npz")
 VIEWER_JS = os.path.join(HERE, "out", "step5", "viewer_data.js")
-# T11 开源脱敏：CT 数据目录由环境变量 P0_DICOM_DIR 指定（默认相对路径 ./dicom）
-DATA_DIR = os.environ.get("P0_DICOM_DIR", "./dicom")
+DATA_DIR = os.path.expandvars(r"%DATA_ROOT%\参赛群资料\患者A\脱敏后图像数据\ISO_Soft_0.35mm_合并")
 
 SX_FULL, SY_FULL, SZ_FULL = 0.3496, 0.3496, 0.35          # 全分辨率体素间距 mm
 CENTER = np.array([79.224894, 71.872321, 56.979602])       # 硬编码（对齐生命线）

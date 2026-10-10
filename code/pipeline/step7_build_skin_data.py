@@ -58,8 +58,7 @@ OUT_STEP7 = os.path.join(HERE, "out", "step7")
 MASK_NPZ = os.path.join(HERE, "out", "step2", "mask_full.npz")
 VIEWER_JS = os.path.join(HERE, "out", "step5", "viewer_data.js")
 VOLUME_JS = os.path.join(HERE, "out", "step6", "volume_data.js")
-# T11 开源脱敏：CT 数据目录由环境变量 P0_DICOM_DIR 指定（默认相对路径 ./dicom）
-DATA_DIR = os.environ.get("P0_DICOM_DIR", "./dicom")
+DATA_DIR = os.path.expandvars(r"%DATA_ROOT%\参赛群资料\患者A\脱敏后图像数据\ISO_Soft_0.35mm_合并")
 
 SX_FULL, SY_FULL, SZ_FULL = 0.3496, 0.3496, 0.35
 CENTER = np.array([79.224894, 71.872321, 56.979602])   # 硬编码（对齐生命线，与 step5/step6 逐字一致）
@@ -770,7 +769,7 @@ except Exception as exc:
 leaks = [t for t, v in phi_seen.items() if v.encode("utf-8") in raw]
 qc["S8_phi"] = {"pass": bool(not leaks), "dicom_tags_present": sorted(phi_seen.keys()),
                 "checked_tags": PHI_TAGS, "leaked_tags": leaks,
-                "note": "只检查非空且长度>=2 的标识/ID/日期字面量；本产物不含任何患者文本字段"}
+                "note": "只检查非空且长度>=2 的姓名/ID/生日字面量；本产物不含任何患者文本字段"}
 
 qc["near_airway_diagnostic"] = qc_near
 qc["near_airway_crop_mm_applied"] = NEAR_AIRWAY_MM

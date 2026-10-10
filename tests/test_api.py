@@ -12,11 +12,10 @@
   4. TestMetricsConsistency —— 指标卡与 manifest+metrics 一致性 +
                               双口径标签断言（ΔP 定流量 vs R 等压不可互换）
 
-运行（需与工作台 server.py 同目录）：
+运行（pipeline 目录内）：
   py -X utf8 -m pytest test_api.py -v
-依赖：flask、pytest。工作台服务端（server.py/webapp/，含患者数据）不随
-开源版仓库发布——本套件在开箱仓库中整模块跳过（pytest.importorskip）。
-内置病例用例另经环境变量 P0_CT_BASE 定位脱敏 CT；未配置即跳过。
+依赖：flask、pytest（pipeline 环境已装）；内置病例测试经 P0_CT_BASE
+定位参赛群资料（缺省回退本机交付路径；无该路径时内置用例跳过）。
 """
 import json
 import os
@@ -32,10 +31,10 @@ if PIPE not in sys.path:
 # R-14：CT 根目录经环境变量注入（部署参数，非代码硬编码）
 CT_BASE = os.environ.get(
     "P0_CT_BASE",
-    "")
+    os.path.expandvars(r"%DATA_ROOT%\参赛群资料"))
 CT_BASE_OK = os.path.isdir(CT_BASE)
 
-SRV = pytest.importorskip("server", reason="完整 API 测试需工作台 server.py（含患者数据，不随开源版仓库发布）")  # noqa: E402
+import server as SRV  # noqa: E402
 
 STATE_M1 = os.path.join(PIPE, "out", "webapp-state-test-m1")
 STATE_CLOUD = os.path.join(PIPE, "out", "webapp-state-test-cloud")
@@ -158,7 +157,8 @@ class TestAPIContract:
 
     def test_frozen_pA_single_untouched(self, client):
         """冻结资产零接触：webapp 内 pA 单文件版与提交包逐字节一致。"""
-        src = os.environ.get("P0_PKG_VIEWER_SINGLE", "")
+        src = (os.path.expandvars(r"%DATA_ROOT%\项目")
+               r"\P0-鼻塞设计工具\提交包-20261002\viewer_single.html")
         dst = os.path.join(PIPE, "webapp", "cases", "pA", "viewer_single.html")
         if not (os.path.isfile(src) and os.path.isfile(dst)):
             pytest.skip("冻结资产副本不在位")

@@ -22,25 +22,60 @@ T4 新增：airwayCavity（鼻腔本体表面）/ airwaySinus（鼻窦表面）�
 
 自测：pipeline 目录下  py -X utf8 step5_export_viewer_data.py
 """
-import os, sys, glob, json, time, base64
+import os, sys, glob, json, time, base64, argparse
 import numpy as np
 
 # ----------------------------------------------------------------------------
-# 路径
+# 路径（T12 多患者通用化：CLI 参数化。默认值 = 患者A 路径/口径，向后兼容）
 # ----------------------------------------------------------------------------
-HERE = os.path.dirname(os.path.abspath(__file__))
-OUT_STEP5 = os.path.join(HERE, "out", "step5")
-MASK_NPZ = os.path.join(HERE, "out", "step2", "mask_full.npz")
-VTU = r"%DATA_ROOT%\项目\P0-鼻塞设计工具\阶段2-CFD算例包\结果\P0-result-pA-v5\VTK\P0-case-v5_1500\internal.vtu"
-PH_DIR = r"%DATA_ROOT%\项目\P0-鼻塞设计工具\阶段4-模型输出"
+_ap5 = argparse.ArgumentParser(description="step5 查看器数据导出（多患者通用化）")
+_ap5.add_argument("--dicom-dir", default=os.path.expandvars(r"%DATA_ROOT%\参赛群资料\患者A\脱敏后图像数据\ISO_Soft_0.35mm_合并"),
+                  help="DICOM 目录（读体素间距；默认患者A 序列）")
+_ap5.add_argument("--case-prefix", default="pA", help="病例前缀（默认 pA；向后兼容）")
+_ap5.add_argument("--case", default="v5", help="算例名（默认 v5；pA 回归基线）")
+_ap5.add_argument("--vtu", default=os.path.expandvars(r"%DATA_ROOT%\项目\P0-鼻塞设计工具\阶段2-CFD算例包\结果\P0-result-pA-v5\VTK\P0-case-v5_1500\internal.vtu"),
+                  help="速度场 internal.vtu（默认患者A v5 结果）")
+_ap5.add_argument("--metrics-json", default=None,
+                  help="meta 契约源 JSON（本例后处理汇编；字段缺失即中止导出）")
+_ap5.add_argument("--ph-dir", default=os.path.expandvars(r"%DATA_ROOT%\项目\P0-鼻塞设计工具\阶段4-模型输出"),
+                  help="占位体 STL 目录（默认患者A 阶段4 输出）")
+_ap5.add_argument("--skin-data-js", default=os.path.expandvars(r"%DATA_ROOT%\项目\P0-鼻塞设计工具\阶段5-交互查看器\skin_data.js"),
+                  help="皮肤层数据（帧校验用；默认患者A skin_data.js）")
+_ap5.add_argument("--out-dir", default=None, help="输出目录（默认 pipeline/out/step5）")
+_ap5.add_argument("--write-mode", choices=("surgical", "full"), default="surgical",
+                  help="写盘模式：surgical=外科手术式（患者A 回归基线）；full=全量构建（新病例）")
+ARGS5 = _ap5.parse_args()
 
-# mask 全分辨率体素间距（mm）
-SX_FULL, SY_FULL, SZ_FULL = 0.3496, 0.3496, 0.35
-# VTK 降采样2× 网格间距（mm）
-DS2_X, DS2_Y, DS2_Z = 0.6992, 0.6992, 0.70
-# 降采样2× 网格体心索引范围（由探测得到，见报告）
-I0, J0, K0 = 50, 30, 0          # 最小体心索引
-NI, NJ, NK = 126, 141, 147      # 网格维度
+HERE = os.path.dirname(os.path.abspath(__file__))
+OUT_STEP5 = ARGS5.out_dir or os.path.join(HERE, "out", "step5")
+# mask 文件名按病例前缀隔离（与 step2 同规则；pA 保持原名向后兼容）
+if ARGS5.case_prefix == "pA":
+    _mask_name = "mask_full.npz" if ARGS5.case == "v5" else f"mask_full-{ARGS5.case}.npz"
+else:
+    _mask_name = f"mask_full-{ARGS5.case_prefix}-{ARGS5.case}.npz"
+MASK_NPZ = os.path.join(HERE, "out", "step2", _mask_name)
+VTU = ARGS5.vtu
+PH_DIR = ARGS5.ph_dir
+
+# mask 全分辨率体素间距（mm）—— T12：从该例 DICOM 头读取（PixelSpacing + 实测层间距）
+import pydicom as _pydicom
+_dcm_files = sorted(glob.glob(os.path.join(ARGS5.dicom_dir, "*.dcm")))
+if len(_dcm_files) < 2:
+    raise SystemExit(f"!!! DICOM 目录不足 2 个 .dcm：{ARGS5.dicom_dir} —— 中止")
+_ds_a = _pydicom.dcmread(_dcm_files[0], stop_before_pixels=True)
+_ds_b = _pydicom.dcmread(_dcm_files[1], stop_before_pixels=True)
+_ps = [float(x) for x in _ds_a.PixelSpacing]
+_dz = abs(float(_ds_b.ImagePositionPatient[2]) - float(_ds_a.ImagePositionPatient[2]))
+SX_FULL = round(_ps[0], 4)
+SY_FULL = round(_ps[1], 4)
+SZ_FULL = round(_dz, 4)
+# VTK 降采样2× 网格间距（mm）= 全分辨率 × 2（抽取倍率保持 2）
+DS2_X = round(SX_FULL * 2, 4)
+DS2_Y = round(SY_FULL * 2, 4)
+DS2_Z = round(SZ_FULL * 2, 4)
+print(f"  [step5] 间距(读DICOM头): 全分辨率 {SX_FULL}/{SY_FULL}/{SZ_FULL} mm; 降采样2x {DS2_X}/{DS2_Y}/{DS2_Z} mm")
+# 降采样2× 网格体心索引范围：T12 动态探测（VTU 读取后由点 bbox 探测，见读 VTU 段）
+I0 = J0 = K0 = NI = NJ = NK = None
 
 T_START = time.time()
 LOG = []
@@ -59,11 +94,15 @@ os.makedirs(OUT_STEP5, exist_ok=True)
 SMOOTH_ITERS = 20        # Taubin 迭代数（λ 步 + μ 步各 SMOOTH_ITERS 次）
 TAUBIN_LAMBDA = 0.5      # λ 收缩步长
 TAUBIN_MU = -0.53        # μ 膨胀步长（负值；|μ|>λ 抑制体积收缩）
-# [F3] 六板偏离报表落盘路径（共享树唯一事实源目录）与皮肤壳数据（帧校验用）
-F3_BOARDS_JSON = r"%DATA_ROOT%\项目\P0-鼻塞设计工具\阶段5-交互查看器\升级施工-T10\out_f3\six_boards.json"
-F3_SKIN_DATA_JS = r"%DATA_ROOT%\项目\P0-鼻塞设计工具\阶段5-交互查看器\skin_data.js"
+# [F3] 六板报表落盘路径与皮肤壳数据（帧校验用）—— T12 参数化：
+#   pA 保持共享树落点（向后兼容）；其他病例隔离（患者A 冻结资产零接触）
+F3_SKIN_DATA_JS = ARGS5.skin_data_js
+if ARGS5.case_prefix == "pA" and ARGS5.out_dir is None:
+    F3_BOARDS_JSON = os.path.expandvars(r"%DATA_ROOT%\项目\P0-鼻塞设计工具\阶段5-交互查看器\升级施工-T10\out_f3\six_boards.json")
+else:
+    F3_BOARDS_JSON = os.path.join(OUT_STEP5, f"six_boards_{ARGS5.case_prefix}-{ARGS5.case}.json")
 # [F3 裁决（本轮）] 共享目录 viewer_data.js（外科手术式写盘基底 = 09-30 未平滑原版）
-SHARED_VIEWER_DATA_JS = r"%DATA_ROOT%\项目\P0-鼻塞设计工具\阶段5-交互查看器\viewer_data.js"
+SHARED_VIEWER_DATA_JS = os.path.expandvars(r"%DATA_ROOT%\项目\P0-鼻塞设计工具\阶段5-交互查看器\viewer_data.js")
 # [F3] 门禁阈值（工单：④比率变化>0.1% 即停；⑤逐轴偏差>2mm 即上报；⑥最小值<0 即停）
 F3_LR_RATIO_TOL = 0.001      # 左右半体积比 相对变化 0.1%
 F3_BBOX_TOL_MM = 2.0         # 帧校验容差 mm（与 viewer.html initSkin 帧校验同口径）
@@ -169,9 +208,59 @@ log(f"  [F3] airwayMesh Taubin 平滑完成（{SMOOTH_ITERS} 迭代, λ={TAUBIN_
 
 
 # 全局质心（居中偏移量）—— 以 airwayMesh 顶点质心为准，airway/placeholders/streamlines/slices 通用
-# CENTER 固定为 v1 产出常量（T4审计：decimate跨进程不确定，硬编码保证重跑几何确定性）
-CENTER = np.array([79.224894, 71.872321, 56.979602])
-log(f"  全局质心 CENTER(mm) = {np.round(CENTER,2).tolist()} (v1固定常量)")
+# T12：逐例重算 + 缓存复用（T4 确定性原则：同输入必同输出）
+#   口径：airwayMesh decimate 后 / Taubin 平滑前 顶点质心
+#   （实证：患者A 该口径重算值与 v1 常量 [79.224894,71.872321,56.979602] 逐位零偏差）
+#   缓存键：mask/VTU 输入指纹（md5）；命中→复用缓存值，未命中→本例重算并写入缓存
+def _md5_of(path):
+    import hashlib as _hl
+    _h = _hl.md5()
+    with open(path, "rb") as _f:
+        for _chunk in iter(lambda: _f.read(1 << 20), b""):
+            _h.update(_chunk)
+    return _h.hexdigest()
+
+_center_pre = np.asarray(air.vertices.mean(axis=0), dtype=np.float64)
+CENTER_CACHE = os.path.join(OUT_STEP5, "center_cache.json")
+try:
+    with open(CENTER_CACHE, "r", encoding="utf-8") as _f:
+        _center_cache = json.load(_f)
+except Exception:
+    _center_cache = {}
+_fp_key = json.dumps({"mask_md5": _md5_of(MASK_NPZ), "vtu_md5": _md5_of(VTU)}, sort_keys=True)
+# T12 种子锚点（T4 确定性）：患者A 冻结基线输入指纹 -> v1 质心常量。
+#   decimate 跨进程不确定（T4 审计发现）使重算质心在 1e-6 mm 级波动；
+#   患者A 回归逐字节一致要求 CENTER 逐位稳定，故基线输入锚定种子值；
+#   种子键=输入指纹精确匹配（mask/vtu md5），其他病例输入一律走重算分支。
+_SEED_CENTER_CACHE = {
+    '{"mask_md5": "465bdee70a35baf2400693238e55e8c2", "vtu_md5": "acafb985314eb08f88ae2d4c243015c4"}': {
+        "center_mm": [79.224894, 71.872321, 56.979602],
+        "mask_md5": "465bdee70a35baf2400693238e55e8c2",
+        "vtu_md5": "acafb985314eb08f88ae2d4c243015c4",
+        "case": "pA-v5",
+        "note": "T12 种子锚点：患者A 冻结基线输入 -> v1 质心常量（T4 确定性）",
+    },
+}
+if _fp_key in _center_cache:
+    CENTER = np.array(_center_cache[_fp_key]["center_mm"], dtype=np.float64)
+    log(f"  全局质心 CENTER(mm) = {np.round(CENTER,2).tolist()} (磁盘缓存复用)")
+elif _fp_key in _SEED_CENTER_CACHE:
+    CENTER = np.array(_SEED_CENTER_CACHE[_fp_key]["center_mm"], dtype=np.float64)
+    _center_cache[_fp_key] = dict(_SEED_CENTER_CACHE[_fp_key])
+    with open(CENTER_CACHE, "w", encoding="utf-8", newline="\n") as _f:
+        json.dump(_center_cache, _f, ensure_ascii=False, indent=2)
+    _seed_dev = float(np.abs(CENTER - _center_pre).max())
+    log(f"  全局质心 CENTER(mm) = {np.round(CENTER,2).tolist()} "
+        f"(种子锚点=患者A 基线; 与本例重算值最大偏差 {_seed_dev:.2e} mm; 已写入磁盘缓存)")
+else:
+    CENTER = _center_pre
+    _center_cache[_fp_key] = {"center_mm": [float(x) for x in CENTER],
+                              "mask_md5": json.loads(_fp_key)["mask_md5"],
+                              "vtu_md5": json.loads(_fp_key)["vtu_md5"],
+                              "case": f"{ARGS5.case_prefix}-{ARGS5.case}"}
+    with open(CENTER_CACHE, "w", encoding="utf-8", newline="\n") as _f:
+        json.dump(_center_cache, _f, ensure_ascii=False, indent=2)
+    log(f"  全局质心 CENTER(mm) = {np.round(CENTER,2).tolist()} (本例重算并缓存)")
 
 def center_round(arr_mm, nd=1):
     a = np.asarray(arr_mm, dtype=np.float64) - CENTER
@@ -192,6 +281,18 @@ log("读 internal.vtu ...")
 import meshio
 m = meshio.read(VTU)
 log(f"  points {m.points.shape} 单元 {m.cells[0].data.shape[0]} 类型 {m.cells[0].type}")
+# T12：降采样2× 网格体心索引范围动态探测（VTU 点 bbox；
+#   公式经患者A 实证复现原探测值 I0/J0/K0=50/30/0, NI/NJ/NK=126/141/147）
+_pmin = m.points.min(axis=0) * 1000.0
+_pmax = m.points.max(axis=0) * 1000.0
+I0 = int(np.floor(_pmin[0] / DS2_X))
+J0 = int(np.floor(_pmin[1] / DS2_Y))
+K0 = int(np.floor(_pmin[2] / DS2_Z))
+I1 = int(np.floor(_pmax[0] / DS2_X - 0.5))
+J1 = int(np.floor(_pmax[1] / DS2_Y - 0.5))
+K1 = int(np.floor(_pmax[2] / DS2_Z - 0.5))
+NI, NJ, NK = I1 - I0 + 1, J1 - J0 + 1, K1 - K0 + 1
+log(f"  DS2 网格动态探测: I0/J0/K0={I0}/{J0}/{K0}  NI/NJ/NK={NI}/{NJ}/{NK}")
 Ucell = np.asarray(m.cell_data["U"][0], dtype=np.float64)         # (ncell,3) m/s
 conn = m.cells[0].data
 cc_m = m.points[conn].mean(axis=1)                               # 单元中心 (m)
@@ -571,7 +672,11 @@ def _f3_half_volumes(verts, faces):
     return vols["left_x_pos"], vols["right_x_neg"]
 
 def _f3_skin_bbox():
-    """皮肤壳 free 组 bbox（int16×quant_mm 解码，与 viewer.html skinTriGeo 同口径）"""
+    """皮肤壳 free 组 bbox（int16×quant_mm 解码，与 viewer.html skinTriGeo 同口径）。
+    T12：本例无皮肤数据（文件缺失）→ 返回 (None, None)，板⑤ 跳过并如实记录"""
+    if not os.path.exists(F3_SKIN_DATA_JS):
+        log(f"  [F3] 皮肤数据缺失（{F3_SKIN_DATA_JS}）→ 板⑤ 将跳过")
+        return None, None
     txt = open(F3_SKIN_DATA_JS, encoding="utf-8").read()
     i = txt.find("window.SKIN_DATA")
     body = txt[i:].split("=", 1)[1].strip()
@@ -782,37 +887,45 @@ shells_report["airwaySinus"]["vertices_unchanged_exact"] = bool(
 #   参考网格 = cavity || airway → airwayCavity 在位故取 cavity；容差 2.0mm）
 log("[F3] 板⑤ 帧校验（skin free bbox vs 气道壳 bbox）...")
 skin_min, skin_max = _f3_skin_bbox()
-b5 = {"tol_mm": F3_BBOX_TOL_MM,
-      "method": "viewer.html initSkin 帧校验同口径：参考网格=cavity||airway（airwayCavity 在位取 cavity）；只量 skin free 组；内存网格 raw CT-mm 减 CENTER 对齐 skin world 帧（= viewer_data.js 写盘帧）",
-      "skin_free_bbox_min": [float(x) for x in skin_min],
-      "skin_free_bbox_max": [float(x) for x in skin_max],
-      "per_axis": {}, "bad_axes": []}
-ref_mesh = cavity_mesh          # cavity || airway
-ref_before = _F3_cav_before
-# 帧对齐：内存网格为 raw CT-mm；skin_data.js 与 viewer_data.js 写盘值同为世界 mm-CENTER
-# （step7 同帧；写盘走 center_round(-CENTER)），故逐轴减 CENTER 复刻写盘后帧再比 bbox。
-for ax, axname in enumerate("xyz"):
-    cav_min_b = float(ref_before[:, ax].min() - CENTER[ax])
-    cav_max_b = float(ref_before[:, ax].max() - CENTER[ax])
-    cav_min_a = float(ref_mesh.vertices[:, ax].min() - CENTER[ax])
-    cav_max_a = float(ref_mesh.vertices[:, ax].max() - CENTER[ax])
-    air_min_a = float(air.vertices[:, ax].min() - CENTER[ax])
-    air_max_a = float(air.vertices[:, ax].max() - CENTER[ax])
-    dev_min = float(skin_min[ax] - cav_min_a)     # >0 包住；<0 气道外伸
-    dev_max = float(cav_max_a - skin_max[ax])     # >0 包住；<0 气道外伸
-    b5["per_axis"][axname] = {
-        "skin_min": float(skin_min[ax]), "cavity_min_after": cav_min_a,
-        "dev_min_mm": dev_min, "skin_max": float(skin_max[ax]),
-        "cavity_max_after": cav_max_a, "dev_max_mm": dev_max,
-        "cavity_min_before": cav_min_b, "cavity_max_before": cav_max_b,
-        "airwayMesh_min_after": air_min_a, "airwayMesh_max_after": air_max_a}
-    if dev_min > F3_BBOX_TOL_MM:
-        b5["bad_axes"].append(axname + "-")
-    if dev_max > F3_BBOX_TOL_MM:
-        b5["bad_axes"].append(axname + "+")
-b5["pass"] = not b5["bad_axes"]
-gates["board5_bbox_frame_dev_le_2mm"] = {"pass": b5["pass"], "bad_axes": b5["bad_axes"],
-                                          "tol_mm": F3_BBOX_TOL_MM}
+if skin_min is None:
+    # T12：本例无皮肤层数据 → 板⑤ 跳过（如实记录，不计入门禁）
+    b5 = {"tol_mm": F3_BBOX_TOL_MM, "pass": None, "skipped": True,
+          "reason": "本例无 skin_data.js（帧校验仅适用于有皮肤层的病例）"}
+    gates["board5_bbox_frame_dev_le_2mm"] = {"pass": None, "skipped": True,
+                                              "tol_mm": F3_BBOX_TOL_MM}
+    log("  板⑤ 跳过（无皮肤层数据）")
+else:
+    b5 = {"tol_mm": F3_BBOX_TOL_MM,
+          "method": "viewer.html initSkin 帧校验同口径：参考网格=cavity||airway（airwayCavity 在位取 cavity）；只量 skin free 组；内存网格 raw CT-mm 减 CENTER 对齐 skin world 帧（= viewer_data.js 写盘帧）",
+          "skin_free_bbox_min": [float(x) for x in skin_min],
+          "skin_free_bbox_max": [float(x) for x in skin_max],
+          "per_axis": {}, "bad_axes": []}
+    ref_mesh = cavity_mesh          # cavity || airway
+    ref_before = _F3_cav_before
+    # 帧对齐：内存网格为 raw CT-mm；skin_data.js 与 viewer_data.js 写盘值同为世界 mm-CENTER
+    # （step7 同帧；写盘走 center_round(-CENTER)），故逐轴减 CENTER 复刻写盘后帧再比 bbox。
+    for ax, axname in enumerate("xyz"):
+        cav_min_b = float(ref_before[:, ax].min() - CENTER[ax])
+        cav_max_b = float(ref_before[:, ax].max() - CENTER[ax])
+        cav_min_a = float(ref_mesh.vertices[:, ax].min() - CENTER[ax])
+        cav_max_a = float(ref_mesh.vertices[:, ax].max() - CENTER[ax])
+        air_min_a = float(air.vertices[:, ax].min() - CENTER[ax])
+        air_max_a = float(air.vertices[:, ax].max() - CENTER[ax])
+        dev_min = float(skin_min[ax] - cav_min_a)     # >0 包住；<0 气道外伸
+        dev_max = float(cav_max_a - skin_max[ax])     # >0 包住；<0 气道外伸
+        b5["per_axis"][axname] = {
+            "skin_min": float(skin_min[ax]), "cavity_min_after": cav_min_a,
+            "dev_min_mm": dev_min, "skin_max": float(skin_max[ax]),
+            "cavity_max_after": cav_max_a, "dev_max_mm": dev_max,
+            "cavity_min_before": cav_min_b, "cavity_max_before": cav_max_b,
+            "airwayMesh_min_after": air_min_a, "airwayMesh_max_after": air_max_a}
+        if dev_min > F3_BBOX_TOL_MM:
+            b5["bad_axes"].append(axname + "-")
+        if dev_max > F3_BBOX_TOL_MM:
+            b5["bad_axes"].append(axname + "+")
+    b5["pass"] = not b5["bad_axes"]
+    gates["board5_bbox_frame_dev_le_2mm"] = {"pass": b5["pass"], "bad_axes": b5["bad_axes"],
+                                              "tol_mm": F3_BBOX_TOL_MM}
 
 # 板⑥ 流线-壳间隙抽检 v2（[裁决2] 两段式门禁替代原 min≥0 口径）
 #   采样：63 条流线每 5 点取 1；端区=每条流线首、尾各 1 个采样点
@@ -980,7 +1093,7 @@ boards = {
     "board5_bbox_frame_check": b5,
     "board6_streamline_shell_clearance": b6,
     "gates": gates,
-    "all_gates_pass": bool(all(g["pass"] for g in gates.values())),
+    "all_gates_pass": bool(all(g["pass"] for g in gates.values() if g["pass"] is not None)),
 }
 
 os.makedirs(os.path.dirname(F3_BOARDS_JSON), exist_ok=True)
@@ -989,7 +1102,8 @@ with open(F3_BOARDS_JSON, "w", encoding="utf-8", newline="\n") as _f:
 log(f"[F3] 六板报表已写 {F3_BOARDS_JSON}")
 
 for _tag, _g in gates.items():
-    log(f"  [F3 门禁] {_tag}: {'PASS' if _g['pass'] else 'FAIL'}")
+    _gp = _g["pass"]
+    log(f"  [F3 门禁] {_tag}: {'SKIP' if _gp is None else ('PASS' if _gp else 'FAIL')}")
 if not boards["all_gates_pass"]:
     log("[F3] 门禁越限 —— 停工：不写盘新 viewer_data.js，等指挥官裁决")
     sys.exit(3)
@@ -997,30 +1111,31 @@ log("[F3] 六板门禁全过 → 放行写盘 viewer_data.js")
 
 
 # ----------------------------------------------------------------------------
-# 5. meta / curve（契约字面值，逐字段一字不差）
+# 5. meta / curve（T12：从本例契约源 JSON 读入，逐字段一字不差）
+#     硬红线：契约源缺失或字段缺失即中止导出——绝不把其他患者的数字打进本例查看器
 # ----------------------------------------------------------------------------
+if not ARGS5.metrics_json or not os.path.exists(ARGS5.metrics_json):
+    raise SystemExit(f"!!! meta 契约源缺失：{ARGS5.metrics_json} —— 中止导出（严禁套用其他患者数字）")
+with open(ARGS5.metrics_json, "r", encoding="utf-8") as _cf:
+    _contract = json.load(_cf)
+_META_REQ = ["title", "caseBaseline", "units", "metrics", "curve"]
+_METRICS_REQ = ["dP_baseline_Pa", "dP_1mm_Pa", "dP_2mm_Pa", "dP_3mm_Pa", "dP_note",
+                "split_L_pct", "split_R_pct", "wss_mean_Pa", "wss_p95_Pa", "resistance_total"]
+_CURVE_REQ = ["volumes_cm3", "dP_Pa", "band_Pa"]
+_missing = [k for k in _META_REQ if k not in _contract]
+_missing += [k for k in _METRICS_REQ if k not in _contract.get("metrics", {})]
+_missing += [k for k in _CURVE_REQ if k not in _contract.get("curve", {})]
+if _missing:
+    raise SystemExit(f"!!! meta 契约字段缺失：{_missing} —— 中止导出（严禁套用其他患者数字）")
 meta = {
-    "title": "鼻腔气流仿真查看器（黑客松概念验证）",
-    "caseBaseline": "v5 @15 L/min 层流",
-    "units": "mm, m/s, Pa",
-    "metrics": {
-        "dP_baseline_Pa": 18.45,
-        "dP_1mm_Pa": 28.6,
-        "dP_2mm_Pa": 47.3,
-        "dP_3mm_Pa": 52.4,
-        "dP_note": "层流下界估计，不确定度±20-50%（占位档为仿真工况，非推荐）",
-        "split_L_pct": 51.9,
-        "split_R_pct": 48.1,
-        "wss_mean_Pa": 0.011,
-        "wss_p95_Pa": 0.054,
-        "resistance_total": "66.2 Pa/(L/s)",
-    },
+    "title": _contract["title"],
+    "caseBaseline": _contract["caseBaseline"],
+    "units": _contract["units"],
+    "metrics": {k: _contract["metrics"][k] for k in _METRICS_REQ},
 }
-curve = {
-    "volumes_cm3": [0, 4.37, 8.24, 10.42],
-    "dP_Pa": [18.45, 28.55, 47.32, 52.40],
-    "band_Pa": [30, 150],
-}
+curve = {k: _contract["curve"][k] for k in _CURVE_REQ}
+log(f"meta 契约: {ARGS5.metrics_json}")
+log(f"  title={meta['title']!r}  caseBaseline={meta['caseBaseline']!r}")
 
 # ----------------------------------------------------------------------------
 # 6. 组装 JS 文件
@@ -1035,7 +1150,7 @@ spd_max = max(all_spd) if all_spd else 0.0
 
 header = f"""\
 // ============================================================================
-// viewer_data.js  ——  鼻腔气流 CFD 结果查看器数据包（任务 T2 产出）
+// viewer_data.js  ——  患者A 鼻腔气流 CFD 结果查看器数据包（任务 T2 产出）
 // 生成时间 : {gen_time}
 // 来源     : {VTU}
 //            {MASK_NPZ}
@@ -1076,76 +1191,99 @@ counts = {
 #   + 更新 header 生成时间行。meta/streamlines/slices/placeholders/curve
 #     逐字节零漂移（字符串级替换保证，非全量重序列化）。
 # ----------------------------------------------------------------------------
-with open(SHARED_VIEWER_DATA_JS, "r", encoding="utf-8", newline="") as _f:
-    _old_text = _f.read()
-if _old_text.count("window.VIEWER_DATA = ") != 1:
-    raise SystemExit("[F3] 外科手术写盘失败：旧文件 window.VIEWER_DATA 标记不唯一")
-_head_old, _rest = _old_text.split("window.VIEWER_DATA = ", 1)
-_json_old, _tail = _rest.split(";\n", 1)
-_old_data = json.loads(_json_old)
-
-# 漂移校验 ①：旧 header（除 gen_time 行外）必须与当前模板逐字一致
-_gen_mark = "// 生成时间 : "
-_gp = _head_old.find(_gen_mark)
-if _gp < 0:
-    raise SystemExit("[F3] 外科手术写盘失败：旧文件 header 缺 gen_time 行")
-_ge = _head_old.find("\n", _gp)
-_gen_old = _head_old[_gp + len(_gen_mark):_ge]
-_head_new = _head_old[:_gp + len(_gen_mark)] + gen_time + _head_old[_ge:]
-if _head_new != header:
-    raise SystemExit("[F3] 外科手术写盘失败：旧文件 header 与当前模板不一致"
-                     "（除 gen_time 外存在差异，旧 gen_time=%s）——拒绝写盘" % _gen_old)
-_tail_expected = "console.log('VIEWER_DATA loaded', " + json.dumps(counts, ensure_ascii=False) + ");\n"
-if _tail != _tail_expected:
-    raise SystemExit("[F3] 外科手术写盘失败：旧文件 tail 与当前模板不一致——拒绝写盘")
-
-# 漂移校验 ②：仅替换两壳 positions 子串（唯一性断言）
-_json_new = _json_old
-_splice = {}
-for _shell, _new_pos in (("airwayMesh", airwayMesh["positions"]),
-                            ("airwayCavity", airwayCavity["positions"])):
-    _old_pos_str = json.dumps(_old_data[_shell]["positions"], ensure_ascii=False, separators=(",", ":"))
-    _new_pos_str = json.dumps(_new_pos, ensure_ascii=False, separators=(",", ":"))
-    if _json_new.count(_old_pos_str) != 1:
-        raise SystemExit("[F3] 外科手术写盘失败：%s positions 子串在旧文件中出现 %d 次（非唯一）"
-                         % (_shell, _json_new.count(_old_pos_str)))
-    _json_new = _json_new.replace(_old_pos_str, _new_pos_str)
-    _splice[_shell] = {"vertices": len(_new_pos) // 3,
-                        "old_array_chars": len(_old_pos_str),
-                        "new_array_chars": len(_new_pos_str)}
-
-# 漂移校验 ③：手术结果的 JSON 语义 == 全量重建 data（逐字段相等）
-_new_data = json.loads(_json_new)
-for _kk in ("meta", "curve", "streamlines", "slices", "placeholders", "airwaySinus"):
-    if _new_data[_kk] != data[_kk]:
-        raise SystemExit("[F3] 外科手术写盘失败：字段 %s 与全量重建不一致——拒绝写盘" % _kk)
-for _shell in ("airwayMesh", "airwayCavity"):
-    if (_new_data[_shell]["indices"] != data[_shell]["indices"]
-            or _new_data[_shell]["positions"] != data[_shell]["positions"]):
-        raise SystemExit("[F3] 外科手术写盘失败：%s 与全量重建不一致——拒绝写盘" % _shell)
-
 js_path = os.path.join(OUT_STEP5, "viewer_data.js")
-with open(js_path, "w", encoding="utf-8", newline="\n") as f:
-    f.write(_head_new)
-    f.write("window.VIEWER_DATA = ")
-    f.write(_json_new)
-    f.write(";\n")
-    f.write(_tail)
-size = os.path.getsize(js_path)
-log(f"写 viewer_data.js  {size/1e6:.2f} MB（外科手术式：仅两壳 positions + gen_time 替换；"
-    f"airwaySinus 顶点逐字节不动）")
-log(f"  手术替换明细：{_splice}")
+_tail_expected = "console.log('VIEWER_DATA loaded', " + json.dumps(counts, ensure_ascii=False) + ");\n"
+if ARGS5.write_mode == "surgical":
+    # [裁决（本轮）] 外科手术式写盘（患者A 回归基线）：
+    #   新文件 = 旧 viewer_data.js（共享目录 09-30 未平滑原版）逐字节搬运
+    #   + 仅替换 airwayMesh/airwayCavity 两壳 positions 数组（平滑后顶点；
+    #     裁决1：airwaySinus 豁免壳顶点逐字节不动）
+    #   + 更新 header 生成时间行。meta/streamlines/slices/placeholders/curve
+    #     逐字节零漂移（字符串级替换保证，非全量重序列化）。
+    with open(SHARED_VIEWER_DATA_JS, "r", encoding="utf-8", newline="") as _f:
+        _old_text = _f.read()
+    if _old_text.count("window.VIEWER_DATA = ") != 1:
+        raise SystemExit("[F3] 外科手术写盘失败：旧文件 window.VIEWER_DATA 标记不唯一")
+    _head_old, _rest = _old_text.split("window.VIEWER_DATA = ", 1)
+    _json_old, _tail = _rest.split(";\n", 1)
+    _old_data = json.loads(_json_old)
 
-# 同步共享目录（同一产物直接复制，两份逐字节一致）
-import shutil
-shutil.copyfile(js_path, SHARED_VIEWER_DATA_JS)
-with open(SHARED_VIEWER_DATA_JS, "rb") as _f:
-    _shared_bytes = _f.read()
-with open(js_path, "rb") as _f:
-    _local_bytes = _f.read()
-if _shared_bytes != _local_bytes:
-    raise SystemExit("[F3] 共享目录副本与 pipeline 产物字节不一致——拒绝同步")
-log("同步共享目录 viewer_data.js（逐字节一致，md5 相同）")
+    # 漂移校验 ①：旧 header（除 gen_time 行外）必须与当前模板逐字一致
+    _gen_mark = "// 生成时间 : "
+    _gp = _head_old.find(_gen_mark)
+    if _gp < 0:
+        raise SystemExit("[F3] 外科手术写盘失败：旧文件 header 缺 gen_time 行")
+    _ge = _head_old.find("\n", _gp)
+    _gen_old = _head_old[_gp + len(_gen_mark):_ge]
+    _head_new = _head_old[:_gp + len(_gen_mark)] + gen_time + _head_old[_ge:]
+    if _head_new != header:
+        raise SystemExit("[F3] 外科手术写盘失败：旧文件 header 与当前模板不一致"
+                         "（除 gen_time 外存在差异，旧 gen_time=%s）——拒绝写盘" % _gen_old)
+    if _tail != _tail_expected:
+        raise SystemExit("[F3] 外科手术写盘失败：旧文件 tail 与当前模板不一致——拒绝写盘")
+
+    # 漂移校验 ②：仅替换两壳 positions 子串（唯一性断言）
+    _json_new = _json_old
+    _splice = {}
+    for _shell, _new_pos in (("airwayMesh", airwayMesh["positions"]),
+                                ("airwayCavity", airwayCavity["positions"])):
+        _old_pos_str = json.dumps(_old_data[_shell]["positions"], ensure_ascii=False, separators=(",", ":"))
+        _new_pos_str = json.dumps(_new_pos, ensure_ascii=False, separators=(",", ":"))
+        if _json_new.count(_old_pos_str) != 1:
+            raise SystemExit("[F3] 外科手术写盘失败：%s positions 子串在旧文件中出现 %d 次（非唯一）"
+                             % (_shell, _json_new.count(_old_pos_str)))
+        _json_new = _json_new.replace(_old_pos_str, _new_pos_str)
+        _splice[_shell] = {"vertices": len(_new_pos) // 3,
+                            "old_array_chars": len(_old_pos_str),
+                            "new_array_chars": len(_new_pos_str)}
+
+    # 漂移校验 ③：手术结果的 JSON 语义 == 全量重建 data（逐字段相等）
+    _new_data = json.loads(_json_new)
+    for _kk in ("meta", "curve", "streamlines", "slices", "placeholders", "airwaySinus"):
+        if _new_data[_kk] != data[_kk]:
+            raise SystemExit("[F3] 外科手术写盘失败：字段 %s 与全量重建不一致——拒绝写盘" % _kk)
+    for _shell in ("airwayMesh", "airwayCavity"):
+        if (_new_data[_shell]["indices"] != data[_shell]["indices"]
+                or _new_data[_shell]["positions"] != data[_shell]["positions"]):
+            raise SystemExit("[F3] 外科手术写盘失败：%s 与全量重建不一致——拒绝写盘" % _shell)
+
+    with open(js_path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(_head_new)
+        f.write("window.VIEWER_DATA = ")
+        f.write(_json_new)
+        f.write(";\n")
+        f.write(_tail)
+    size = os.path.getsize(js_path)
+    log(f"写 viewer_data.js  {size/1e6:.2f} MB（外科手术式：仅两壳 positions + gen_time 替换；"
+        f"airwaySinus 顶点逐字节不动）")
+    log(f"  手术替换明细：{_splice}")
+
+    # 同步共享目录（同一产物直接复制，两份逐字节一致）
+    # T12：仅 pA surgical 且未显式指定 --out-dir 时同步共享目录；
+    #   显式 --out-dir = 隔离输出模式（回归测试/他例），不同步共享树（患者A 冻结资产零接触）
+    if ARGS5.case_prefix == "pA" and ARGS5.out_dir is None:
+        import shutil
+        shutil.copyfile(js_path, SHARED_VIEWER_DATA_JS)
+        with open(SHARED_VIEWER_DATA_JS, "rb") as _f:
+            _shared_bytes = _f.read()
+        with open(js_path, "rb") as _f:
+            _local_bytes = _f.read()
+        if _shared_bytes != _local_bytes:
+            raise SystemExit("[F3] 共享目录副本与 pipeline 产物字节不一致——拒绝同步")
+        log("同步共享目录 viewer_data.js（逐字节一致，md5 相同）")
+    else:
+        log(f"  病例 {ARGS5.case_prefix}-{ARGS5.case}：不同步共享目录（患者A 冻结资产零接触）")
+else:
+    # [T12] full 模式：新病例全量写盘（无患者A 基底；外科手术模式仅适用 pA 回归）
+    _tail = _tail_expected
+    with open(js_path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(header)
+        f.write("window.VIEWER_DATA = ")
+        f.write(json.dumps(data, ensure_ascii=False, separators=(",", ":")))
+        f.write(";\n")
+        f.write(_tail)
+    size = os.path.getsize(js_path)
+    log(f"写 viewer_data.js  {size/1e6:.2f} MB（全量模式：{ARGS5.case_prefix}-{ARGS5.case} 独立构建）")
 
 
 # ----------------------------------------------------------------------------

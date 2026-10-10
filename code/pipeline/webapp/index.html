@@ -1,0 +1,1150 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>鼻腔气流分析工作台</title>
+<style>
+/* ================= 设计系统（T16 暖色重设计） =================
+   色板：暖青 #2A9D8F / 珊瑚 #E76F51 / 暖白 #FAFAF7 / 深灰 #2B2D32
+         成功绿 #2DC653 / 警示琥珀 #F4A261（不用工程蓝/纯白/纯红）
+   字体：system-ui 中文栈 · 正文 16px · 标题 24–32px · 行高 1.6
+   布局：移动优先（414px 基准）· 断点 414/768/1024 · 圆角 12px · 柔阴影
+   零外部依赖：单文件内联 CSS/JS，图标用 emoji + 内联 SVG
+============================================================ */
+:root{
+  --teal:#2A9D8F; --teal-deep:#1F7A6E; --teal-soft:#E3F1EF;
+  --coral:#E76F51; --coral-soft:#FBEAE4;
+  --bg:#FAFAF7; --panel:#FDFCF9; --ink:#2B2D32; --ink-soft:#62666E;
+  --green:#2DC653; --green-soft:#E3F6E9;
+  --amber:#F4A261; --amber-deep:#C97A24; --amber-soft:#FCF1E3;
+  --line:#E9E4DA;
+  --shadow:0 2px 12px rgba(43,45,50,.07),0 1px 3px rgba(43,45,50,.05);
+  --radius:12px;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0;background:var(--bg);color:var(--ink);
+  font-family:system-ui,-apple-system,"Segoe UI","PingFang SC",
+    "Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  font-size:16px;line-height:1.6;
+}
+/* ---------- 页头 ---------- */
+header{
+  padding:16px 16px 12px;display:flex;flex-wrap:wrap;gap:8px 12px;
+  align-items:baseline;border-bottom:1px solid var(--line);
+  background:linear-gradient(180deg,#FAFAF7, var(--bg));
+}
+header h1{font-size:24px;margin:0;font-weight:700;letter-spacing:.5px}
+header .sub{color:var(--ink-soft);font-size:14px}
+.badge{
+  display:inline-block;padding:2px 10px;border-radius:999px;font-size:12.5px;
+  border:1px solid var(--line);background:var(--panel);color:var(--ink-soft);
+}
+.badge.m1{color:var(--teal-deep);border-color:#2A9D8F55;background:var(--teal-soft)}
+.badge.m2{color:var(--amber-deep);border-color:#F4A26166;background:var(--amber-soft)}
+.badge.presenter{color:var(--coral);border-color:#E76F5155;background:var(--coral-soft)}
+/* ---------- 页签导航 ---------- */
+nav{
+  display:flex;gap:2px;padding:8px 10px 0;overflow-x:auto;
+  border-bottom:1px solid var(--line);background:var(--bg);
+  scrollbar-width:none;
+}
+nav::-webkit-scrollbar{display:none}
+nav button{
+  flex:0 0 auto;background:none;border:none;color:var(--ink-soft);
+  padding:10px 14px 12px;font-size:16px;cursor:pointer;
+  border-bottom:3px solid transparent;border-radius:8px 8px 0 0;
+  font-family:inherit;
+}
+nav button.active{color:var(--teal-deep);border-bottom-color:var(--teal);font-weight:600}
+nav button:hover{color:var(--ink)}
+/* ---------- 主区 ---------- */
+main{padding:14px 14px 28px;max-width:1180px;margin:0 auto}
+section.tab{display:none}
+section.tab.active{display:block;animation:fade .25s ease}
+@keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.card{
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+  padding:16px;margin-bottom:14px;box-shadow:var(--shadow);
+}
+.card h2{font-size:20px;margin:0 0 6px;font-weight:700}
+.card h3{font-size:17px;margin:0 0 6px;font-weight:600}
+.lead{color:var(--ink-soft);font-size:14.5px;margin:2px 0 10px}
+.muted{color:var(--ink-soft)} .ok{color:#1E8E4A} .warn{color:var(--amber-deep)}
+details{ margin:8px 0 }
+summary{
+  cursor:pointer;color:var(--teal-deep);font-size:14.5px;font-weight:600;
+  padding:4px 0;user-select:none;
+}
+summary:hover{color:var(--teal)}
+pre.tech{
+  background:#FBFAF6;border:1px solid var(--line);border-radius:8px;
+  padding:10px;font-family:ui-monospace,Consolas,monospace;font-size:12.5px;
+  white-space:pre-wrap;word-break:break-all;max-height:300px;overflow:auto;
+  color:var(--ink-soft);
+}
+code{background:#F3F0E9;padding:1px 6px;border-radius:5px;font-size:13px}
+/* ---------- 按钮/表单 ---------- */
+.btn{
+  background:var(--panel);color:var(--ink);border:1px solid var(--line);
+  border-radius:10px;padding:9px 16px;font-size:15px;cursor:pointer;
+  font-family:inherit;box-shadow:var(--shadow);transition:border-color .15s;
+}
+.btn:hover{border-color:var(--teal)}
+.btn.primary{background:var(--teal);border-color:var(--teal);color:#fff;font-weight:600}
+.btn.primary:hover{background:var(--teal-deep)}
+.btn.coral{background:var(--coral);border-color:var(--coral);color:#fff;font-weight:600}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btnrow{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+label.f{display:block;margin:12px 0 4px;color:var(--ink);font-weight:600;font-size:15px}
+input.f,select.f{
+  width:100%;background:#fff;color:var(--ink);border:1px solid var(--line);
+  border-radius:10px;padding:10px 12px;font-size:15px;font-family:inherit;
+}
+input.f:focus,select.f:focus{outline:2px solid #2A9D8F55;border-color:var(--teal)}
+.hint{color:var(--ink-soft);font-size:13px;margin-top:6px}
+.spin{
+  display:inline-block;width:15px;height:15px;border:2.5px solid var(--teal);
+  border-top-color:transparent;border-radius:50%;animation:sp 1s linear infinite;
+  vertical-align:middle;margin-right:7px;
+}
+@keyframes sp{to{transform:rotate(360deg)}}
+/* ---------- 病例选择 pill ---------- */
+.pills{display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 12px}
+.pill{
+  border:1.5px solid var(--line);background:var(--panel);border-radius:999px;
+  padding:7px 14px;font-size:14.5px;cursor:pointer;font-family:inherit;
+  color:var(--ink);box-shadow:var(--shadow);
+}
+.pill.active{border-color:var(--teal);background:var(--teal-soft);font-weight:600;color:var(--teal-deep)}
+.pill .st{font-size:12px;color:var(--ink-soft);margin-left:5px}
+.pill.gated{opacity:.75}
+/* ---------- Hero：3D 查看器主角 ≥60vh ---------- */
+.hero{
+  border-radius:var(--radius);overflow:hidden;border:1px solid var(--line);
+  box-shadow:var(--shadow);background:#fff;
+}
+iframe.hero-frame{
+  display:block;width:100%;height:62vh;min-height:380px;border:0;background:#fff;
+}
+.hero-ph{
+  padding:34px 22px;text-align:center;background:
+    radial-gradient(1200px 300px at 50% -80px,#E3F1EF,transparent),
+    var(--panel);
+  min-height:300px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;
+}
+.hero-ph .big-emoji{font-size:44px;line-height:1.2}
+.hero-ph h3{font-size:19px;margin:4px 0}
+.hero-ph p{color:var(--ink-soft);max-width:520px;margin:2px 0;font-size:14.5px}
+.hero-loading{padding:60px 20px;text-align:center;color:var(--ink-soft);font-size:15px}
+/* ---------- 量表（数字有情绪） ---------- */
+.gauges{display:grid;grid-template-columns:1fr;gap:14px}
+.gauge{
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+  padding:16px;box-shadow:var(--shadow);
+}
+.gauge-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}
+.gauge-label{font-size:15.5px;font-weight:600}
+.gauge-label .tech-term{color:var(--ink-soft);font-weight:400;font-size:13px}
+.gauge-value{font-size:30px;font-weight:800;font-variant-numeric:tabular-nums;color:var(--ink)}
+.gauge-value em{font-style:normal;font-size:15px;color:var(--ink-soft);font-weight:500;margin-left:3px}
+.gauge-track{
+  position:relative;height:16px;border-radius:8px;background:#F1EDE4;
+  margin:14px 0 6px;overflow:hidden;border:1px solid var(--line);
+}
+.gauge-band{position:absolute;top:0;bottom:0;background:var(--green);opacity:.85;border-radius:8px}
+.gauge-marker{
+  position:absolute;top:-3px;bottom:-3px;width:4px;background:var(--coral);
+  border-radius:2px;box-shadow:0 0 0 2px #fff,0 1px 4px rgba(0,0,0,.25);
+}
+.gauge-scale{display:flex;justify-content:space-between;font-size:12px;color:var(--ink-soft)}
+.gauge-verdict{font-size:16.5px;font-weight:700;margin-top:10px}
+.gauge-verdict .sub{display:block;font-size:13.5px;font-weight:400;color:var(--ink-soft);margin-top:2px}
+.gauge-verdict.low{color:var(--teal-deep)}
+.gauge-verdict.in{color:#1E8E4A}
+.gauge-verdict.high{color:var(--coral)}
+.gauge-verdict.na{color:var(--ink-soft)}
+.chip{
+  display:inline-block;font-size:12px;border-radius:6px;padding:1px 8px;
+  background:var(--teal-soft);color:var(--teal-deep);border:1px solid #2A9D8F33;
+  margin-left:6px;font-weight:600;vertical-align:middle;
+}
+/* ---------- 分流双半环 ---------- */
+.split-wrap{display:flex;gap:18px;align-items:center;flex-wrap:wrap}
+.split-ring{flex:0 0 auto}
+.split-legend{font-size:14.5px}
+.split-legend .row{display:flex;align-items:center;gap:8px;margin:3px 0}
+.split-legend .dot{width:13px;height:13px;border-radius:4px;flex:0 0 auto}
+/* ---------- QC 三平面（大图） ---------- */
+.qc3{display:grid;grid-template-columns:1fr;gap:12px}
+.qc3 figure{
+  margin:0;background:#fff;border:1px solid var(--line);border-radius:var(--radius);
+  padding:10px;text-align:center;box-shadow:var(--shadow);
+}
+.qc3 img{max-width:100%;border-radius:8px;background:#fff}
+.qc3 figcaption{font-size:13.5px;color:var(--ink);margin-top:8px;font-weight:600}
+.qc3 figcaption .muted{font-weight:400}
+/* ---------- 步骤条 ---------- */
+.steps{display:flex;align-items:flex-start;margin:16px 0 6px}
+.step{flex:1;text-align:center;position:relative;min-width:0}
+.step .dot{
+  width:30px;height:30px;border-radius:50%;margin:0 auto 6px;
+  display:flex;align-items:center;justify-content:center;
+  background:#F1EDE4;color:var(--ink-soft);font-weight:700;font-size:14px;
+  border:2px solid var(--line);position:relative;z-index:1;
+}
+.step.done .dot{background:var(--teal);border-color:var(--teal);color:#fff}
+.step.current .dot{
+  background:var(--amber);border-color:var(--amber);color:#fff;
+  box-shadow:0 0 0 5px #F4A26133;animation:pulse 1.6s ease infinite;
+}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 4px #F4A26133}50%{box-shadow:0 0 0 9px #F4A26122}}
+.step .nm{font-size:13.5px;font-weight:600;color:var(--ink)}
+.step .hp{font-size:11.5px;color:var(--ink-soft);margin-top:1px}
+.step::before{
+  content:"";position:absolute;top:15px;left:-50%;width:100%;height:2px;
+  background:var(--line);z-index:0;
+}
+.step:first-child::before{display:none}
+.step.done::before{background:var(--teal)}
+.up-status{
+  font-size:17px;font-weight:700;color:var(--teal-deep);margin:10px 0 2px;
+}
+.up-pct{font-size:13.5px;color:var(--ink-soft);margin-bottom:6px}
+/* ---------- 暖色拦截卡（🕐 不吓人） ---------- */
+.warm-card{
+  border:1.5px solid var(--amber);border-radius:var(--radius);
+  background:linear-gradient(180deg,var(--amber-soft),#FFFBF5);
+  padding:18px;box-shadow:var(--shadow);
+}
+.warm-card .warm-head{display:flex;gap:12px;align-items:flex-start}
+.warm-card .warm-emoji{font-size:30px;line-height:1.3}
+.warm-card h3{margin:0 0 4px;font-size:18.5px;color:var(--amber-deep)}
+.warm-card .reason{font-size:15px;margin:6px 0}
+.warm-card .comfort{
+  font-size:14px;color:var(--ink-soft);border-top:1px dashed #E9D9BE;
+  padding-top:10px;margin-top:10px;
+}
+.warm-card .comfort b{color:var(--ink)}
+.warm-link{color:var(--teal-deep);font-weight:600}
+/* ---------- 机制卡（了解 ENS） ---------- */
+.mech{display:grid;grid-template-columns:1fr;gap:12px}
+.mech .m-card{
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+  padding:14px 16px;box-shadow:var(--shadow);
+}
+.mech .m-head{display:flex;gap:10px;align-items:center;font-size:16px;font-weight:700}
+.mech .m-emoji{font-size:24px}
+.mech .m-one{font-size:14.5px;color:var(--ink);margin:6px 0}
+.mech .m-tech{font-size:13px;color:var(--ink-soft)}
+/* ---------- 故事引用 ---------- */
+.quote{
+  font-size:21px;font-weight:700;line-height:1.5;color:var(--ink);
+  border-left:5px solid var(--coral);padding:6px 0 6px 16px;margin:8px 0 14px;
+}
+.quote .who{display:block;font-size:13.5px;font-weight:400;color:var(--ink-soft);margin-top:6px}
+/* ---------- 关于/故事列表 ---------- */
+.story-list{margin:8px 0;padding-left:20px;font-size:14.5px}
+.story-list li{margin:6px 0}
+.src-url{
+  display:inline-block;background:var(--teal-soft);border:1px solid #2A9D8F44;
+  color:var(--teal-deep);border-radius:8px;padding:6px 12px;font-size:14px;
+  text-decoration:none;font-weight:600;margin:4px 0;
+}
+.src-url:hover{background:#D6EAE7}
+/* ---------- 页脚 ---------- */
+footer{
+  padding:18px 16px 30px;color:var(--ink-soft);font-size:13px;
+  border-top:1px solid var(--line);max-width:1180px;margin:0 auto;
+}
+footer .fixed-sentence{
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+  padding:12px 14px;margin-bottom:10px;font-size:13.5px;box-shadow:var(--shadow);
+}
+/* ---------- 断点 ---------- */
+@media (min-width:768px){
+  header h1{font-size:28px}
+  .gauges{grid-template-columns:repeat(2,1fr)}
+  .mech{grid-template-columns:repeat(3,1fr)}
+  .qc3{grid-template-columns:repeat(3,1fr)}
+  main{padding:20px 22px 34px}
+}
+@media (min-width:1024px){
+  header h1{font-size:30px}
+  .gauges{grid-template-columns:repeat(3,1fr)}
+  .gauges .gauge.wide{grid-column:span 2}
+  main{padding:24px 26px 40px}
+}
+@media (max-width:414px){
+  body{font-size:15.5px}
+  .gauge-value{font-size:26px}
+  .step .hp{display:none}
+  header h1{font-size:21px}
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>鼻腔气流分析工作台</h1>
+  <span class="sub">把"喘不上气"变成看得见的数据 · 患者视角</span>
+  <span id="badge-mode" class="badge">形态检测中…</span>
+  <span id="badge-presenter" class="badge presenter" style="display:none">定向演示模式</span>
+  <span id="badge-synthetic" class="badge m2" style="display:none">仅合成数据形态</span>
+</header>
+<nav id="tabs">
+  <button data-tab="airway" class="active">查看气道</button>
+  <button data-tab="ens">了解 ENS</button>
+  <button data-tab="upload">上传分析</button>
+  <button data-tab="about">关于本项目</button>
+</nav>
+<main>
+
+<!-- ================= 页签 1：查看气道 ================= -->
+<section class="tab active" id="tab-airway">
+  <div class="card">
+    <h2>您的鼻腔气道</h2>
+    <div class="lead">基于您的 CT 三维重建 —— 大气道模型在下方"呼吸"（拖拽旋转 / 呼吸粒子 / 流线 / 探针读数）。</div>
+    <div class="pills" id="airway-pills"><span class="muted">病例加载中…</span></div>
+    <div class="hero" id="hero-box">
+      <div class="hero-loading"><span class="spin"></span>正在加载气道模型…</div>
+    </div>
+  </div>
+
+  <div class="card" id="metrics-card" style="display:none">
+    <h2>呼吸顺畅度 · 量化指标</h2>
+    <div class="lead" id="metrics-source">—</div>
+    <div class="gauges" id="gauge-grid"></div>
+    <div class="hint" id="koujing-note" style="margin-top:10px"></div>
+    <div class="hint" id="metrics-disclaimer"></div>
+  </div>
+
+  <div class="card" id="qc-card" style="display:none">
+    <h2>三平面 QC 预览</h2>
+    <div class="lead">重建质量的三个切面检查（只读预览 · 掩膜/掩膜叠加态）。</div>
+    <div class="qc3" id="qc-grid"></div>
+    <div class="hint" id="qc-note"></div>
+  </div>
+</section>
+
+<!-- ================= 页签 2：了解 ENS ================= -->
+<section class="tab" id="tab-ens">
+  <div class="card">
+    <h2>了解空鼻症（ENS）</h2>
+    <div class="quote">"检查都正常，可你就是喘不上气。"
+      <span class="who">—— 空鼻症患者最常说的那句话</span>
+    </div>
+    <p style="font-size:15px;margin:6px 0">
+      空鼻症（ENS）：下鼻甲手术后，CT 和鼻内镜看起来"都正常"，但每时每刻都觉得喘不上气。
+      传统检查只看<b>结构</b>，不显示<b>空气怎么流</b>。患者最痛的不是症状，是"检查都正常，医生觉得你没事"——不被相信。
+    </p>
+    <p style="font-size:15px;margin:6px 0">
+      我们的观点：把主观的"喘不上气"，变成可以看见、可以比较的气流数据。
+      同一份 CT → 三维气道 → 流体仿真 → 每个截面的气流速度/压力/阻力。
+      患者A 实测：压降 ΔP = 18.45 Pa（常人带 30–150 Pa）——"过度通畅"第一次有了数字。
+    </p>
+  </div>
+
+  <div class="card">
+    <h3>我们看的三件事（患者语言）</h3>
+    <div class="mech">
+      <div class="m-card">
+        <div class="m-head"><span class="m-emoji">💨</span>气流是否均匀</div>
+        <div class="m-one">空气流过鼻腔每个截面时，分布均不均匀——有没有"一股独大"的窄道。</div>
+        <details><summary>技术细节</summary>
+          <div class="m-tech">气流分布均匀性：各截面速度分布的离散度（变异系数），由速度场 VTK 逐截面统计。</div>
+        </details>
+      </div>
+      <div class="m-card">
+        <div class="m-head"><span class="m-emoji">🔍</span>有没有"死区"</div>
+        <div class="m-one">鼻甲区有没有气流几乎不经过的小角落——那里的感觉可能最"空"。</div>
+        <details><summary>技术细节</summary>
+          <div class="m-tech">鼻甲区低速死区：下鼻甲区域速度低于阈值的体素占比（低速滞留区检测）。</div>
+        </details>
+      </div>
+      <div class="m-card">
+        <div class="m-head"><span class="m-emoji">🖐</span>鼻腔内壁摩擦力</div>
+        <div class="m-one">气流贴着鼻腔内壁流动时产生的摩擦——内壁感受的"刺激"量级。</div>
+        <details><summary>技术细节</summary>
+          <div class="m-tech">壁面剪切应力（WSS）：壁面处速度梯度 × 流体黏度，单位 Pa；报均值与 p95。</div>
+        </details>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>隐私与授权</h3>
+    <p style="font-size:15px;margin:6px 0">
+      您的 CT 在进入分析前，逐文件通过匿名化断言（患者姓名/编号等字段必须为空，否则停工）；
+      患者A 为社区患者<b>书面授权</b>在案；赛方发放数据有来源记录在案；患者B 的数据来源方演示展示确认<b>在办</b>（确认前默认不展示详情）。
+    </p>
+    <p style="font-size:14px;margin:6px 0">授权与匿名化核验记录：见提交包 <code>授权与数据来源/</code> 目录（逐文件断言 JSON + 授权确认记录）。</p>
+  </div>
+
+  <div class="card" id="quality-stds">
+    <h3>我们的质量标准（拦截时看这里）</h3>
+    <p class="lead">每一步都设下自动闸门——不过就停工，绝不带病进入下一步。这也是"坏数据进不来"的可现场复现证据：</p>
+    <ul class="story-list">
+      <li>🛡️ <b>隐私闸门</b>：156/394/420 头 CT 逐头匿名化断言，非空即停工；</li>
+      <li>📐 <b>几何闸门</b>：气道体积回归比须落在 0.94–1.06 质量带（网格与原始扫描的一致性）；</li>
+      <li>🧭 <b>朝向闸门</b>：6 项几何方向断言（层序/坐标/中心线）；</li>
+      <li>📦 <b>结果契约闸门</b>：查看器导出的每个数字必须来自本例自己的结果档案——严禁套用其他患者的数字；</li>
+      <li>📊 <b>六项质量检查</b>：三维模型平滑前后的六项偏离报表（体积/形心/左右比/帧校验…）越限即停工。</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>边界与已知局限</h3>
+    <ul class="story-list">
+      <li><b>温湿度交换未建模</b>——仅气流场（速度/压力/摩擦）仿真，质传递是进阶项，列入路线；</li>
+      <li><b>医生侧本版未验证</b>——本版为患者/操作员/评委视角；医生侧闭环（诊室只读指标视图）列为用户行动项，不作沉默缺位；</li>
+      <li><b>数值口径</b>：压降 ΔP 为<b>定流量口径</b>（固定 15 L/min 流量测得），阻力 R 为<b>等压口径</b>（两侧等压迭代自然分流测得）——两个口径数值<b>不可互换</b>；常人对照带为文献量级对照，非同机制对照；</li>
+      <li><b>观众交互边界</b>：观众自助浏览与 CT 原图切片范围待确认；确认前三平面 QC 仅掩膜/掩膜叠加态，皮肤层默认关。</li>
+    </ul>
+    <div class="fixed-sentence" style="margin-top:10px;background:var(--bg)">
+      <b>责任边界（固定句）</b>：本工具为工程概念验证，<b>非医疗器械</b>；仿真几何与结果<b>禁止人体使用</b>；
+      不构成诊断、治疗或试戴建议。"过度通畅"与 ENS 的临床关联，<b>待主诊医师复核</b>。
+    </div>
+  </div>
+</section>
+
+<!-- ================= 页签 3：上传分析 ================= -->
+<section class="tab" id="tab-upload">
+  <div class="card">
+    <h2>上传分析</h2>
+    <div class="lead">操作员/志愿者用：登记一份脱敏 CT → 隐私检查 → 气道重建 → 一键全链分析。全程零安装。</div>
+    <label class="f">病例来源</label>
+    <select class="f" id="nc-source">
+      <option value="builtin">内置病例（赛方发放序列，需服务器已配置 CT 根目录）</option>
+      <option value="path">服务器目录路径（把脱敏 CT 目录放到服务器本机）</option>
+      <option value="demo">合成 demo（一键体验 · 无需 CT）</option>
+    </select>
+    <div id="nc-builtin">
+      <label class="f">内置病例</label>
+      <select class="f" id="nc-case-id">
+        <option value="pA">患者A · 基线（演示展示在案）</option>
+        <option value="pB">患者B · 对照（授权确认中——需定向演示模式）</option>
+        <option value="pC">患者C · 拦截修复实证</option>
+      </select>
+    </div>
+    <div id="nc-path" style="display:none">
+      <label class="f">CT 目录路径</label>
+      <div class="dropzone" id="nc-drop" style="
+        border:2px dashed #C9BFAE;border-radius:var(--radius);
+        padding:22px 14px;text-align:center;color:var(--ink-soft);
+        background:#fff;cursor:text; margin:4px 0;">
+        📁 把 CT 文件夹拖到这里，或直接粘贴<b>服务器本机</b>的 CT 目录绝对路径
+        <input class="f" id="nc-dicom-path" placeholder="例如 D:\ct\iso_series\"
+          style="margin-top:10px;background:var(--bg)">
+      </div>
+      <div class="hint">上传契约：仅 .dcm 序列目录；体积上限 2048 MiB；扫描超时 900 s；失败保留证据不清理。上传病例默认仅操作员可见。</div>
+    </div>
+    <div class="btnrow" style="margin-top:14px">
+      <button class="btn primary" id="nc-go">登记并开始分析</button>
+      <button class="btn" id="nc-demo">合成 demo 一键体验</button>
+    </div>
+    <div id="nc-result" style="margin-top:12px"></div>
+  </div>
+
+  <div class="card" id="up-qc-card" style="display:none">
+    <h2>三平面 QC 预览</h2>
+    <div class="lead">请确认掩膜重建合理（红/绿色区域为气道掩膜）。</div>
+    <div class="qc3" id="up-qc"></div>
+    <div class="hint" id="up-qc-note"></div>
+  </div>
+
+  <div class="card">
+    <h2>分析进度</h2>
+    <div class="btnrow">
+      <select class="f" id="pg-case" style="width:auto;min-width:200px"></select>
+      <button class="btn" id="pg-refresh">刷新</button>
+      <button class="btn primary" id="pg-run">启动分析</button>
+      <button class="btn" id="pg-solve">启动求解（WSL）</button>
+      <label class="muted" style="align-self:center;font-size:14px">
+        <input type="checkbox" id="pg-auto" checked> 自动刷新（2 秒）
+      </label>
+    </div>
+    <label class="f">分析模式</label>
+    <select class="f" id="pg-solve-mode" style="width:auto;min-width:280px">
+      <option value="skip">快速（只到算例构建+断言——预置结果秒开演示用）</option>
+      <option value="laptop">交接（生成交接文档+算例包，由安装好求解器的笔记本继续）</option>
+      <option value="local">本机求解（需 WSL + OpenFOAM 环境）</option>
+    </select>
+    <div class="steps" id="step-bar"></div>
+    <div class="up-status" id="up-status">尚未启动——选择病例后点"启动分析"</div>
+    <div class="up-pct" id="up-pct"></div>
+    <div id="up-gate"></div>
+    <details>
+      <summary>技术细节（原始进度日志）</summary>
+      <pre class="tech" id="pg-log">—</pre>
+    </details>
+    <details>
+      <summary>技术细节（阶段对照表）</summary>
+      <div class="muted" style="font-size:13px">
+        ①检查隐私 = 隐私闸门 + CT 头普查；②重建气道 = 气道三维分割；
+        ③生成算例 = 体素网格 + 几何断言；④求解 = 气流方程求解（WSL/OpenFOAM，20 分钟无进展自动停止并归档）；
+        ⑤导出结果 = 后处理 + 查看器导出 + 进度落盘。原始阶段标记 [S0]…[S8] 与之一一对应。
+      </div>
+    </details>
+  </div>
+</section>
+
+<!-- ================= 页签 4：关于本项目 ================= -->
+<section class="tab" id="tab-about">
+  <div class="card">
+    <h2>关于本项目</h2>
+    <p style="font-size:15.5px;margin:6px 0">
+      <b>患者社区 K-Hub × 志愿者开发组</b>共同完成：把"喘不上气"变成看得见的数据。
+      患者把脱敏 CT 给我们，工具自动重建鼻腔三维模型、算出呼吸时每一处的气流，
+      最后在<b>他自己的手机上、他自己的鼻子模型里</b>，看到气往哪儿流、流了多少。
+      全程免费开源，一位患者的完整分析在几分钟内完成。
+    </p>
+  </div>
+  <div class="card">
+    <h3>协作闭环（患者共创）</h3>
+    <ul class="story-list">
+      <li>👣 患者成员<b>手动跑通全流程</b>（证明普通人可解）→</li>
+      <li>💬 提四条体验反馈 →</li>
+      <li>🛠️ 全部落地（零安装浏览器化即本轮成果）→</li>
+      <li>🔁 再共创——体验轮反馈直接回填迭代清单。</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>开源与授权</h3>
+    <a class="src-url" href="https://github.com/qidiai/nasal-airflow-reconstruction" target="_blank" rel="noopener">github.com/qidiai/nasal-airflow-reconstruction</a>
+    <ul class="story-list">
+      <li>患者A：社区患者<b>书面授权</b>在案（演示展示）；</li>
+      <li>赛方数据（患者B/C）：来源记录 + 逐文件匿名化核验在案；</li>
+      <li>患者B：数据来源方演示展示确认<b>在办</b>——确认前默认不展示详情（定向演示模式可见指标）；</li>
+      <li>合成 demo：100% 参数化管腔（开源仓库生成器产物），无 CT、无患者数据。</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>给评委的技术细节</h3>
+    <details open>
+      <summary>一句话摘要</summary>
+      <div style="font-size:14.5px;margin:4px 0">
+        全免费开源工具链（Python/OpenFOAM/Three.js）· 全自动化（分割→体素网格→层流求解→交互可视化，分钟级/例）·
+        全确定性（同一 CT 永远同一网格）· 质量体系：七脚本门禁 + exit 码契约 + 五轮独立审计 + 三司会审 + 对抗审计，全部可复跑。
+      </div>
+    </details>
+    <details>
+      <summary>展开：门禁体系与审计链</summary>
+      <ul class="story-list">
+        <li><b>七脚本管线</b>：分割 → 体素网格 → 狭窄化 → 占位体导出 → 查看器数据 → 体积数据 → 皮肤壳，每步带断言；</li>
+        <li><b>exit 码契约</b>：0=完成 / 2=质量闸门拦截 / 3=环境缺失 / 其他=失败——拦截即 UI 暖卡，可现场复现；</li>
+        <li><b>五轮独立审计</b>+ 双模分析（定流量 Run-A / 等压 Run-B）+ 三司会审 + 对抗审计，报告随提交包公开；</li>
+        <li><b>禁说词体系</b>：33 条承诺义表述（治疗/治好/试戴/推荐/安全余量/常人带中部/媲美临床/可以直接打印/完整答案等）零使用；</li>
+        <li><b>双口径标签</b>：ΔP（定流量口径）与 R（等压口径）数值不可互换，UI 强制同屏标注。</li>
+      </ul>
+    </details>
+    <details>
+      <summary>禁说词自查声明</summary>
+      <div class="muted" style="font-size:13.5px">
+        本页全部文案经 33 条禁说词表核对：治疗/治好/试戴/推荐/安全余量/常人带中部/媲美临床/可以直接打印/完整答案 等承诺义表述零使用。
+      </div>
+    </details>
+  </div>
+</section>
+
+</main>
+<footer>
+  <div class="fixed-sentence">
+    <b>责任边界（固定句）</b>：本工具为工程概念验证，<b>非医疗器械</b>；仿真几何与结果<b>禁止人体使用</b>；
+    不构成诊断、治疗或试戴建议。"过度通畅"与 ENS 的临床关联，<b>待主诊医师复核</b>。
+    数据边界硬闸在服务器端代码级执行（非界面隐藏）；真实患者数据仅限本机局域网，不外传。
+  </div>
+  鼻腔气流分析 · T16 患者优先 UI 重设计 · 管线七脚本/查看器/门禁体系/审计链全部复用，本工作台仅为浏览器外壳
+</footer>
+
+<script>
+"use strict";
+/* ================= 状态 ================= */
+const S = { mode:null, presenter:false, onlySynthetic:false,
+            cases:[], selected:null, selectedProgress:null, pollTimer:null };
+
+/* ================= 患者口径常量 =================
+   ΔP 绿区：路演演示口径 常人带 30–150 Pa（路演幻灯 P3，与讲稿一致）；
+   严格文献对照带 30–50 Pa（后端 band 字段原值）在"什么是这个指标？"内披露。
+   阻力绿区：文献常人带 120–600 Pa/(L/s)（两口径一致）。
+================================================ */
+const BAND_DP_UI = {lo:30, hi:150, unit:"Pa"};
+const BAND_DP_LIT = {lo:30, hi:50, unit:"Pa"};
+const BAND_R_UI = {lo:120, hi:600, unit:"Pa/(L/s)"};
+
+/* ================= 工具 ================= */
+async function api(path, opts){
+  const r = await fetch(path, opts);
+  let body = null;
+  try { body = await r.json(); } catch(e){ body = null; }
+  return { ok: r.ok, status: r.status, body: body };
+}
+function esc(s){
+  return String(s == null ? "" : s).replace(/[&<>"']/g,
+    c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+function $(id){ return document.getElementById(id); }
+function fmtNum(v, digits){
+  if(v == null || isNaN(v)) return "—";
+  const n = Number(v);
+  return n.toFixed(digits == null ? (Math.abs(n) < 10 ? 2 : 1) : digits);
+}
+
+/* ================= 页签切换 ================= */
+document.querySelectorAll("#tabs button").forEach(b=>{
+  b.addEventListener("click", ()=>{
+    document.querySelectorAll("#tabs button").forEach(x=>x.classList.remove("active"));
+    document.querySelectorAll("main section.tab").forEach(x=>x.classList.remove("active"));
+    b.classList.add("active");
+    $("tab-"+b.dataset.tab).classList.add("active");
+  });
+});
+function switchTab(name){
+  const b = document.querySelector(`#tabs button[data-tab="${name}"]`);
+  if(b) b.click();
+}
+
+/* ================= 启动 ================= */
+async function boot(){
+  const h = await api("/api/health");
+  if(h.ok && h.body){
+    S.mode = h.body.mode; S.presenter = h.body.presenter;
+    S.onlySynthetic = h.body.only_synthetic;
+  }
+  const bm = $("badge-mode");
+  bm.textContent = S.mode === "m2-cloud" ? "云形态（仅合成数据）" : "本地形态（局域网）";
+  bm.className = "badge " + (S.mode === "m2-cloud" ? "m2" : "m1");
+  if(S.onlySynthetic) $("badge-synthetic").style.display = "";
+  if(S.presenter) $("badge-presenter").style.display = "";
+  if(S.onlySynthetic){
+    $("nc-source").innerHTML = '<option value="demo">合成 demo（一键体验 · 云形态仅合成数据）</option>';
+    $("nc-builtin").style.display = "none";
+    $("nc-path").style.display = "none";
+  }
+  await loadCases();
+  // 默认选中 pA（或首个可用病例）——打开页面第一眼看到 3D 气道
+  const first = S.cases.find(c=>c.case_id === "pA") || S.cases.find(c=>c.viewer_available) || S.cases[0];
+  if(first) selectCase(first.case_id);
+  fillCaseSelects();
+}
+
+/* ================= 病例列表 ================= */
+async function loadCases(){
+  const r = await api("/api/cases");
+  if(!r.ok){ $("airway-pills").innerHTML = '<span class="warn">病例数据加载失败（HTTP ' + r.status + "）</span>"; return; }
+  S.cases = r.body.cases || [];
+  const pills = $("airway-pills");
+  pills.innerHTML = "";
+  for(const c of S.cases){
+    const b = document.createElement("button");
+    b.className = "pill" + (c.presenter_only && !S.presenter ? " gated" : "");
+    b.dataset.cid = c.case_id;
+    b.innerHTML = esc(c.badge) + " " + esc(c.label) +
+      '<span class="st">' + esc(c.badge_text || c.status) + "</span>";
+    b.addEventListener("click", ()=>selectCase(c.case_id));
+    pills.appendChild(b);
+  }
+}
+
+/* ================= 查看气道（Hero + 量表 + QC） ================= */
+async function selectCase(cid){
+  S.selected = cid;
+  document.querySelectorAll("#airway-pills .pill").forEach(p=>{
+    p.classList.toggle("active", p.dataset.cid === cid);
+  });
+  const c = S.cases.find(x=>x.case_id === cid) || {};
+  const hero = $("hero-box");
+  hero.innerHTML = '<div class="hero-loading"><span class="spin"></span>正在加载气道模型…</div>';
+
+  // 指标（先于查看器——数字更快到位）
+  const m = await api(`/api/metrics/${encodeURIComponent(cid)}`);
+  if(m.ok && m.body){
+    renderGauges(m.body, c);
+  } else if(m.status === 403){
+    renderGaugesDenied(c);
+  } else {
+    renderGaugesPending(cid, m);
+  }
+
+  // QC 三平面
+  const q = await api(`/api/qc/${encodeURIComponent(cid)}`);
+  if(q.ok && q.body && q.body.views && q.body.views.length){
+    renderQC(q.body, "qc-grid", "qc-card", "qc-note");
+  } else if(q.ok && q.body && q.body.r02_note){
+    $("qc-card").style.display = "";
+    $("qc-grid").innerHTML = "";
+    $("qc-note").textContent = q.body.r02_note;
+  } else {
+    $("qc-card").style.display = "none";
+  }
+
+  // Hero：查看器可用则 iframe（≥60vh），否则暖色占位卡
+  if(c.viewer_available){
+    hero.innerHTML = '<iframe class="hero-frame" src="/viewer/' + encodeURIComponent(cid) +
+      '" title="气道三维查看器（拖拽旋转 / 呼吸粒子 / 流线 / 探针读数）"></iframe>';
+  } else {
+    renderHeroPlaceholder(c, cid);
+  }
+}
+
+function renderHeroPlaceholder(c, cid){
+  const hero = $("hero-box");
+  let emoji, title, lines;
+  if(cid === "pB" || (c.presenter_only && !S.presenter)){
+    emoji = "🔒"; title = "这份数据正在确认授权";
+    lines = ["患者B 的数据来源方演示展示确认在办——确认前默认不展示详情。",
+             "获得确认后（或在定向演示模式下），这里将显示他的气道三维模型。"];
+  } else if(c.status === "blocked" || (c.gate_failures && c.gate_failures.length)){
+    emoji = "🕐"; title = "这份 CT 我们需要仔细检查";
+    lines = ["自动质量检查未通过——深度分析暂停。温暖的原因说明在“上传分析”页签。"];
+  } else {
+    emoji = "⏳"; title = "深度分析还在路上";
+    lines = ["这份数据的结构指标已就绪，气流仿真结果正在回传。",
+             "结果到位后，这里将显示他的气道三维模型与气流动画。"];
+  }
+  hero.innerHTML =
+    '<div class="hero-ph"><div class="big-emoji">' + emoji + "</div>" +
+    "<h3>" + esc(title) + "</h3>" +
+    lines.map(l=>"<p>" + esc(l) + "</p>").join("") +
+    (c.note ? '<p class="muted" style="font-size:13px">' + esc(c.note) + "</p>" : "") +
+    "</div>";
+}
+
+/* ---------- 量表渲染 ---------- */
+function gaugeHtml(opt){
+  // opt: {label, techTerm, value, unit, band, litBand, verdictLow, verdictIn, verdictHigh, whatHtml, wide}
+  const v = opt.value;
+  const band = opt.band;
+  const max = Math.max(band.hi, (v != null && !isNaN(v) ? v * 1.35 : 0), 1);
+  const lo = Math.min(0, band.lo * 0.5);
+  const span = max - lo;
+  const bl = (band.lo - lo) / span * 100;
+  const bw = (band.hi - band.lo) / span * 100;
+  let pct = null, verdict;
+  if(v == null || isNaN(v)){
+    verdict = {cls:"na", text:"暂无数据", sub:"等待本例结果档案"};
+  } else {
+    pct = (v - lo) / span * 100;
+    if(v < band.lo) verdict = {cls:"low", text:opt.verdictLow.text, sub:opt.verdictLow.sub};
+    else if(v <= band.hi) verdict = {cls:"in", text:opt.verdictIn.text, sub:opt.verdictIn.sub};
+    else verdict = {cls:"high", text:opt.verdictHigh.text, sub:opt.verdictHigh.sub};
+  }
+  const chip = opt.koujing ? '<span class="chip">' + esc(opt.koujing) + "</span>" : "";
+  return `<div class="gauge${opt.wide ? " wide" : ""}">
+    <div class="gauge-head">
+      <span class="gauge-label">${esc(opt.label)}${opt.techTerm ? ` <span class="tech-term">（${esc(opt.techTerm)}）</span>` : ""}${chip}</span>
+      <span class="gauge-value">${fmtNum(v, opt.digits)}<em>${esc(opt.unit)}</em></span>
+    </div>
+    <div class="gauge-track">
+      <div class="gauge-band" style="left:${bl.toFixed(1)}%;width:${bw.toFixed(1)}%"></div>
+      ${pct == null ? "" : `<div class="gauge-marker" style="left:${pct.toFixed(1)}%"></div>`}
+    </div>
+    <div class="gauge-scale"><span>${lo.toFixed(0)}</span><span>绿区 ${band.lo}–${band.hi} ${esc(band.unit)}（常人范围）</span><span>${max.toFixed(0)} ${esc(band.unit)}</span></div>
+    <div class="gauge-verdict ${verdict.cls}">${esc(verdict.text)}<span class="sub">${esc(verdict.sub)}</span></div>
+    <details><summary>什么是这个指标？</summary>${opt.whatHtml}</details>
+  </div>`;
+}
+
+const VERDICT_LOW  = {text:"低于常人范围", sub:"气流通过比常见情况更顺畅"};
+const VERDICT_IN   = {text:"落在常人范围内", sub:"与常见情况相当"};
+const VERDICT_HIGH = {text:"高于常人范围", sub:"气流通过比常见情况更费力"};
+
+function renderGauges(m, c){
+  $("metrics-card").style.display = "";
+  $("metrics-source").textContent = "数据来源：" + (m.source || "—") +
+    (c ? " · " + (c.badge || "") + " " + (c.label || "") : "");
+  const g = [];
+  if(m.dP){
+    g.push(gaugeHtml({
+      label:"呼吸顺畅度 · 压降", techTerm:"ΔP",
+      value:m.dP.value, unit:m.dP.unit || "Pa", digits:2,
+      band:BAND_DP_UI, koujing:m.dP.口径,
+      verdictLow:VERDICT_LOW, verdictIn:VERDICT_IN, verdictHigh:VERDICT_HIGH,
+      whatHtml:`<div class="m-tech">
+        压降 = 空气从鼻孔流到鼻咽处"掉"了多少压力。数值越小，气流通过越顺畅。
+        本图绿区采用<b>路演演示口径</b>（常人带 30–150 Pa，与路演讲稿一致）；
+        更严格的文献对照带为 <b>${BAND_DP_LIT.lo}–${BAND_DP_LIT.hi} Pa</b>（后端原始 band 字段）——两种口径下本例结论一致。
+        层流下界估计，不确定度 ±20–50%；常人对照带为文献量级对照，非同机制对照。</div>`
+    }));
+  }
+  if(m.resistance){
+    g.push(gaugeHtml({
+      label:"鼻腔总阻力", techTerm:"R",
+      value:m.resistance.value, unit:m.resistance.unit || "Pa/(L/s)", digits:1,
+      band:BAND_R_UI, koujing:m.resistance.口径,
+      verdictLow:VERDICT_LOW, verdictIn:VERDICT_IN, verdictHigh:VERDICT_HIGH,
+      whatHtml:`<div class="m-tech">
+        阻力 = 让空气以固定流量通过鼻腔需要多大"推力"。数值越小越顺畅。
+        绿区为文献常人带 120–600 Pa/(L/s)（量级对照，非同机制对照）。
+        注意：本例阻力为<b>${esc(m.resistance.口径)}</b>，与压降的定流量口径不同，两个数字不可直接比较。</div>`
+    }));
+  }
+  if(m.split && (m.split.L != null)){
+    const L = Number(m.split.L), R = Number(m.split.R);
+    const diff = Math.abs(L - R);
+    const verdict = diff <= 5 ? "非常均衡" : diff <= 10 ? "接近均衡" : diff <= 20 ? "略有差异" : "差异明显";
+    const verdictSub = diff <= 10 ? "左右两侧气流分配相当" : "左右两侧气流分配不均——结合压降综合看";
+    g.push(`<div class="gauge">
+      <div class="gauge-head">
+        <span class="gauge-label">左右分流比</span>
+        <span class="gauge-value" style="font-size:22px">${esc(m.split.L)}<em> / </em>${esc(m.split.R)}<em>%</em></span>
+      </div>
+      <div class="split-wrap" style="margin-top:10px">
+        <svg class="split-ring" viewBox="0 0 120 120" width="118" height="118" role="img" aria-label="左右鼻分流半环图">
+          <path d="M60 60 L60 8 A52 52 0 0 0 60 112 Z" fill="#2A9D8F" opacity="0.92"/>
+          <path d="M60 60 L60 8 A52 52 0 0 1 60 112 Z" fill="#E76F51" opacity="0.92"/>
+          <circle cx="60" cy="60" r="29" fill="#FDFCF9"/>
+          <text x="37" y="64" font-size="11" fill="#fff" font-weight="700" text-anchor="middle">左</text>
+          <text x="83" y="64" font-size="11" fill="#fff" font-weight="700" text-anchor="middle">右</text>
+        </svg>
+        <div class="split-legend">
+          <div class="row"><span class="dot" style="background:#2A9D8F"></span>左鼻 ${esc(m.split.L)}%</div>
+          <div class="row"><span class="dot" style="background:#E76F51"></span>右鼻 ${esc(m.split.R)}%</div>
+          <div class="gauge-verdict ${diff <= 10 ? "in" : "high"}" style="font-size:15px">${esc(verdict)}<span class="sub">${esc(verdictSub)}</span></div>
+        </div>
+      </div>
+      <details><summary>什么是这个指标？</summary>
+        <div class="m-tech">一次呼吸中，左右两侧鼻腔分别承担的气流份额（${esc(m.split.basis || "")}）。
+        50/50 为理想均衡；明显偏移提示一侧气道相对更"用力"。</div>
+      </details>
+    </div>`);
+  }
+  if(m.wss && (m.wss.mean != null)){
+    g.push(`<div class="gauge">
+      <div class="gauge-head">
+        <span class="gauge-label">鼻腔内壁摩擦力</span>
+        <span class="gauge-value">${fmtNum(m.wss.mean)}<em>Pa（均值）</em></span>
+      </div>
+      <div class="gauge-scale" style="margin-top:12px"><span>峰值 p95 ${fmtNum(m.wss.p95)} Pa</span><span>与正常鼻腔的同机对比未执行</span></div>
+      <details><summary>什么是这个指标？</summary>
+        <div class="m-tech">患者语言：气流贴着鼻腔内壁流动时产生的摩擦（技术名：壁面剪切应力 WSS = 壁面速度梯度 × 黏度）。
+        它描述内壁感受的"刺激"量级；目前仅报本例数值，正常人同机对照未执行（参照基准为文献常人压降/阻力带，量级对照）。</div>
+      </details>
+    </div>`);
+  }
+  if(m.implant_scenarios){
+    const im = m.implant_scenarios;
+    const has = im.dP_1mm_Pa != null;
+    g.push(`<div class="gauge">
+      <div class="gauge-head"><span class="gauge-label">情景推演</span>
+        <span class="gauge-value" style="font-size:17px">${has ? "虚拟扩张 1/2/3 毫米" : "待本例占位算例"}</span></div>
+      ${has
+        ? `<div class="split-legend" style="margin-top:8px">
+            若鼻腔稍微宽敞一点（虚拟扩张，非治疗建议），压降预计变为：
+            <b>${esc(im.dP_1mm_Pa)}</b> / <b>${esc(im.dP_2mm_Pa)}</b> / <b>${esc(im.dP_3mm_Pa)}</b> Pa
+            <div class="hint">${esc(im.note || "")}</div></div>`
+        : `<div class="hint" style="margin-top:8px">${esc(im.note || "本例占位算例尚未完成——情景推演待数据补齐。")}</div>`}
+      <details><summary>什么是这个指标？</summary>
+        <div class="m-tech">在"气道稍微扩张一点"的虚拟工况下重新计算的压降（1/2/3 毫米三档）。
+        这是设计推演数字，帮助理解"阻力从哪来"——<b>不是</b>治疗建议，植入体设计不供人体使用。</div>
+      </details>
+    </div>`);
+  }
+  if(m.anatomy){
+    const a = m.anatomy;
+    g.push(`<div class="gauge wide">
+      <div class="gauge-head"><span class="gauge-label">气道结构指标</span>
+        <span class="gauge-value" style="font-size:17px">${esc(a.cells)} 个网格单元</span></div>
+      <div class="split-legend" style="margin-top:8px">
+        内部面 ${esc(a.internal_faces)} · 左侧鼻孔截面 ${esc(a.inletL_area_mm2)} mm² ·
+        右侧鼻孔截面 ${esc(a.inletR_area_mm2)} mm² · 网格与扫描体积回归比 ${esc(a.volume_regression_ratio)}
+      </div>
+      <details><summary>什么是这个指标？</summary>
+        <div class="m-tech">三维气道模型的规模与几何一致性（体素直出网格，确定性：同一 CT 永远同一网格）。
+        体积回归比衡量网格体积与原始扫描气道体积的一致性（质量带 0.94–1.06）。</div>
+      </details>
+    </div>`);
+  }
+  if(m.cfd_status){
+    g.push(`<div class="gauge">
+      <div class="gauge-head"><span class="gauge-label">气流仿真指标</span>
+        <span class="gauge-value" style="font-size:17px">⏳ ${esc(m.cfd_status)}</span></div>
+      <div class="hint" style="margin-top:8px">${esc(m.cfd_note || "")}</div>
+    </div>`);
+  }
+  $("gauge-grid").innerHTML = g.join("") || '<div class="muted">暂无指标数据</div>';
+  $("koujing-note").textContent = "口径说明：" + (m.口径_note || "") + "　来源：" + (m.source || "—");
+  $("metrics-disclaimer").textContent = m.disclaimer ||
+    "层流下界估计，不确定度±20-50%；概念验证 · 非医疗器械 · 仿真几何禁止人体使用；温湿度交换未建模（质传递未实现）";
+}
+
+function renderGaugesDenied(c){
+  $("metrics-card").style.display = "";
+  $("metrics-source").textContent = "数据来源：" + (c.label || "—");
+  $("gauge-grid").innerHTML =
+    `<div class="warm-card"><div class="warm-head"><span class="warm-emoji">🔒</span>
+      <div><h3>指标详情正在确认授权</h3>
+      <div class="reason">这份数据（患者B）的数据来源方演示展示确认在办——确认前默认不展示指标详情。</div>
+      <div class="comfort">获得确认后，或在<b>定向演示模式</b>下，这里将显示他的量化指标。</div></div>
+    </div></div>`;
+  $("koujing-note").textContent = "";
+  $("metrics-disclaimer").textContent = "";
+}
+
+function renderGaugesPending(cid, m){
+  $("metrics-card").style.display = "";
+  $("metrics-source").textContent = "病例：" + cid;
+  $("gauge-grid").innerHTML =
+    `<div class="gauge"><div class="gauge-head"><span class="gauge-label">量化指标</span>
+      <span class="gauge-value" style="font-size:17px">⏳ 尚未就绪</span></div>
+      <div class="hint" style="margin-top:8px">${esc((m && m.body && m.body.error) || "完成一键分析后，这里将显示压降/阻力/分流等量化指标。")}</div></div>`;
+  $("koujing-note").textContent = "";
+  $("metrics-disclaimer").textContent = "";
+}
+
+/* ---------- QC 三平面 ---------- */
+function renderQC(q, gridId, cardId, noteId){
+  $(cardId).style.display = "";
+  const box = $(gridId);
+  box.innerHTML = "";
+  for(const v of q.views){
+    const fig = document.createElement("figure");
+    fig.innerHTML = `<img src="${esc(v.url)}" alt="${esc(v.title)}" loading="lazy">
+      <figcaption>${esc(v.title)}<br><span class="muted">${esc(v.kind === "ct_overlay" ? "气道掩膜叠加 CT · 允许展示态" : "气道掩膜态")}</span></figcaption>`;
+    box.appendChild(fig);
+  }
+  $(noteId).textContent = q.r02_note || "";
+}
+
+/* ================= 上传分析 ================= */
+$("nc-source").addEventListener("change", e=>{
+  const v = e.target.value;
+  $("nc-builtin").style.display = v === "builtin" ? "" : "none";
+  $("nc-path").style.display = v === "path" ? "" : "none";
+});
+$("nc-drop").addEventListener("click", ()=>{ $("nc-dicom-path").focus(); });
+$("nc-go").addEventListener("click", registerCase);
+$("nc-demo").addEventListener("click", ()=>doRegister("demo"));
+async function registerCase(){
+  const source = $("nc-source").value;
+  if(source === "demo"){ doRegister("demo"); return; }
+  if(source === "builtin"){
+    await doRegister("builtin", {case_id: $("nc-case-id").value});
+  } else {
+    const path = $("nc-dicom-path").value.trim();
+    if(!path){ $("nc-result").innerHTML = '<div class="warn">请填写 CT 目录路径</div>'; return; }
+    await doRegister("path", {dicom_path: path});
+  }
+}
+async function doRegister(source, extra){
+  $("nc-result").innerHTML = '<div class="muted"><span class="spin"></span>隐私检查 + 气道重建进行中（可能需 1–2 分钟）…</div>';
+  const fd = new FormData();
+  fd.append("source", source);
+  for(const k in (extra || {})) fd.append(k, extra[k]);
+  const r = await api("/api/case", {method:"POST", body: fd});
+  if(r.status === 501){
+    $("nc-result").innerHTML = `<div class="warm-card"><div class="warm-head"><span class="warm-emoji">🔒</span>
+      <div><h3>云形态仅合成数据</h3><div class="reason">${esc(r.body.error)}</div></div></div></div>`;
+    return;
+  }
+  if(r.status === 403){
+    $("nc-result").innerHTML = `<div class="warm-card"><div class="warm-head"><span class="warm-emoji">🔒</span>
+      <div><h3>访问受限</h3><div class="reason">${esc(r.body.error)}</div></div></div></div>`;
+    return;
+  }
+  if(!r.ok){
+    $("nc-result").innerHTML = `<div class="warn">登记失败（HTTP ${r.status}）：${esc(r.body && r.body.error || "")}</div>`;
+    return;
+  }
+  const b = r.body;
+  await loadCases(); fillCaseSelects();
+  if(b.status === "blocked"){
+    $("nc-result").innerHTML = warmGateCardHtml({gate: b.gate, gate_failures: b.gate_failures}) +
+      `<div class="btnrow" style="margin-top:10px">
+       <button class="btn" onclick='switchTab("upload");document.getElementById("pg-case").value="${esc(b.case_id)}";loadProgress();'>查看检查卡片 →</button></div>`;
+  } else {
+    $("nc-result").innerHTML =
+      `<div class="ok">✅ 病例 ${esc(b.case_id)} 登记成功：隐私检查 PASS（${b.pii ? b.pii.files : "—"} 头 CT），气道模型已重建。</div>
+       <div class="btnrow" style="margin-top:10px">
+       <button class="btn primary" onclick='switchTab("upload");document.getElementById("pg-case").value="${esc(b.case_id)}";loadProgress();'>查看分析进度 →</button>
+       <button class="btn" onclick='switchTab("airway");selectCase("${esc(b.case_id)}");'>三平面 QC 预览 →</button></div>`;
+    // 大图 QC 预览（上传分析页签内）
+    const q = await api(`/api/qc/${encodeURIComponent(b.case_id)}`);
+    if(q.ok && q.body && q.body.views && q.body.views.length){
+      renderQC(q.body, "up-qc", "up-qc-card", "up-qc-note");
+    }
+  }
+}
+
+/* ---------- 暖色拦截卡（评审王牌 · 患者语言） ---------- */
+function patientReason(fails){
+  const t = (fails || []).join(" ");
+  if(/体积回归比|回归比/.test(t))
+    return "气道模型的体积与原始 CT 扫描的差异超出了我们的质量带——某些区域在这个扫描精度下太细小，模型可能不够忠实。";
+  if(/连续性|发散|FPE|不平衡|残差/.test(t))
+    return "气流方程在个别区域算得不够平稳——我们要求每一步都稳定才放行。";
+  if(/非流形|nonManifold|网格质量|checkMesh/i.test(t))
+    return "计算网格的几何质量未达到我们的标准。";
+  if(/契约|字段缺失|占位/.test(t))
+    return "结果档案不完整——缺少部分必需的结果文件，我们不允许用其他患者的数据补位。";
+  return "自动质量检查未通过——数据未达到我们每一步设下的质量标准。";
+}
+function warmGateCardHtml(c){
+  const fails = (c.gate_failures && c.gate_failures.length)
+    ? c.gate_failures : ["（原因列表为空——详见原始日志）"];
+  const items = fails.map(f=>Array.isArray(f) ? f.join(" | ") : f);
+  return `<div class="warm-card">
+    <div class="warm-head">
+      <span class="warm-emoji">🕐</span>
+      <div style="flex:1">
+        <h3>这份 CT 我们需要仔细检查</h3>
+        <div class="reason">${esc(patientReason(items))}</div>
+        <div class="comfort"><b>这不是您的 CT 有问题——是我们工具当前的精度边界。我们会持续改进。</b></div>
+        <div style="margin-top:8px">
+          <a class="warm-link" href="#quality-stds" onclick="switchTab('ens')">我们的质量标准 →</a>
+        </div>
+        <details><summary>技术详情（原始拦截原因）</summary>
+          <pre class="tech">${esc(items.join("\n"))}</pre>
+        </details>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ---------- 分析进度（步骤条 + 友好文案） ---------- */
+const STEP_DEFS = [
+  {name:"检查隐私", hint:"逐头匿名化断言", stages:["S0","S1"]},
+  {name:"重建气道", hint:"三维气道分割", stages:["S2"]},
+  {name:"生成算例", hint:"体素网格 + 几何断言", stages:["S3","S4"]},
+  {name:"求解", hint:"气流方程求解", stages:["S5"]},
+  {name:"导出结果", hint:"后处理 + 查看器导出", stages:["S6","S7","S8"]},
+];
+const STAGE_NAMES = {"S0":"检查隐私","S1":"读取 CT 序列信息","S2":"重建气道模型",
+  "S3":"生成计算网格","S4":"检查几何方向","S5":"求解气流方程",
+  "S6":"汇编结果","S7":"导出查看器","S8":"保存进度"};
+const FRIENDLY = {"S0":"正在检查隐私（逐头匿名化断言）…","S1":"正在读取 CT 序列信息…",
+  "S2":"正在重建气道模型…","S3":"正在生成计算网格…","S4":"正在检查几何方向…",
+  "S5":"正在求解气流方程…","S6":"正在汇编结果…","S7":"正在导出查看器…",
+  "S8":"正在保存进度…"};
+const STAGE_ORDER = ["S0","S1","S2","S3","S4","S5","S6","S7","S8"];
+
+$("pg-case").addEventListener("change", e=>{ S.selectedProgress = e.target.value; loadProgress(); });
+$("pg-refresh").addEventListener("click", loadProgress);
+$("pg-run").addEventListener("click", async ()=>{
+  const cid = S.selectedProgress || $("pg-case").value;
+  if(!cid) return;
+  const solve = $("pg-solve-mode") ? $("pg-solve-mode").value : "skip";
+  const r = await api(`/api/run/${encodeURIComponent(cid)}`, {
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({solve: solve})});
+  if(!r.ok){
+    $("up-gate").innerHTML = `<div class="warm-card"><div class="warm-head"><span class="warm-emoji">⚠️</span>
+      <div><h3>启动失败（HTTP ${r.status}）</h3><div class="reason">${esc(r.body && r.body.error || "")}</div></div></div></div>`;
+  } else {
+    $("up-gate").innerHTML = `<div class="ok">✅ 分析已在后台启动（${esc(r.body.solve || "")}）——进度自动刷新中。</div>`;
+    loadProgress();
+  }
+});
+$("pg-solve").addEventListener("click", async ()=>{
+  const cid = S.selectedProgress || $("pg-case").value;
+  if(!cid) return;
+  const r = await api(`/api/solve/${encodeURIComponent(cid)}`, {method:"POST"});
+  if(!r.ok){
+    $("up-gate").innerHTML = `<div class="warm-card"><div class="warm-head"><span class="warm-emoji">⚠️</span>
+      <div><h3>求解启动失败（HTTP ${r.status}）</h3><div class="reason">${esc(r.body && r.body.error || "")}</div></div></div></div>`;
+  } else {
+    $("up-gate").innerHTML = `<div class="ok">✅ 求解已启动（20 分钟无进展自动停止并归档日志）。</div>`;
+    loadProgress();
+  }
+});
+
+function fillCaseSelects(){
+  const opts = S.cases.map(c=>`<option value="${esc(c.case_id)}">${esc(c.badge)} ${esc(c.label)}（${esc(c.badge_text || c.status)}）</option>`).join("");
+  const el = $("pg-case");
+  const cur = el.value;
+  el.innerHTML = opts;
+  if(cur) el.value = cur;
+  if(!S.selectedProgress && el.value) S.selectedProgress = el.value;
+}
+
+async function loadProgress(){
+  const cid = S.selectedProgress || $("pg-case").value;
+  if(!cid) return;
+  const r = await api(`/api/progress/${encodeURIComponent(cid)}`);
+  if(!r.ok){
+    $("up-status").innerHTML = `<span class="warn">进度加载失败（HTTP ${r.status}）</span>`;
+    return;
+  }
+  const b = r.body;
+  renderSteps(b);
+  // 闸门 → 暖卡
+  const gate = $("up-gate");
+  if(b.status === "blocked" && (b.gate_failures || []).length){
+    gate.innerHTML = warmGateCardHtml({gate: b.gate, gate_failures: b.gate_failures});
+  } else if(b.status === "failed_env"){
+    gate.innerHTML = `<div class="warm-card"><div class="warm-head"><span class="warm-emoji">🧰</span>
+      <div><h3>求解环境还在准备中</h3>
+      <div class="reason">${esc((b.gate_failures || ["本机尚未安装求解器（OpenFOAM/WSL）"])[0])}</div>
+      <div class="comfort">您可以：① 选择<b>交接</b>模式生成交接文档，由安装好求解器的笔记本继续；② 先看已解算的预置结果（秒开）。</div></div></div></div>`;
+  } else if(b.status === "failed_solve_stalled"){
+    gate.innerHTML = `<div class="warm-card"><div class="warm-head"><span class="warm-emoji">⏸️</span>
+      <div><h3>求解停滞，已自动停止</h3>
+      <div class="reason">${esc((b.gate_failures || [""])[0])}</div>
+      <div class="comfort">日志已归档——这是"失败也是交付物"的审计链文化。</div>
+      <details><summary>技术详情</summary><pre class="tech">${esc((b.gate_failures || [""])[0])}</pre></details></div></div></div>`;
+  } else {
+    gate.innerHTML = "";
+  }
+  // 原始日志（技术细节折叠内）
+  $("pg-log").textContent = (b.lines || []).map(l=>{
+    const ts = l.ts ? new Date(l.ts * 1000).toLocaleTimeString() : "";
+    return `[${ts}] ${l.msg}`;
+  }).join("\n") || "—";
+  if($("pg-auto").checked){
+    clearTimeout(S.pollTimer);
+    S.pollTimer = setTimeout(loadProgress, 2000);
+  }
+}
+
+function renderSteps(b){
+  const seen = new Set(b.stages_seen || []);
+  const lines = b.lines || [];
+  const lastMsg = lines.length ? String(lines[lines.length - 1].msg || "") : "";
+  const blocked = /FATAL|⛔|!!!/.test(lastMsg);
+  // 当前阶段：最后一条 [S\d] 标记
+  let curStage = null;
+  for(let i = lines.length - 1; i >= 0; i--){
+    const m = String(lines[i].msg || "").match(/^\[(S\d)\]/);
+    if(m){ curStage = m[1]; break; }
+  }
+  // 状态文案
+  let status, pct;
+  if(blocked){
+    status = "🕐 需要仔细检查——质量闸门已暂停分析（见下方卡片）";
+  } else if(!curStage){
+    status = b.status === "done" ? "✅ 分析完成" : "尚未启动——选择病例后点\"启动分析\"";
+  } else {
+    status = FRIENDLY[curStage] || "正在处理…";
+    if(b.status === "done") status = "✅ 分析完成——结果已就绪，去“查看气道”看他的气道模型";
+  }
+  // 进度百分比：按已见阶段 / 全阶段
+  const doneCount = STAGE_ORDER.filter(s=>seen.has(s)).length;
+  pct = b.status === "done" ? 100 : Math.round(doneCount / STAGE_ORDER.length * 100);
+  $("up-status").textContent = status;
+  $("up-pct").textContent = "进度 " + pct + "%（已完成 " + doneCount + " / " + STAGE_ORDER.length + " 个阶段）";
+  // 步骤条
+  let curStep = -1;
+  if(curStage){
+    for(let i = 0; i < STEP_DEFS.length; i++){
+      if(STEP_DEFS[i].stages.includes(curStage)){ curStep = i; break; }
+    }
+  }
+  const bar = $("step-bar");
+  bar.innerHTML = "";
+  STEP_DEFS.forEach((st, i)=>{
+    const cls = b.status === "done" || i < curStep || (curStep === -1 && seen.has(st.stages[st.stages.length-1]))
+      ? "done" : i === curStep && !blocked && b.status !== "done" ? "current" : "";
+    const div = document.createElement("div");
+    div.className = "step " + cls;
+    div.innerHTML = `<div class="dot">${cls === "done" ? "✓" : (i + 1)}</div>
+      <div class="nm">${esc(st.name)}</div><div class="hp">${esc(st.hint)}</div>`;
+    bar.appendChild(div);
+  });
+}
+
+/* ================= 启动 ================= */
+boot();
+</script>
+</body>
+</html>
