@@ -78,6 +78,14 @@ python code/pipeline/step7_build_skin_data.py    # 皮肤壳层（需原始 CT�
 `code/verify/` 收录施工期的验证/审计工具（网格校验、左右符号链、查看器
 数据完整性等），可独立运行。
 
+### 3b. 测试
+
+- `tests/test_quickstart.py`：开箱冒烟——源码可编译、依赖清单存在、README 占位说明、
+  合成示例数据完整、step1/step2 裸跑友好报错、cli capabilities。开箱仓库直接 `pytest` 全绿。
+- `tests/test_api.py`：工作台 API 测试四类 28 项（契约 / 数据边界拒绝 / exit 2/3 闸门映射 /
+  指标一致性，含双口径不可互换断言）。需工作台服务端 `server.py`（含患者数据，不随
+  开源版发布）——开箱仓库中该模块整模块跳过（`pytest.importorskip`）。
+
 ## 仓库剔除说明
 
 以下源工程文件**未收录**于本仓库（脱敏审查命中患者标识）：
