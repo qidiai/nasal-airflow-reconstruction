@@ -419,7 +419,7 @@ footer .fixed-sentence{
     </div>
     <div id="compare-body" style="display:none">
       <div class="btnrow" style="margin:12px 0 2px">
-        <button class="btn primary" id="compare-open-pn" type="button">👁 查看正常对照的气流</button>
+        <button class="btn primary" id="compare-open-pn" type="button">👁 正常对照气流（官方提供）—— 与本例气流对比</button>
       </div>
       <div class="cmp-insights" id="compare-insights"></div>
       <div id="compare-table"></div>
@@ -817,8 +817,8 @@ function seriesNoteHtml(b){
 /* ================= Hero 真实鼻腔 3D 模型（任务2，three.js 本地 vendor） ================= */
 const MODEL_META = {
   pA:{label:"患者A", orig:"91.8 万面", simp:"12 万面"},
-  pB:{label:"患者B", orig:"88.2 万面", simp:"12 万面"},
-  pN:{label:"正常对照", orig:"34.8 万面", simp:"12 万面"},
+  pB:{label:"患者B", orig:"88.2 万面", simp:"12 万面", steps:"1,500"},
+  pN:{label:"正常对照", orig:"34.8 万面", simp:"12 万面", steps:"322"},
 };
 let HERO = null;
 
@@ -1104,7 +1104,7 @@ function loadCfdFlow(cid, scene, center){
     .catch(function(e){ fail(e && e.message ? e.message : String(e)); });
 }
 
-function renderModelHero(cid, c){
+function renderModelHero(cid, c, flowView){   /* flowView=true：气流动画视图（renderHeroModelFlow 复用变体） */
   const hero = $("hero-box");
   destroyHeroModel();
   if(typeof THREE === "undefined"){ renderHeroPlaceholder(c, cid); return; }
@@ -1124,15 +1124,18 @@ function renderModelHero(cid, c){
         '<label><input type="checkbox" id="hero-ly-model" checked>' +
           '<span class="dot" style="background:#69d8c8"></span>气道模型</label>' +
         '<label title="示意动画（非真实解）——真实流线见上方 CFD 流线层">' +
-          '<input type="checkbox" id="hero-ly-flow">' +
+          '<input type="checkbox" id="hero-ly-flow"' + (flowView ? " checked" : "") + '>' +
           '<span class="dot" style="background:#f4a261"></span>气流粒子（示意）</label>' +
         '<label><input type="checkbox" id="hero-ly-wire">' +
           '<span class="dot" style="background:#bfe6ff"></span>线框/网格</label>' +
       '</div>' +
-      '<div class="hero3d-cap" title="' + esc(meta.label) + " 真实 CT 气道重建（" +
-        meta.orig + " → " + meta.simp + "）；CFD 流线 = step5 真实稳态解，速度着色（viridis，0–P98 m/s），与 GLB 同源坐标对齐\">" +
-        esc(meta.label) +
-        " · 真实 CT 气道 + 真实 CFD 流线（同源坐标对齐）；示意粒子可勾选关闭</div>" +
+      '<div class="hero3d-cap" title="' + (flowView
+        ? esc(meta.label) + " 真实气道 + CFD 流线（" + (meta.steps || "—") + " 步收敛解；速度着色 viridis 0–P98 m/s，与 GLB 同源坐标对齐）"
+        : esc(meta.label) + " 真实 CT 气道重建（" + meta.orig + " → " + meta.simp + "）；CFD 流线 = step5 真实稳态解，速度着色（viridis，0–P98 m/s），与 GLB 同源坐标对齐") + '">' +
+        (flowView
+          ? esc(meta.label) + " 真实气道 + CFD 流线（" + (meta.steps || "—") + " 步收敛解）" +
+            (cid === "pN" ? "" : "；正常对照见「正常对照（官方提供）」病例")
+          : esc(meta.label) + " · 真实 CT 气道 + 真实 CFD 流线（同源坐标对齐）；示意粒子可勾选关闭") + "</div>" +
       '<div class="hero3d-hint">拖拽旋转 · 滚轮缩放 · 自动缓慢旋转</div>' +
       '<div class="hero3d-load" id="hero3d-load"><span class="spin"></span>正在加载三维模型…</div>' +
     "</div>";
@@ -1209,6 +1212,17 @@ function renderModelHero(cid, c){
       }
     });
     scene.add(root);
+    /* nFaces 数值断言锚点（Playwright 读控制台日志）：索引三角形数 = GLB 实际面数 */
+    let _nFaces = 0, _nVerts = 0;
+    root.traverse(function(o){
+      if(o.isMesh && o.geometry && o.geometry.attributes.position){
+        _nVerts += o.geometry.attributes.position.count;
+        _nFaces += o.geometry.index ? o.geometry.index.count / 3
+                                    : o.geometry.attributes.position.count / 3;
+      }
+    });
+    console.info("[hero] GLB " + meta.label + " 渲染就绪 nFaces=" + _nFaces +
+                 " nVerts=" + _nVerts + (flowView ? "（气流动画视图：3D 模型 + CFD 流线）" : ""));
     /* ---------- 图层构建：线框副本（默认关）+ 气流粒子（默认开）+ 勾选绑定 ---------- */
     root.updateMatrixWorld(true);
     const wireMat = new THREE.MeshBasicMaterial({wireframe:true, color:0xbfe6ff,
@@ -1229,7 +1243,7 @@ function renderModelHero(cid, c){
     HERO.flow = flow;
     HERO.layers = {model:root, flow:(flow ? flow.pts : null), wire:wireGroup};
     bindHeroChk("hero-ly-model", HERO.layers.model, true);
-    bindHeroChk("hero-ly-flow", HERO.layers.flow, false);  /* 有了真实 CFD 流线，示意粒子默认关 */
+    bindHeroChk("hero-ly-flow", HERO.layers.flow, !!flowView);  /* 模型视图默认关；气流动画视图默认开（粒子+真实流线双呈现） */
     bindHeroChk("hero-ly-wire", HERO.layers.wire, false);
     loadCfdFlow(cid, scene, center);   /* 第四层：真实 CFD 流线（异步加载，独立勾选，默认开） */
     camera.position.set(radius*1.5, -radius*2.3, radius*1.0);
@@ -1464,6 +1478,13 @@ function renderHeroWithToggle(cid, c){
   setHeroView(cid, c, "model", true);
 }
 
+/* 气流动画视图（无 per-case 查看器、但有真实 GLB+CFD 流线的病例，当前 pB/pN）：
+   renderModelHero 复用变体——3D 真实气道 + CFD 流线 + 示意粒子默认全开，
+   标题按病例收敛步数标注（MODEL_META.steps：pB=1,500 步 / pN=322 步）。 */
+function renderHeroModelFlow(cid, c){
+  renderModelHero(cid, c, true);
+}
+
 function setHeroView(cid, c, view, force){
   const hero = $("hero-box");
   if(!force && hero.dataset.view === view) return;   /* 同视图幂等：防误重建/WebGL 重复初始化 */
@@ -1473,14 +1494,20 @@ function setHeroView(cid, c, view, force){
   if(bf) bf.classList.toggle("active", view === "flow");
   if(view === "flow"){
     destroyHeroModel();   /* 切走时销毁 three 场景并 forceContextLoss 释放 WebGL 上下文 */
-    const src = c.viewer_available
-      ? "/static/cases/" + encodeURIComponent(cid) + "/viewer_single.html"
-      : "/static/demo/viewer.html?breath=1&ct=0";
-    hero.innerHTML = '<iframe class="hero-frame" src="' + src +
-      '" title="' + (c.viewer_available
-        ? "气道三维查看器（拖拽旋转 / 呼吸粒子 / 流线 / 探针读数）"
-        : "气流动画 · 合成 demo 查看器（呼吸粒子 / 流线 / 图层勾选，100% 合成示例）") +
-      '"></iframe>';
+    if(c.viewer_available){
+      /* pA：per-case 完整查看器不变；title 注明方案对比的占位壳层口径（与本例气流分清） */
+      const src = "/static/cases/" + encodeURIComponent(cid) + "/viewer_single.html";
+      hero.innerHTML = '<iframe class="hero-frame" src="' + src +
+        '" title="气道三维查看器（拖拽旋转 / 呼吸粒子 / 流线 / 探针读数）；方案对比页内为 1/2/3mm 虚拟占位壳层（患者自体方案，非正常对照）"></iframe>';
+    } else if(c.model_available){
+      /* 无 per-case 查看器、但有真实 GLB + CFD 流线（pB/pN）：
+         气流动画 = 3D 真实气道模型 + CFD 流线（内联 three.js 渲染，不开 demo iframe） */
+      renderHeroModelFlow(cid, c);
+    } else {
+      const src = "/static/demo/viewer.html?breath=1&ct=0";
+      hero.innerHTML = '<iframe class="hero-frame" src="' + src +
+        '" title="气流动画 · 合成 demo 查看器（呼吸粒子 / 流线 / 图层勾选，100% 合成示例）"></iframe>';
+    }
   } else {
     renderModelHero(cid, c);   /* 内部先 destroyHeroModel 再重建 three 场景；图层勾选面板随 3D 视图重建 */
   }
