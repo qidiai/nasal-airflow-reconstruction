@@ -10,11 +10,15 @@
   PII 扫描/DICOM 头普查直接 import run_all 同款函数（scan_pii/survey_dicom）。
 - 冻结资产零接触：pA viewer_single.html 等为只读复用副本（webapp/cases/pA/）。
 
-部署形态（数据边界硬闸 · 修订1）：
+部署形态（数据边界硬闸 · 修订1 · T17 弹窗授权升级）：
 - m1-local（默认；M1 笔记本=服务器）：ONLY_SYNTHETIC=false，真实患者数据
   可展示（pA/pB 演示展示在案；R-01 授权分级机制保留——对 presenter_only 病例生效）
 - m2-cloud（M2/M3 云形态）：ONLY_SYNTHETIC=true，仅合成 demo；
   POST /api/case 代码级禁用（501，R-03）；非合成病例访问一律 403 + 中文提示
+- T17 弹窗授权工作流：上传真实数据前三问（数据主体/处理位置/数据保留）→
+  consent_record.json 落档 → 路由矩阵分级放行。云形态真实病例须带合法 consent
+  （本人/已授权 + 云端 opt-in；他人数据须有 authorization_ref）才放行，记录缺失
+  一律 fail-closed 拦截（旧硬闸语义保留）。PII 扫描与质量闸门判定逻辑一行未改。
 
 上传/建病例接口（两条路共用同一条链）：
 - POST /api/case（source=builtin|path|demo）与 POST /api/upload
@@ -347,13 +351,300 @@ def allocate_prefix(reg):
     return f"pX{n}"
 
 
+# ---------------------------------------------------------------- T17 弹窗授权工作流
+# 背景：原"合成数据硬闸"（only_synthetic）一刀切拦真实数据——患者自助用不了。
+# T17 升级为**分级弹窗授权工作流**：
+#   ① 上传真实数据前弹三问（数据主体/处理位置/数据保留）→
+#   ② consent_record.json 落档（与产物同目录，随 manifest 可追溯）→
+#   ③ 路由矩阵分级放行（m1-local 本地直跑；m2-cloud 仅"本人/已授权 + 云端 opt-in"放行）。
+# 红线（改动纪律）：PII 头扫描与质量闸门（run_all exit 2/3）的判定逻辑一行未改——
+# 本模块只是其上的"放行层"；且 consent 记录缺失时一律按拦截处理（fail-closed，
+# 旧硬闸语义完整保留）。弹窗文案中性、不诱导、不夸大。
+CONSENT_SCHEMA = "consent_record/v1"
+CONSENT_PROMPT_VERSION = "T17-v1"
+CONSENT_FILENAME = "consent_record.json"
+CONSENT_DISCLAIMER = "分析结果仅供科研与康复参考，非诊断依据，非医疗器械。"
+DATA_SUBJECTS = ("self", "authorized_third_party", "demo")
+PROCESSING_SCOPES = ("local_only", "cloud_optin")
+RETENTION_DAYS = (1, 7, 30)
+# 弹窗三问的中文选项文案 ↔ 规范枚举（前端文案与落档字段解耦；两种写法都收）
+_DATA_SUBJECT_ALIASES = {
+    "self": "self", "本人ct": "self", "本人": "self", "自身": "self",
+    "authorized_third_party": "authorized_third_party",
+    "已获授权的他人ct": "authorized_third_party", "他人ct": "authorized_third_party",
+    "已获授权": "authorized_third_party",
+    "demo": "demo", "演示数据": "demo",
+}
+_PROCESSING_ALIASES = {
+    "local_only": "local_only", "仅本机处理": "local_only",
+    "cloud_optin": "cloud_optin", "允许云端处理": "cloud_optin",
+}
+_DATA_SUBJECT_LABELS = {"self": "本人CT", "authorized_third_party": "已获授权的他人CT",
+                        "demo": "演示数据"}
+_PROCESSING_LABELS = {"local_only": "仅本机处理", "cloud_optin": "允许云端处理"}
+
+
+def _rel_to_here(path):
+    """相对仓库根的展示路径；跨盘（状态目录在 C:\\ 等）时回退绝对路径，绝不抛错。"""
+    try:
+        return os.path.relpath(path, HERE).replace("\\", "/")
+    except ValueError:
+        return str(path).replace("\\", "/")
+
+
+def consent_record_path(rec):
+    """consent 记录路径：<病例输出目录>/consent_record.json（与管线产物同目录）。"""
+    out_dir = (rec or {}).get("out_dir") or ""
+    return os.path.join(out_dir, CONSENT_FILENAME) if out_dir else ""
+
+
+def _parse_retention(v):
+    """数据保留 → 规范值（session_only | days:N，N∈{1,7,30}）；非法返回 None。"""
+    s = str(v if v is not None else "").strip()
+    if not s:
+        return None
+    if s.lower() == "session_only" or s.startswith("仅本次会话"):
+        return "session_only"
+    m = re.match(r"^days:\s*(\d+)$", s.lower()) or re.match(r"^保留\s*(\d+)\s*天$", s)
+    if m and int(m.group(1)) in RETENTION_DAYS:
+        return "days:%d" % int(m.group(1))
+    return None
+
+
+def parse_consent_fields(src):
+    """弹窗三问 → 规范 consent 字段；校验失败返回 (None, 中文错误串)。
+
+    三问校验（顺序即报错顺序）：
+      ① 数据主体 ∈ 本人CT / 已获授权的他人CT / 演示数据
+      ② 处理位置 ∈ 仅本机处理 / 允许云端处理
+      ③ 数据保留 ∈ 仅本次会话 / 保留1天 / 保留7天 / 保留30天（不提供永久保留）
+    附加：非演示数据必填"来源一句话"；authorization_ref 由放行层判定
+    （见 evaluate_consent——缺凭证时如实拦截而非此处 400，便于落档留证）。
+    """
+    src = src if isinstance(src, dict) else {}
+    ds_raw = str(src.get("data_subject") or "").strip()
+    ds = _DATA_SUBJECT_ALIASES.get(ds_raw.lower())
+    if not ds:
+        return None, ("数据主体须为 本人CT / 已获授权的他人CT / 演示数据（收到："
+                      + (ds_raw or "（空）") + "）")
+    ps_raw = str(src.get("processing_scope") or "").strip()
+    ps = _PROCESSING_ALIASES.get(ps_raw.lower())
+    if not ps:
+        return None, ("处理位置须为 仅本机处理 / 允许云端处理（收到："
+                      + (ps_raw or "（空）") + "）")
+    ret = _parse_retention(src.get("retention"))
+    if not ret:
+        return None, ("数据保留须为 仅本次会话 / 保留1天 / 保留7天 / 保留30天（收到："
+                      + str(src.get("retention") or "（空）") + "）")
+    decl = str(src.get("source_declaration") or "").strip()
+    if ds != "demo" and not decl:
+        return None, "来源声明必填（演示数据可空）：请用一句话说明数据来源"
+    return {"data_subject": ds,
+            "source_declaration": decl,
+            "authorization_ref": str(src.get("authorization_ref") or "").strip(),
+            "processing_scope": ps,
+            "retention": ret}, ""
+
+
+def build_consent_record(case_id, fields, pii_scan="pass"):
+    """构造 consent_record.json（T17-v1 契约字段；键序对齐任务书 §②）。"""
+    return {
+        "schema": CONSENT_SCHEMA,
+        "timestamp": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "prompt_version": CONSENT_PROMPT_VERSION,
+        "case_id": case_id,
+        "data_subject": fields.get("data_subject"),
+        "source_declaration": fields.get("source_declaration") or "",
+        "authorization_ref": fields.get("authorization_ref") or "",
+        "processing_scope": fields.get("processing_scope"),
+        "retention": fields.get("retention"),
+        "pii_scan": pii_scan,
+        "ui_lang": "zh-CN",
+    }
+
+
+def save_consent_record(rec, record):
+    """consent 记录落档（原子替换写；返回落盘路径，失败抛 OSError）。"""
+    p = consent_record_path(rec)
+    if not p:
+        return ""
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    tmp = p + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(record, f, ensure_ascii=False, indent=1)
+    os.replace(tmp, p)
+    return p
+
+
+def load_consent_record(rec):
+    """读病例 consent 记录；缺失/损坏 → None（调用方一律按 fail-closed 处理）。"""
+    p = consent_record_path(rec)
+    if not p or not os.path.isfile(p):
+        return None
+    try:
+        with open(p, encoding="utf-8") as f:
+            d = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
+    return d if isinstance(d, dict) else None
+
+
+def consent_summary(rec):
+    """注册表/接口用 consent 摘要（字段级，不含患者标识）。"""
+    c = load_consent_record(rec)
+    if not c:
+        return None
+    return {
+        "schema": c.get("schema"), "timestamp": c.get("timestamp"),
+        "prompt_version": c.get("prompt_version"),
+        "data_subject": c.get("data_subject"),
+        "data_subject_label": _DATA_SUBJECT_LABELS.get(c.get("data_subject"), "?"),
+        "processing_scope": c.get("processing_scope"),
+        "processing_scope_label": _PROCESSING_LABELS.get(c.get("processing_scope"), "?"),
+        "retention": c.get("retention"),
+        "authorization_ref": c.get("authorization_ref") or "",
+        "pii_scan": c.get("pii_scan"),
+    }
+
+
+def evaluate_consent(cfg, rec, consent):
+    """路由矩阵判定（fail-closed 兜底）。返回 dict：
+    {"release": bool, "basis": 判定依据, "reason": 拦截理由(放行时空串), "code": 拦截码|None}
+
+    矩阵（任务书 §③）：
+      m1-local  本人/已授权/演示  —— 放行（本地形态现状语义保留；consent 仅作知情记录）
+      m1-local  PII FAIL         —— ⛔（上游 _register_case 已拦，本层不放行 PII）
+      m2-cloud  demo(合成)       —— 放行（rec.synthetic 直通，现状不变）
+      m2-cloud  本人 + 云端 opt-in —— 放行
+      m2-cloud  他人数据无凭证    —— ⛔ 缺少授权凭证
+      m2-cloud  consent 缺失      —— ⛔ fail-closed（旧硬闸语义）
+      任何       质量闸 fail       —— propagate（run_all exit 2 → blocked，本层不覆盖）
+    """
+    case_id = rec.get("case_id")
+    if rec.get("synthetic"):
+        return {"release": True, "basis": "synthetic", "reason": "", "code": None}
+    if not cfg.only_synthetic:
+        # m1-local（M1 笔记本=服务器）：真实数据本形态即允许（现状语义一行未收紧）。
+        # PII 头扫描与质量闸门在其上游独立把关，弹窗不参与放行判定。
+        return {"release": True, "basis": "local", "reason": "", "code": None}
+    # ---------------- m2-cloud：分级放行 ----------------
+    if not consent:
+        return {"release": False, "basis": "fail_closed", "code": 403,
+                "reason": "consent 授权记录缺失——未通过弹窗授权"
+                          "（fail-closed：旧硬闸语义保留，一律按拦截处理）"}
+    if consent.get("case_id") and str(consent.get("case_id")) != str(case_id):
+        return {"release": False, "basis": "record_mismatch", "code": 403,
+                "reason": "consent 记录与本病例不匹配（记录 %s ≠ 病例 %s）"
+                          % (consent.get("case_id"), case_id)}
+    if (rec.get("pii") or {}).get("pass") is False or consent.get("pii_scan") == "fail":
+        return {"release": False, "basis": "pii_fail", "code": 403,
+                "reason": "PII 头扫描 FAIL——弹窗授权不能放行 PII 拦截（如实拦截）"}
+    subj = consent.get("data_subject")
+    if subj == "demo":
+        return {"release": False, "basis": "subject_mismatch", "code": 403,
+                "reason": "声明为『演示数据』但本病例含真实患者数据——声明与数据不符"}
+    if subj not in DATA_SUBJECTS:
+        return {"release": False, "basis": "bad_subject", "code": 403,
+                "reason": "consent 记录数据主体字段非法：" + str(subj)}
+    if consent.get("processing_scope") != "cloud_optin":
+        return {"release": False, "basis": "scope_not_optin", "code": 403,
+                "reason": "处理位置为『仅本机处理』——未授权云端处理，云形态不可访问"}
+    if subj == "authorized_third_party" and not str(
+            consent.get("authorization_ref") or "").strip():
+        return {"release": False, "basis": "missing_ref", "code": 403,
+                "reason": "缺少授权凭证，上传方需提供数据来源授权"}
+    if consent.get("pii_scan") != "pass":
+        return {"release": False, "basis": "pii_not_scanned", "code": 403,
+                "reason": "consent 记录未载明 PII 扫描 PASS（当前：%s）"
+                          % (consent.get("pii_scan") or "（空）")}
+    return {"release": True, "basis": "cloud_optin", "reason": "", "code": None}
+
+
+def _consent_audit(cfg, event):
+    """consent 事件审计流水（JSONL，落 state_dir；不进病例目录，不随病例删除而消失）。"""
+    try:
+        p = os.path.join(cfg.state_dir, "consent-audit.jsonl")
+        with open(p, "a", encoding="utf-8") as f:
+            f.write(json.dumps(event, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
+
+def _consent_from_form(form):
+    """从表单解析弹窗三问（字段 consent=JSON 串）。返回 (fields|None, err|None)。
+
+    缺省即"未弹窗"（向后兼容：不带 consent 的调用行为与 T16 完全一致）；
+    带字段但非法 → (None, 错误串)，调用方 400。
+    """
+    raw = form.get("consent") if form is not None else None
+    if not raw:
+        return None, None
+    try:
+        src = json.loads(raw)
+    except (ValueError, TypeError):
+        return None, "consent 字段须为 JSON 对象（弹窗三问）"
+    return parse_consent_fields(src)
+
+
+def _session_purge(cfg, case_id):
+    """『仅本次会话（跑完即删）』：分析链结束后删除本例数据（上传副本+输出目录+注册表条目）。
+
+    仅对 kind==upload 且 consent.retention==session_only 的病例生效；路径包含性校验
+    与 DELETE /api/case 同口径（realpath 必须落在 state_dir 内，否则不删）。
+    内置/合成病例、未声明 session_only 的病例一律不动。返回是否执行了清理。
+    """
+    try:
+        rec = get_case_record(cfg, case_id)
+        if not rec or rec.get("kind") != "upload":
+            return False
+        consent = load_consent_record(rec)
+        if not consent or consent.get("retention") != "session_only":
+            return False
+        state = os.path.realpath(cfg.state_dir)
+        targets = []
+        out_dir = rec.get("out_dir") or ""
+        if out_dir and os.path.realpath(out_dir).startswith(state + os.sep):
+            targets.append(out_dir)
+        up_root = os.path.realpath(os.path.join(cfg.state_dir, "uploads"))
+        for p in (rec.get("dicom_dir"), rec.get("upload_source_dir")):
+            if not p:
+                continue
+            real = os.path.realpath(p)
+            if real == up_root or real.startswith(up_root + os.sep):
+                targets.append(real)
+        removed = []
+        for t in targets:
+            if os.path.isdir(t):
+                shutil.rmtree(t, ignore_errors=True)
+                removed.append(_rel_to_here(t))
+        reg = load_registry(cfg)
+        reg.pop(case_id, None)
+        save_registry(cfg, reg)
+        _consent_audit(cfg, {"ts": now_iso(), "event": "session_only_purge",
+                             "case_id": case_id, "removed": removed,
+                             "retention": "session_only"})
+        return True
+    except Exception as e:  # noqa: BLE001
+        # 清理失败绝不反噬管线；但如实留痕（不许静默吞）
+        _consent_audit(cfg, {"ts": now_iso(), "event": "session_only_purge_error",
+                             "case_id": case_id, "error": repr(e)})
+        return False
+
+
 # ---------------------------------------------------------------- 数据边界硬闸（修订1 / R-03）
 def gate_case_access(cfg, rec):
-    """返回 (ok, http_status, message)。"""
+    """返回 (ok, http_status, message)。
+
+    T17：云形态的"仅合成数据"硬闸升级为**分级放行层**——真实病例带合法
+    consent_record.json（本人/已授权 + 云端 opt-in）才放行；记录缺失或不足
+    一律拦截（fail-closed，旧硬闸语义保留）。m1-local 行为与 T16 一致。
+    """
     if cfg.only_synthetic and not rec.get("synthetic"):
-        return (False, 403,
-                "数据边界硬闸（修订1）：本形态为云形态（M2/M3），仅合成 demo 数据可访问；"
-                f"病例 {rec.get('case_id')} 含真实患者数据，仅限本地模式（M1 笔记本=服务器）")
+        ev = evaluate_consent(cfg, rec, load_consent_record(rec))
+        if not ev["release"]:
+            return (False, ev["code"] or 403,
+                    "数据边界（T17 弹窗授权分级放行）：" + ev["reason"]
+                    + f"；本形态为云形态（M2/M3），病例 {rec.get('case_id')} 未获放行")
     if rec.get("presenter_only") and not cfg.presenter:
         return (False, 403,
                 "授权确认中（R-01）：该病例数据来源方演示展示确认在办；"
@@ -747,6 +1038,7 @@ def run_chain_thread(cfg, case_id, solve, result_dir):
     reg[case_id] = r
     save_registry(cfg, reg)
     RUNNING.pop(case_id, None)
+    _session_purge(cfg, case_id)  # T17：consent『仅本次会话（跑完即删）』
 
 
 def to_wsl_path(win_path):
@@ -838,6 +1130,7 @@ def _mark_solve_status(cfg, case_id, status, failures):
         reg[case_id] = r
         save_registry(cfg, reg)
     RUNNING.pop(case_id, None)
+    _session_purge(cfg, case_id)  # T17：consent『仅本次会话（跑完即删）』
 
 
 # ---------------------------------------------------------------- T16 全自动链编排（占位算例接线）
@@ -870,6 +1163,7 @@ def _full_chain_finish(cfg, case_id, status, failures=None, exit_code=None):
     reg[case_id] = r
     save_registry(cfg, reg)
     RUNNING.pop(case_id, None)
+    _session_purge(cfg, case_id)  # T17：consent『仅本次会话（跑完即删）』
 
 
 def _mask_npz_name(prefix, case):
@@ -1247,10 +1541,14 @@ def _safe_upload_name(filename):
 
 
 def _register_case(cfg, dicom_dir, prefix, case_name, label, kind, case_id_val,
-                   anatomy_inclusion=False, extra_rec=None):
+                   anatomy_inclusion=False, extra_rec=None, consent=None):
     """建病例公共链（POST /api/case 与 POST /api/upload 共用）：
     注册表登记 → PII 闸门（run_all 同款 scan_pii）→ DICOM 头普查 → step1 气道分割。
     返回 (flask_response, status_code)；与既有 POST /api/case 行为一致（逐条同码）。
+
+    consent（T17，可选）：弹窗三问的规范字段（parse_consent_fields 产物）——
+    提供即落 consent_record.json 到本例输出目录；缺省行为与 T16 完全一致
+    （不落记录 → 云形态按 fail-closed 拦截，本地形态不受影响）。
     """
     reg = load_registry(cfg)
     out_dir = os.path.join(cfg.state_dir, "cases", case_id_val)
@@ -1281,6 +1579,30 @@ def _register_case(cfg, dicom_dir, prefix, case_name, label, kind, case_id_val,
     append_progress(out_dir,
                     f"[W] PII 头扫描：{'PASS' if pii['pass'] else 'FAIL'}"
                     f" ×{pii.get('fail_count', 0)}（{pii.get('files', 0)} 头）")
+
+    # ---- ② T17 弹窗授权记录落档（consent_record.json，与产物同目录） ----
+    # 落档先于 PII 判定分支：PII FAIL 的病例同样留证（pii_scan=fail），
+    # 由 evaluate_consent 在云形态如实拦截——弹窗授权不得放行 PII 拦截。
+    if consent:
+        try:
+            crec = build_consent_record(rec["case_id"], consent,
+                                        pii_scan="pass" if pii["pass"] else "fail")
+            cp = save_consent_record(rec, crec)
+            rec["consent"] = consent_summary(rec)
+            _consent_audit(cfg, {"ts": now_iso(), "event": "consent_recorded",
+                                 "case_id": rec["case_id"],
+                                 "data_subject": crec["data_subject"],
+                                 "processing_scope": crec["processing_scope"],
+                                 "retention": crec["retention"],
+                                 "pii_scan": crec["pii_scan"]})
+            append_progress(out_dir, "[W] consent_record.json 落档：" + cp +
+                            "（数据主体=%s 处理位置=%s 保留=%s）"
+                            % (crec["data_subject"], crec["processing_scope"],
+                               crec["retention"]))
+        except OSError as e:  # noqa: BLE001
+            append_progress(out_dir, "[W] !!! consent_record.json 落档失败：%r"
+                            "（授权记录缺失 → 云形态将按 fail-closed 拦截）" % (e,))
+
     if not pii["pass"]:
         rec.update(status="blocked", gate="PII 头扫描（run_all 同款闸门）",
                    gate_failures=[digest_pii_fail(f) for f in pii.get("fails", [])][:10],
@@ -1521,9 +1843,11 @@ def _attach_series_note(resp, series_msg, series_list):
     return resp
 
 
-def _register_path_case(cfg, dicom_dir, source_label="服务器目录导入", extra_rec=None):
+def _register_path_case(cfg, dicom_dir, source_label="服务器目录导入", extra_rec=None,
+                        consent=None):
     """按 CT 目录建病例：R-11 契约校验（≥2 个 .dcm / ≤2048 MiB）→ 分配前缀 → _register_case。
     供 POST /api/case（source=path）与 POST /api/upload（网页直接上传）共用。
+    consent（T17）：弹窗三问规范字段，透传给 _register_case 落档。
     """
     dcm_files = glob.glob(os.path.join(dicom_dir, "*.dcm"))
     dcm_count = len(dcm_files)
@@ -1541,7 +1865,7 @@ def _register_path_case(cfg, dicom_dir, source_label="服务器目录导入", ex
     prefix = allocate_prefix(reg)
     return _register_case(cfg, dicom_dir, prefix, "v1",
                           f"上传病例 {prefix}（{source_label}）", "upload", prefix,
-                          extra_rec=extra_rec)
+                          extra_rec=extra_rec, consent=consent)
 
 
 # ---------------------------------------------------------------- Flask app
@@ -1593,6 +1917,8 @@ def build_app(cfg):
             "only_synthetic": cfg.only_synthetic,
             "presenter": cfg.presenter,
             "ct_base_configured": bool(cfg.ct_base),
+            "consent_workflow": CONSENT_PROMPT_VERSION,
+            "consent_disclaimer": CONSENT_DISCLAIMER,
             "server": "T15 Web 工作台（Flask 包装既有管线）",
         })
 
@@ -1661,6 +1987,7 @@ def build_app(cfg):
                 "note": r.get("note") or "",
                 "evidence": [],
                 "anatomy_inclusion": bool(r.get("anatomy_inclusion")),
+                "consent": r.get("consent") or consent_summary(r),
                 "exit_code": r.get("exit_code"),
                 "gate": r.get("gate"),
                 "gate_failures": r.get("gate_failures") or [],
@@ -1702,9 +2029,13 @@ def build_app(cfg):
                                   anatomy_inclusion=bool(d.get("anatomy_inclusion")))
         elif source == "path":
             dicom_dir = form.get("dicom_path", "").strip().strip('"')
+            consent, cerr = _consent_from_form(form)  # T17 弹窗三问（可与上传同送）
+            if cerr:
+                return jsonify({"error": "弹窗授权字段校验失败：" + cerr}), 400
             if not dicom_dir or not os.path.isdir(dicom_dir):
                 return jsonify({"error": f"CT 目录不存在或不是目录：{dicom_dir}"}), 400
-            return _register_path_case(cfg, dicom_dir, source_label="服务器目录导入")
+            return _register_path_case(cfg, dicom_dir, source_label="服务器目录导入",
+                                       consent=consent)
         else:
             return jsonify({"error": "source 须为 builtin|path|demo"}), 400
 
@@ -1808,6 +2139,10 @@ def build_app(cfg):
                                 "仅接受 .dcm 文件（收到："
                                 + os.path.basename(f.filename.replace("\\", "/"))
                                 + "）；请重新选择 CT 序列目录（非 .dcm 文件请先剔除）"}), 400
+        # T17 弹窗三问：真实数据上传即校验（非法 400 且不落盘；缺省=未弹窗，行为同 T16）
+        consent, cerr = _consent_from_form(request.form)
+        if cerr:
+            return jsonify({"error": "弹窗授权字段校验失败：" + cerr}), 400
         stamp = time.strftime("%Y%m%d-%H%M%S")
         up_dir = os.path.join(cfg.state_dir, "uploads", stamp)
         n = 1
@@ -1855,10 +2190,88 @@ def build_app(cfg):
             case_dir, series_msg, series_list = sel
             # K3-M4：登记原始上传目录（含未选中序列文件），供 DELETE 时一并清理（PII 收口）
             resp = _register_path_case(cfg, case_dir, source_label="网页上传（自动选序列）",
-                                       extra_rec={"upload_source_dir": up_dir})
+                                       extra_rec={"upload_source_dir": up_dir},
+                                       consent=consent)
             return _attach_series_note(resp, series_msg, series_list)
         # 走 source=path 同一条链（PII 闸门 → DICOM 头抽检 → step1）
-        return _register_path_case(cfg, up_dir, source_label="网页上传")
+        return _register_path_case(cfg, up_dir, source_label="网页上传",
+                                   consent=consent)
+
+    @app.route("/api/consent", methods=["POST"])
+    def api_consent():
+        """T17 弹窗授权落档（三问 → consent_record.json 写入病例输出目录）。
+
+        body(JSON)：{case_id, data_subject, source_declaration, authorization_ref,
+                     processing_scope, retention}
+        用途：① 上传时随表单提交（字段 consent）；② 病例已登记后补录授权。
+        云形态不禁用（本端点是授权**元数据**，不是数据上传口——upload/case 仍 501/503）。
+        响应含 release 判定（与访问闸门同一函数 evaluate_consent，单一事实源）。
+        """
+        body = request.get_json(silent=True) or {}
+        # 先校验三问（fail-fast），再定位病例——与 /api/upload 的校验次序一致
+        fields, err = parse_consent_fields(body)
+        if err:
+            return jsonify({"error": "弹窗授权字段校验失败：" + err}), 400
+        case_id = str(body.get("case_id") or "").strip()
+        rec = get_case_record(cfg, case_id) if case_id else None
+        if rec is None:
+            return jsonify({"error": "病例不存在：" + (case_id or "（空）")}), 404
+        if not rec.get("out_dir"):
+            return jsonify({"error": "病例无输出目录（合成示例不落授权档）"}), 400
+        pii_pass = (rec.get("pii") or {}).get("pass")
+        crec = build_consent_record(
+            rec["case_id"], fields,
+            pii_scan="pass" if pii_pass else ("fail" if pii_pass is False else "pending"))
+        try:
+            cp = save_consent_record(rec, crec)
+        except OSError as e:  # noqa: BLE001
+            return jsonify({"error": "consent 记录落档失败：%r（未落档 → 云形态按 "
+                                     "fail-closed 拦截）" % (e,)}), 500
+        if rec.get("kind") == "upload":  # 仅上传病例进注册表（内置病例不虚增条目）
+            reg = load_registry(cfg)
+            r = reg.get(rec["case_id"]) or rec
+            r["consent"] = consent_summary(rec)
+            r["updated"] = now_iso()
+            reg[rec["case_id"]] = r
+            save_registry(cfg, reg)
+        _consent_audit(cfg, {"ts": now_iso(), "event": "consent_recorded",
+                             "case_id": rec["case_id"],
+                             "data_subject": crec["data_subject"],
+                             "processing_scope": crec["processing_scope"],
+                             "retention": crec["retention"],
+                             "pii_scan": crec["pii_scan"]})
+        append_progress(rec.get("out_dir") or "",
+                        "[W] consent_record.json 落档（/api/consent）：" + cp)
+        ev = evaluate_consent(cfg, rec, crec)
+        if ev["basis"] == "local":
+            msg = "授权记录已落档（本地形态：真实数据仅本机处理）"
+        elif ev["release"]:
+            msg = "授权记录已落档：云端处理已获授权（opt-in）——云形态可放行"
+        else:
+            msg = "授权记录已落档，但本次声明未获放行：" + ev["reason"]
+        return jsonify({
+            "case_id": rec["case_id"], "schema": CONSENT_SCHEMA,
+            "prompt_version": CONSENT_PROMPT_VERSION,
+            "record_path": _rel_to_here(cp),
+            "record": crec,
+            "release": {"ok": ev["release"], "basis": ev["basis"], "reason": ev["reason"]},
+            "disclaimer": CONSENT_DISCLAIMER, "message": msg,
+        })
+
+    @app.route("/api/consent/<case_id>")
+    def api_consent_get(case_id):
+        """读本例授权记录 + 放行判定（如实回显；未落档 → has_record=false）。"""
+        rec = get_case_record(cfg, case_id)
+        if rec is None:
+            abort(404)
+        crec = load_consent_record(rec)
+        ev = evaluate_consent(cfg, rec, crec)
+        return jsonify({
+            "case_id": case_id, "has_record": crec is not None,
+            "record": crec,
+            "release": {"ok": ev["release"], "basis": ev["basis"], "reason": ev["reason"]},
+            "disclaimer": CONSENT_DISCLAIMER,
+        })
 
     @app.route("/api/qc/<case_id>")
     def api_qc(case_id):
@@ -1993,6 +2406,7 @@ def build_app(cfg):
             "exit_code": rec.get("exit_code"),
             "gate": rec.get("gate"),
             "gate_failures": rec.get("gate_failures") or [],
+            "consent": rec.get("consent") or consent_summary(rec),
             "current_stage": current, "stages_seen": stages,
             "n_lines": len(lines),
             "full_chain": rec.get("full_chain"),  # T16：占位链进度（cases_done/total、stage）

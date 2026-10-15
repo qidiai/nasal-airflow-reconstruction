@@ -574,6 +574,7 @@ footer .fixed-sentence{
       <option value="local">本机求解（需 WSL + OpenFOAM 环境）</option>
     </select>
     <div class="steps" id="step-bar"></div>
+    <div class="hint" id="pg-consent" style="margin:4px 0"></div>
     <div class="up-status" id="up-status">尚未启动——选择病例后点"启动分析"</div>
     <div class="up-pct" id="up-pct"></div>
     <div id="up-gate"></div>
@@ -659,6 +660,68 @@ footer .fixed-sentence{
   </div>
   鼻腔气流分析 · T16 患者优先 UI 重设计 · 管线七脚本/查看器/门禁体系/审计链全部复用，本工作台仅为浏览器外壳
 </footer>
+
+<!-- ================= T17 弹窗授权（上传真实数据前必答三问；合成 demo 不弹） ================= -->
+<style>
+.ct-mask{position:fixed;inset:0;background:rgba(28,24,20,.55);display:none;
+  align-items:center;justify-content:center;z-index:9999;padding:16px}
+.ct-modal{background:#fff;max-width:640px;width:100%;max-height:92vh;overflow:auto;
+  border-radius:14px;padding:20px 22px 14px;box-shadow:0 18px 50px rgba(0,0,0,.28)}
+.ct-modal h3{margin:0 0 4px;font-size:19px}
+.ct-sub{font-size:13px;color:#6b6257;margin-bottom:8px}
+.ct-q{border-top:1px solid #EFE9DF;padding:10px 0 2px}
+.ct-qlabel{font-weight:700;font-size:14.5px;margin-bottom:6px}
+.ct-opt{display:flex;align-items:flex-start;gap:8px;font-size:14px;padding:3px 0;
+  cursor:pointer;line-height:1.5}
+.ct-opt input[type=radio]{margin-top:3px}
+.ct-hint{font-size:12.5px;color:#8a7f72;margin:4px 0 0 26px}
+.ct-err{color:#b23;font-size:13.5px;min-height:20px;margin:6px 0 0}
+.ct-fixed{margin-top:10px;padding-top:9px;border-top:1px dashed #DDD3C6;
+  font-size:12.5px;color:#7a6f62;text-align:center}
+</style>
+<div class="ct-mask" id="ct-consent-mask">
+  <div class="ct-modal" role="dialog" aria-modal="true" aria-labelledby="ct-consent-title">
+    <h3 id="ct-consent-title">数据授权确认（三问）</h3>
+    <div class="ct-sub">上传真实 CT 前请逐项确认；选择「合成 demo」体验时不会出现本弹窗。</div>
+    <div class="ct-q">
+      <div class="ct-qlabel">① 数据主体</div>
+      <label class="ct-opt"><input type="radio" name="ct-ds" value="self" checked><span>本人CT</span></label>
+      <label class="ct-opt"><input type="radio" name="ct-ds" value="authorized_third_party"><span>已获授权的他人CT</span></label>
+      <label class="ct-opt"><input type="radio" name="ct-ds" value="demo"><span>演示数据</span></label>
+    </div>
+    <div class="ct-q">
+      <div class="ct-qlabel">② 处理位置</div>
+      <label class="ct-opt"><input type="radio" name="ct-ps" value="local_only" checked><span>仅本机处理（数据不离开这台电脑）</span></label>
+      <label class="ct-opt"><input type="radio" name="ct-ps" value="cloud_optin"><span>允许云端处理（opt-in，需主动选择）</span></label>
+    </div>
+    <div class="ct-q">
+      <div class="ct-qlabel">③ 数据保留</div>
+      <select class="f" id="ct-ret">
+        <option value="session_only">仅本次会话（跑完即删）</option>
+        <option value="days:1">保留 1 天</option>
+        <option value="days:7" selected>保留 7 天</option>
+        <option value="days:30">保留 30 天</option>
+      </select>
+      <div class="ct-hint">不提供永久保留。选「仅本次会话」时，分析链跑完即删除本例数据（不可恢复）。</div>
+    </div>
+    <div class="ct-q">
+      <label class="ct-qlabel" for="ct-decl">数据来源说明（一句话；选「演示数据」可空）</label>
+      <input class="f" id="ct-decl" maxlength="200"
+        placeholder="例：本人 2026-09 于 XX 医院鼻窦 CT，已自行脱敏">
+      <div id="ct-q-ref" style="display:none">
+        <label class="ct-qlabel" for="ct-ref" style="margin-top:8px">授权凭证（他人数据必填：凭证号 / 文件名）</label>
+        <input class="f" id="ct-ref" maxlength="200"
+          placeholder="例：授权书-20261001.pdf / 编号 AUTH-2026-101">
+      </div>
+    </div>
+    <div class="ct-err" id="ct-err"></div>
+    <div class="btnrow" style="margin-top:4px">
+      <button class="btn primary" id="ct-ok" type="button">确认并继续</button>
+      <button class="btn" id="ct-cancel" type="button">取消</button>
+    </div>
+    <div class="ct-fixed">分析结果仅供科研与康复参考，非诊断依据，非医疗器械。</div>
+  </div>
+</div>
 
 <script src="/static/vendor/three.min.js"></script>
 <script src="/static/vendor/OrbitControls.js"></script>
@@ -1700,6 +1763,11 @@ function uploadCT(){
       " MiB，超过 2048 MiB 上限（R-11 上传契约）——未上传。请缩减 CT 序列后重试。</div>";
     return;
   }
+  /* T17：真实数据上传前先弹三问授权（合成 demo 不走本路径，不弹） */
+  openConsentModal(ct=>doUploadCT(ct));
+}
+
+function doUploadCT(consent){
   $("up-go").disabled = true;
   $("up-result").innerHTML = "";
   $("up-track").classList.remove("done");
@@ -1707,6 +1775,7 @@ function uploadCT(){
   $("up-line").innerHTML = '<span class="spin"></span>正在上传 ' + upPicked.length + " 个文件…";
   const fd = new FormData();
   for(const f of upPicked) fd.append("files", f, f.name);
+  fd.append("consent", JSON.stringify(consent));   /* T17 弹窗三问随上传一并提交 */
   const xhr = new XMLHttpRequest();   /* 用 XHR 而非 fetch：需要 upload.onprogress 驱动进度条 */
   xhr.open("POST", "/api/upload");
   xhr.upload.onprogress = ev=>{
@@ -1755,10 +1824,11 @@ async function handleUploadResponse(xhr){
   await loadCases(); fillCaseSelects();
   const cid = b.case_id;
   const label = b.label || ((S.cases.find(c=>c.case_id === cid) || {}).label) || cid;
+  const cnote = await consentNoteFor(cid);   /* T17：授权记录落档回显（如实） */
   S.selectedProgress = cid;
   if($("pg-case")) $("pg-case").value = cid;
   if(b.status === "blocked"){
-    $("up-result").innerHTML = (seriesNoteHtml(b) || "") +
+    $("up-result").innerHTML = (seriesNoteHtml(b) || "") + cnote +
       '<div class="ok">📝 病例已登记：' + esc(label) + "（case_id " + esc(cid) + "）——质检未通过，已生成拦截卡。</div>" +
       warmGateCardHtml({gate: b.gate, gate_failures: b.gate_failures}) +
       '<div class="btnrow" style="margin-top:10px">' +
@@ -1766,7 +1836,7 @@ async function handleUploadResponse(xhr){
     return;
   }
   const nfiles = (b.pii && b.pii.files != null) ? b.pii.files : "—";
-  $("up-result").innerHTML = (seriesNoteHtml(b) || "") +
+  $("up-result").innerHTML = (seriesNoteHtml(b) || "") + cnote +
     '<div class="ok">✅ 病例已登记：' + esc(label) + "（case_id " + esc(cid) + "）——隐私检查 PASS（" + esc(nfiles) + " 头 CT），气道模型已重建。</div>" +
     '<div class="btnrow" style="margin-top:10px">' +
     `<button class="btn primary" onclick='switchTab("upload");document.getElementById("pg-case").value="${esc(cid)}";loadProgress();document.getElementById("pg-run").scrollIntoView({block:"center"});'>去跑管线 →</button>` +
@@ -1781,13 +1851,16 @@ async function handleUploadResponse(xhr){
 }
 async function registerCase(){
   const source = $("nc-source").value;
+  /* 合成 demo 不弹；内置病例为赛方发放/授权在案序列（授权凭证在提交包内），不弹；
+     服务器目录导入的是真实 CT → 先弹三问。 */
   if(source === "demo"){ doRegister("demo"); return; }
   if(source === "builtin"){
     await doRegister("builtin", {case_id: $("nc-case-id").value});
   } else {
     const path = $("nc-dicom-path").value.trim();
     if(!path){ $("nc-result").innerHTML = '<div class="warn">请填写 CT 目录路径</div>'; return; }
-    await doRegister("path", {dicom_path: path});
+    openConsentModal(ct=>doRegister("path",
+      {dicom_path: path, consent: JSON.stringify(ct)}));
   }
 }
 async function doRegister(source, extra){
@@ -1812,12 +1885,13 @@ async function doRegister(source, extra){
   }
   const b = r.body;
   await loadCases(); fillCaseSelects();
+  const cnote = await consentNoteFor(b.case_id);   /* T17：授权记录落档回显（如实） */
   if(b.status === "blocked"){
-    $("nc-result").innerHTML = warmGateCardHtml({gate: b.gate, gate_failures: b.gate_failures}) +
+    $("nc-result").innerHTML = cnote + warmGateCardHtml({gate: b.gate, gate_failures: b.gate_failures}) +
       `<div class="btnrow" style="margin-top:10px">
        <button class="btn" onclick='switchTab("upload");document.getElementById("pg-case").value="${esc(b.case_id)}";loadProgress();'>查看检查卡片 →</button></div>`;
   } else {
-    $("nc-result").innerHTML =
+    $("nc-result").innerHTML = cnote +
       `<div class="ok">✅ 病例 ${esc(b.case_id)} 登记成功：隐私检查 PASS（${b.pii ? b.pii.files : "—"} 头 CT），气道模型已重建。</div>
        <div class="btnrow" style="margin-top:10px">
        <button class="btn primary" onclick='switchTab("upload");document.getElementById("pg-case").value="${esc(b.case_id)}";loadProgress();'>查看分析进度 →</button>
@@ -1930,6 +2004,7 @@ async function loadProgress(){
     return;
   }
   const b = r.body;
+  if($("pg-consent")) $("pg-consent").innerHTML = progressConsentHtml(b);
   renderSteps(b);
   // 闸门 → 暖卡
   const gate = $("up-gate");
@@ -2003,6 +2078,89 @@ function renderSteps(b){
     div.innerHTML = `<div class="dot">${cls === "done" ? "✓" : (i + 1)}</div>
       <div class="nm">${esc(st.name)}</div><div class="hp">${esc(st.hint)}</div>`;
     bar.appendChild(div);
+  });
+}
+
+/* ================= T17 弹窗授权工作流（三问 → consent_record.json 落档） =================
+   入口：上传真实 CT（网页上传 / 服务器目录导入）前必须先答三问；合成 demo 与内置病例
+   （授权凭证在提交包内、演示展示在案）不弹。弹窗结果随请求提交（字段 consent=JSON），
+   后端落 consent_record.json 并给出放行判定；本页只做如实回显，不承诺任何放行结果。 */
+const CT_DISCLAIMER = "分析结果仅供科研与康复参考，非诊断依据，非医疗器械。";  /* 与后端同句 */
+const DS_LABEL = {self:"本人CT", authorized_third_party:"已获授权的他人CT", demo:"演示数据"};
+const PS_LABEL = {local_only:"仅本机处理", cloud_optin:"允许云端处理"};
+let ctOnOk = null;
+
+function retLabel(v){
+  if(v === "session_only") return "仅本次会话（跑完即删）";
+  const m = /^days:(\d+)$/.exec(String(v || ""));
+  return m ? "保留 " + m[1] + " 天" : String(v || "");
+}
+function ctRadio(name){
+  const el = document.querySelector('input[name="' + name + '"]:checked');
+  return el ? el.value : "";
+}
+function ctModalSync(){
+  const ds = ctRadio("ct-ds");
+  if($("ct-q-ref")) $("ct-q-ref").style.display = (ds === "authorized_third_party") ? "" : "none";
+}
+function openConsentModal(onOk){
+  ctOnOk = onOk;
+  if($("ct-err")) $("ct-err").textContent = "";
+  if($("ct-consent-mask")) $("ct-consent-mask").style.display = "flex";
+  ctModalSync();
+}
+function closeConsentModal(){
+  ctOnOk = null;
+  if($("ct-consent-mask")) $("ct-consent-mask").style.display = "none";
+}
+function ctModalConfirm(){
+  const ds = ctRadio("ct-ds"), ps = ctRadio("ct-ps");
+  const ret = $("ct-ret") ? $("ct-ret").value : "";
+  const decl = $("ct-decl") ? $("ct-decl").value.trim() : "";
+  const ref = $("ct-ref") ? $("ct-ref").value.trim() : "";
+  const fail = m=>{ if($("ct-err")) $("ct-err").textContent = m; };
+  if(!ds) return fail("请选择数据主体");
+  if(ds !== "demo" && !decl) return fail("请用一句话说明数据来源（选「演示数据」可空）");
+  if(ds === "authorized_third_party" && !ref)
+    return fail("他人数据必须填写授权凭证（凭证号 / 文件名）——缺凭证时云端会被如实拦截");
+  if(!ps) return fail("请选择处理位置");
+  if(S.onlySynthetic && ps !== "cloud_optin")
+    return fail("云形态须选择「允许云端处理」才能继续（「仅本机处理」的数据不上云）");
+  if(!ret) return fail("请选择数据保留方式");
+  const consent = {data_subject: ds, source_declaration: decl, authorization_ref: ref,
+                   processing_scope: ps, retention: ret};
+  const fn = ctOnOk;
+  closeConsentModal();
+  if(fn) fn(consent);
+}
+async function consentNoteFor(cid){
+  const r = await api("/api/consent/" + encodeURIComponent(cid));
+  if(!r.ok || !r.body || !r.body.record) return "";
+  const c = r.body.record;
+  return '<div class="hint" style="margin:6px 0">🔐 授权记录已落档（' + esc(c.schema || "") +
+    " · " + esc(c.prompt_version || "") + "）：" + esc(DS_LABEL[c.data_subject] || c.data_subject) +
+    " · " + esc(PS_LABEL[c.processing_scope] || c.processing_scope) +
+    " · " + esc(retLabel(c.retention)) +
+    (c.source_declaration ? " · 来源：" + esc(c.source_declaration) : "") +
+    (c.authorization_ref ? " · 凭证：" + esc(c.authorization_ref) : "") +
+    "<br>" + esc(CT_DISCLAIMER) + "</div>";
+}
+function progressConsentHtml(b){
+  const c = b && b.consent;
+  if(!c) return '<span class="muted">🔐 授权记录：未登记（云形态将按 fail-closed 拦截）</span>';
+  return "🔐 授权记录（consent_record.json）：" + esc(c.data_subject_label || c.data_subject) +
+    " · " + esc(c.processing_scope_label || c.processing_scope) +
+    " · " + esc(retLabel(c.retention)) +
+    (c.authorization_ref ? " · 凭证 " + esc(c.authorization_ref) : "") +
+    " · PII " + esc(c.pii_scan);
+}
+if($("ct-consent-mask")){
+  for(const el of document.querySelectorAll('input[name="ct-ds"]'))
+    el.addEventListener("change", ctModalSync);
+  $("ct-ok").addEventListener("click", ctModalConfirm);
+  $("ct-cancel").addEventListener("click", closeConsentModal);
+  $("ct-consent-mask").addEventListener("click", e=>{
+    if(e.target === $("ct-consent-mask")) closeConsentModal();   /* 点遮罩=取消，不提交 */
   });
 }
 
