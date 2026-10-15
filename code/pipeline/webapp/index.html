@@ -718,6 +718,7 @@ function destroyHeroModel(){
   try{ if(HERO.raf) cancelAnimationFrame(HERO.raf); }catch(e){}
   try{ if(HERO.controls && HERO.controls.dispose) HERO.controls.dispose(); }catch(e){}
   try{ if(HERO.flowGeo && HERO.flowGeo.dispose) HERO.flowGeo.dispose(); }catch(e){}
+  try{ if(HERO.cfd && HERO.cfd.geo && HERO.cfd.geo.dispose) HERO.cfd.geo.dispose(); }catch(e){}
   try{ if(HERO.wireMat && HERO.wireMat.dispose) HERO.wireMat.dispose(); }catch(e){}
   try{ if(HERO.renderer && HERO.renderer.forceContextLoss) HERO.renderer.forceContextLoss(); }catch(e){}
   try{ if(HERO.renderer && HERO.renderer.dispose) HERO.renderer.dispose(); }catch(e){}
@@ -734,7 +735,8 @@ function heightColor(t){
 }
 
 /* ================= Hero 图层系统（demo 查看器同款交互：勾选即时切 visible） =================
-   三层：气道模型（现有 GLB）/ 气流粒子（新增，默认开）/ 线框网格（默认关）。
+   四层：气道模型（现有 GLB）/ 真实 CFD 流线（第四层，默认开，数据与配色见 loadCfdFlow 注）/
+   气流粒子（示意动画，有了真实流线后默认关）/ 线框网格（默认关）。
    粒子交互语言参考 webapp/demo/viewer.html：图层勾选 bindChk（2020-2028 行）、
    呼吸粒子 F6（4s 正弦周期 + BufferGeometry Points，2143-2228 行）——
    hero 无流线数据，改为"GLB 表面面积加权采样 + 沿法线呼吸往复"实现。 */
@@ -895,6 +897,96 @@ function updateHeroFlow(now){
   f.mat.opacity = 0.72 + 0.26*(0.5 + 0.5*Math.sin((t/T)*Math.PI*2));
 }
 
+/* ================= 第四图层：真实 CFD 流线（速度着色） =================
+   数据 /static/models/flowlines_<cid>.json：提取自参照 viewer_single.html 内嵌
+   VIEWER_DATA.streamlines（step5 真实导出，v5 @15 L/min 层流，simpleFoam 稳态 ≤1500 步收敛），
+   已一次性变换到气道 GLB 帧（perm z->x, y->y, x->z + 平移；提取脚本 align_frames.py 48 组
+   轴置换×符号穷举分位数匹配 score=4.74mm，verify_parity.py 射线奇偶终裁 1.2k 采样点
+   inside=87.2%，翻转组仅 27-35%——同源坐标对齐实证）。渲染搬参照查看器同款：
+   viridis 色表 + 色标上限=流线速度 P98；折线转线段对 -> LineSegments 单 draw call。 */
+const CFD_VIRIDIS = [[68,1,84],[72,40,120],[62,74,137],[49,104,142],[38,130,142],
+  [31,158,137],[53,183,121],[109,205,89],[180,222,44],[253,231,37]];
+function cfdViridis(t){
+  t = Math.max(0, Math.min(1, t));
+  const x = t * (CFD_VIRIDIS.length - 1), i = Math.floor(x), f = x - i;
+  const a = CFD_VIRIDIS[Math.min(i, CFD_VIRIDIS.length - 2)];
+  const b = CFD_VIRIDIS[Math.min(i + 1, CFD_VIRIDIS.length - 1)];
+  return [(a[0]+(b[0]-a[0])*f)/255, (a[1]+(b[1]-a[1])*f)/255, (a[2]+(b[2]-a[2])*f)/255];
+}
+/* CFD 层可见时气道壳转半透明（参照查看器同款观感：能看穿壁面读到腔内流线），关闭复原不透明 */
+function setHeroModelGhost(on){
+  const cfd = HERO && HERO.cfd, root = HERO && HERO.layers && HERO.layers.model;
+  if(!cfd || !root) return;
+  if(!cfd.modelMat){
+    root.traverse(function(o){ if(o.isMesh && o.material){ cfd.modelMat = o.material; } });
+  }
+  const m = cfd.modelMat;
+  if(!m) return;
+  m.transparent = !!on;
+  m.opacity = on ? 0.42 : 1.0;
+  m.depthWrite = !on;
+  m.needsUpdate = true;
+}
+function loadCfdFlow(cid, scene, center){
+  const h0 = HERO;                       /* 竞态守卫：加载完成前切换病例则丢弃 */
+  const fail = function(msg){
+    if(HERO !== h0) return;
+    console.warn("[hero] CFD 流线层不可用：" + msg);
+    const el = $("hero-ly-cfd"), lb = el && el.parentNode;
+    if(el){ el.disabled = true; el.checked = false; }
+    if(lb){ lb.classList.add("off"); lb.title = "CFD 流线数据不可用（" + msg + "）"; }
+    /* 标注诚实化：本例无流线数据时，底部标注不得继续宣称"真实 CFD 流线" */
+    const cap = document.querySelector(".hero3d-cap");
+    if(cap) cap.textContent = cap.textContent.replace(
+      "真实 CFD 流线（同源坐标对齐）", "CFD 流线数据待本例回传");
+  };
+  fetch("/static/models/flowlines_" + encodeURIComponent(cid) + ".json")
+    .then(function(r){ if(!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+    .then(function(D){
+      if(HERO !== h0) return;
+      if(!D || !D.lines || !D.lines.length){ fail("数据为空"); return; }
+      const vmax = D.vmax_p98 || D.speed_abs_max || 1;
+      const pos = [], col = [];
+      for(let li = 0; li < D.lines.length; li++){
+        const p = D.lines[li].p, s = D.lines[li].s, m = s.length;
+        for(let i = 0; i < m - 1; i++){        /* 折线 -> 线段对（LineSegments 单 draw call） */
+          for(let e = 0; e < 2; e++){
+            const j = i + e, b = j * 3;
+            pos.push(p[b] - center.x, p[b+1] - center.y, p[b+2] - center.z);
+            const c = cfdViridis(s[j] / vmax);
+            col.push(c[0], c[1], c[2]);
+          }
+        }
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+      geo.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+      const mat = new THREE.LineBasicMaterial({vertexColors:true, transparent:true, opacity:0.95});
+      const seg = new THREE.LineSegments(geo, mat);
+      seg.frustumCulled = false;
+      seg.renderOrder = 3;
+      scene.add(seg);
+      HERO.cfd = {seg:seg, geo:geo, mat:mat, modelMat:null,
+                  nLines:D.lines.length, nPts:(D.n_points || 0), vmax:vmax};
+      HERO.layers.cfd = seg;
+      const el = $("hero-ly-cfd");
+      if(el){
+        seg.visible = el.checked;              /* 尊重加载期间的既有勾选态 */
+        el.disabled = false;
+        el.addEventListener("change", function(){
+          seg.visible = el.checked;
+          setHeroModelGhost(el.checked);
+          if(el.parentNode) el.parentNode.classList.toggle("off", !el.checked);
+        });
+        if(el.parentNode) el.parentNode.classList.toggle("off", !el.checked);
+      }
+      setHeroModelGhost(seg.visible);
+      console.info("[hero] CFD 流线层：" + D.lines.length + " 条 / " + (D.n_points || 0) +
+                   " 点 / 色标 0-" + vmax + " m/s（P98，速度着色）");
+    })
+    .catch(function(e){ fail(e && e.message ? e.message : String(e)); });
+}
+
 function renderModelHero(cid, c){
   const hero = $("hero-box");
   destroyHeroModel();
@@ -908,16 +1000,21 @@ function renderModelHero(cid, c){
         '" target="_blank" rel="noopener">完整 CFD 查看器 →</a>' : "") +
       '<div class="hero3d-layers" id="hero3d-layers">' +
         '<div class="hl-title">图层</div>' +
+        '<label title="CFD 稳态解流线（速度着色，simpleFoam 稳态 ≤1500 步收敛解，v5 @15 L/min）——与气道 GLB 同源坐标对齐">' +
+          '<input type="checkbox" id="hero-ly-cfd" checked>' +
+          '<span class="dot" style="background:#21918c"></span>真实气流（CFD 流线）</label>' +
         '<label><input type="checkbox" id="hero-ly-model" checked>' +
           '<span class="dot" style="background:#69d8c8"></span>气道模型</label>' +
-        '<label><input type="checkbox" id="hero-ly-flow" checked>' +
-          '<span class="dot" style="background:#f4a261"></span>气流粒子</label>' +
+        '<label title="示意动画（非真实解）——真实流线见上方 CFD 流线层">' +
+          '<input type="checkbox" id="hero-ly-flow">' +
+          '<span class="dot" style="background:#f4a261"></span>气流粒子（示意）</label>' +
         '<label><input type="checkbox" id="hero-ly-wire">' +
           '<span class="dot" style="background:#bfe6ff"></span>线框/网格</label>' +
       '</div>' +
       '<div class="hero3d-cap" title="' + esc(meta.label) + " 真实 CT 气道重建（" +
-        meta.orig + " → " + meta.simp + '）">' + esc(meta.label) +
-        " · 真实 CT 气道 + 气流粒子示意（粒子为示意动画，定量分布见下方指标与切片图）</div>" +
+        meta.orig + " → " + meta.simp + "）；CFD 流线 = step5 真实稳态解，速度着色（viridis，0–P98 m/s），与 GLB 同源坐标对齐\">" +
+        esc(meta.label) +
+        " · 真实 CT 气道 + 真实 CFD 流线（同源坐标对齐）；示意粒子可勾选关闭</div>" +
       '<div class="hero3d-hint">拖拽旋转 · 滚轮缩放 · 自动缓慢旋转</div>' +
       '<div class="hero3d-load" id="hero3d-load"><span class="spin"></span>正在加载三维模型…</div>' +
     "</div>";
@@ -928,7 +1025,7 @@ function renderModelHero(cid, c){
     renderer = new THREE.WebGLRenderer({canvas:canvas, antialias:true, alpha:true});
   }catch(e){
     $("hero3d-load").innerHTML = "WebGL 不可用（" + esc(e.message) + "）";
-    ["hero-ly-model","hero-ly-flow","hero-ly-wire"].forEach(function(id){
+    ["hero-ly-cfd","hero-ly-model","hero-ly-flow","hero-ly-wire"].forEach(function(id){
       const el = $(id);
       if(el){ el.disabled = true; el.checked = false;
         if(el.parentNode) el.parentNode.classList.add("off"); }
@@ -1014,8 +1111,9 @@ function renderModelHero(cid, c){
     HERO.flow = flow;
     HERO.layers = {model:root, flow:(flow ? flow.pts : null), wire:wireGroup};
     bindHeroChk("hero-ly-model", HERO.layers.model, true);
-    bindHeroChk("hero-ly-flow", HERO.layers.flow, true);
+    bindHeroChk("hero-ly-flow", HERO.layers.flow, false);  /* 有了真实 CFD 流线，示意粒子默认关 */
     bindHeroChk("hero-ly-wire", HERO.layers.wire, false);
+    loadCfdFlow(cid, scene, center);   /* 第四层：真实 CFD 流线（异步加载，独立勾选，默认开） */
     camera.position.set(radius*1.5, -radius*2.3, radius*1.0);
     camera.near = radius*0.01; camera.far = radius*40;
     camera.updateProjectionMatrix();
@@ -1032,7 +1130,7 @@ function renderModelHero(cid, c){
   }, undefined, function(err){
     const ld = $("hero3d-load");
     if(ld) ld.innerHTML = "三维模型加载失败：" + esc(err && err.message ? err.message : err);
-    ["hero-ly-model","hero-ly-flow","hero-ly-wire"].forEach(function(id){
+    ["hero-ly-cfd","hero-ly-model","hero-ly-flow","hero-ly-wire"].forEach(function(id){
       const el = $(id);
       if(el){ el.disabled = true; el.checked = false;
         if(el.parentNode) el.parentNode.classList.add("off"); }
