@@ -62,8 +62,42 @@ from flask import Flask, jsonify, request, send_file, abort  # noqa: E402
 WEBAPP_DIR = os.path.join(HERE, "webapp")
 STEP1 = os.path.join(HERE, "step1_airway_segment.py")
 RUN_ALL = os.path.join(HERE, "run_all.py")
+STEP3 = os.path.join(HERE, "step3_make_narrowing.py")
+STEP5 = os.path.join(HERE, "step5_export_viewer_data.py")
 VIEWER_TEMPLATE = os.path.join(WEBAPP_DIR, "viewer_template", "viewer.html")
 BUILD_SINGLE = os.path.join(WEBAPP_DIR, "tools", "build_single_file.py")
+# 共享几何产物落点（内置病例历史 run_all OUT_ROOT=HERE/out；上传病例在 state cases/<cid>）
+SHARED_STEP2 = os.path.join(HERE, "out", "step2")
+
+
+def post_cfd_path(cfg=None):
+    """post_cfd.py 定位（仓库外数据盘资产，R-14：不硬编码绝对路径）：
+    环境变量 P0_POST_CFD 优先；否则按 ct_base 相对推导
+    <ct_base 上级>/项目/P0-鼻塞设计工具/阶段2-CFD后处理/post_cfd.py。
+    找不到返回 None（调用方按环境缺失上报）。"""
+    env = os.environ.get("P0_POST_CFD")
+    if env and os.path.isfile(env):
+        return env
+    base = ""
+    if cfg is not None:
+        base = cfg.ct_base or ""
+    base = base or os.environ.get("P0_CT_BASE") or ""
+    if base:
+        p = os.path.join(os.path.dirname(os.path.abspath(base)),
+                         "项目", "P0-鼻塞设计工具",
+                         "阶段2-CFD后处理", "post_cfd.py")
+        if os.path.isfile(p):
+            return p
+    return None
+
+
+def _pipeline_python():
+    """管线子进程解释器（T16 全自动链）：仓库 .venv 优先
+    （pyvista/skimage/trimesh/pydicom 等管线依赖全齐）;无 venv 部署则回退当前解释器
+    （此时要求运行 server 的解释器已装齐管线依赖）。R-14：相对推导,零硬编码。"""
+    venv_py = os.path.join(os.path.dirname(os.path.dirname(HERE)),
+                           ".venv", "Scripts", "python.exe")
+    return venv_py if os.path.isfile(venv_py) else sys.executable
 
 # 本例真实结果目录（只读导出源）：out/结果/P0-result-<case_id>-v1/后处理/
 RESULTS_ROOT = os.path.join(HERE, "out", "结果")
@@ -806,6 +840,403 @@ def _mark_solve_status(cfg, case_id, status, failures):
     RUNNING.pop(case_id, None)
 
 
+# ---------------------------------------------------------------- T16 全自动链编排（占位算例接线）
+def _mark_full_chain(cfg, case_id, **fields):
+    """full_chain 进度字段写注册表（cases_total/cases_done/stage 等；不动 status）。"""
+    reg = load_registry(cfg)
+    r = reg.get(case_id)
+    if r is None:
+        return
+    fc = r.get("full_chain") or {}
+    fc.update(fields)
+    fc["updated"] = now_iso()
+    r["full_chain"] = fc
+    r["updated"] = now_iso()
+    reg[case_id] = r
+    save_registry(cfg, reg)
+
+
+def _full_chain_finish(cfg, case_id, status, failures=None, exit_code=None):
+    """链终点统一收口:status/exit_code 落注册表 + RUNNING 释放。"""
+    rec = get_case_record(cfg, case_id)
+    reg = load_registry(cfg)
+    r = reg.get(case_id) or rec
+    r["status"] = status
+    r["updated"] = now_iso()
+    if failures is not None:
+        r["gate_failures"] = failures
+    if exit_code is not None:
+        r["exit_code"] = exit_code
+    reg[case_id] = r
+    save_registry(cfg, reg)
+    RUNNING.pop(case_id, None)
+
+
+def _mask_npz_name(prefix, case):
+    """run_all 命名规则（run_all.py L743-745 同款）：pA+v5 无后缀；pA 其他 mask_full-<case>；
+    其他前缀 mask_full-<prefix>-<case>。"""
+    if prefix == "pA":
+        return "mask_full.npz" if case == "v5" else f"mask_full-{case}.npz"
+    return f"mask_full-{prefix}-{case}.npz"
+
+
+def _step2_mask_npz(rec):
+    """本例 mask npz：state out_dir/step2 优先，共享 out/step2 兜底（内置病例历史落点）。"""
+    name = _mask_npz_name(rec.get("prefix"), rec.get("case_name"))
+    for root in (os.path.join(rec.get("out_dir") or "", "step2"), SHARED_STEP2):
+        p = os.path.join(root, name)
+        if os.path.isfile(p):
+            return p
+    return ""
+
+
+def _step2_case_dir(rec):
+    """本例主算例目录（constant/ 存在才认）：state 优先,共享 out/step2 兜底。"""
+    cn = f"P0-OF-case-{rec.get('prefix')}-{rec.get('case_name')}"
+    for root in (os.path.join(rec.get("out_dir") or "", "step2"), SHARED_STEP2):
+        d = os.path.join(root, cn)
+        if os.path.isdir(os.path.join(d, "constant")):
+            return d
+    return ""
+
+
+def _auto_zwin(mask_npz, main_metrics=None, dicom_dir=""):
+    """占位档层位窗口(T16 接线口径,规格书 pA 实证复现):
+    zwin 起点 = 本例入口层(主算例 metrics 的 inlet 面质心 z / DICOM 全分辨率层距),
+    长度 21mm(pA:0.35mm×60 层;zwin=[100,160] 起点恰为入口层 96-102,逐位吻合)。
+    pB 入口 z=24.6mm → zwin=[82,152](入口上方的鼻瓣-下鼻甲区,气流必经)。
+    回退:metrics/DICOM 不可用时退 35%-55% 有效带启发(如实记录,不臆断)。"""
+    import glob as _glob
+    import numpy as np
+    try:
+        _pm = json.load(open(main_metrics, encoding="utf-8")) \
+            if main_metrics and os.path.isfile(main_metrics) else None
+        _pp = (_pm or {}).get("patches") or {}
+        zs = [float(_pp[s]["face_centre_mm"][2])
+              for s in ("inletL", "inletR") if _pp.get(s)]
+        import pydicom as _pydicom
+        _dcm = sorted(_glob.glob(os.path.join(dicom_dir, "*.dcm")))
+        _dz = 0.0
+        if len(_dcm) >= 2:
+            _a = _pydicom.dcmread(_dcm[0], stop_before_pixels=True)
+            _b = _pydicom.dcmread(_dcm[1], stop_before_pixels=True)
+            _dz = abs(float(_b.ImagePositionPatient[2])
+                      - float(_a.ImagePositionPatient[2]))
+        if zs and _dz > 0:
+            z_in = sum(zs) / len(zs)
+            zlo = int(round(z_in / _dz))
+            zhi = zlo + int(round(21.0 / _dz))
+            _note = ("入口层驱动:z_in=%.2fmm dz=%.3fmm -> [%d,%d]"
+                     % (z_in, _dz, zlo, zhi))
+            return zlo, zhi, _note
+    except Exception:  # noqa: BLE001
+        pass
+    d = np.load(mask_npz)
+    area = np.asarray(d["mask"]).sum(axis=(1, 2))
+    nz = int(np.nonzero(area > 0)[0][-1]) + 1
+    return int(round(nz * 0.35)), int(round(nz * 0.55)), "回退:35%-55% 有效带启发"
+
+
+def _run_wsl_allrun_monitored(case_dir, out_dir, tag, stall_limit=1200):
+    """WSL Allrun + 步数心跳看护（与 solve_thread 同口径 20 分钟）。
+    返回 (rc, last_time)。"""
+    wsl_case = to_wsl_path(case_dir)
+    append_progress(out_dir, f"[W] {tag} WSL Allrun 启动：{wsl_case}")
+    log_path = os.path.join(case_dir, "log.simpleFoam")
+    cmd = f"cd {shlex.quote(wsl_case)} && ./Allrun"
+    try:
+        proc = subprocess.Popen(["wsl", "bash", "-lc", cmd],
+                                stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL)
+    except Exception as e:  # noqa: BLE001
+        append_progress(out_dir, f"[W] !!! {tag} WSL 启动异常：{e!r}")
+        return (-999, None)
+    last_step, stall = -1.0, 0
+    while proc.poll() is None:
+        time.sleep(30)
+        step = parse_last_time(log_path)
+        if step is not None and step > last_step:
+            last_step = step
+            stall = 0
+            append_progress(out_dir, f"[W] {tag} 求解进行：Time = {step:g}")
+        else:
+            stall += 30
+            if stall >= stall_limit:
+                proc.kill()
+                proc.wait()
+                if os.path.isfile(log_path):
+                    shutil.copy2(log_path,
+                                 os.path.join(out_dir, "allrun_stalled_archive.log"))
+                append_progress(out_dir, f"[W] !!! {tag} 看护触发：{stall_limit}s 无步数"
+                                "增长——已终止并归档日志")
+                return (-998, parse_last_time(log_path))
+    rc = proc.poll()
+    append_progress(out_dir, f"[W] {tag} Allrun 结束（exit {rc}）")
+    return (rc, parse_last_time(log_path))
+
+
+def _run_postcfd(cfg, vtk_dir, post_dir, tag, out_dir, timeout=1800):
+    """post_cfd 后处理（nu=1.8e-5 审计 Y2 口径显式传入;几何单位 m）。
+    返回 (rc, metrics_path)。"""
+    pc = post_cfd_path(cfg)
+    if not pc:
+        append_progress(out_dir, f"[W] !!! {tag} post_cfd.py 未定位"
+                        "（P0_POST_CFD 或 ct_base 推导）——环境缺失")
+        return (-997, "")
+    os.makedirs(post_dir, exist_ok=True)
+    cmd = [_pipeline_python(), "-X", "utf8", pc, vtk_dir, "--out", post_dir,
+           "--rho", "1.2", "--nu", "1.8e-5", "--geom-units", "m"]
+    append_progress(out_dir, "[W] $ " + " ".join(cmd))
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=timeout)
+        rc = r.returncode
+    except Exception as e:  # noqa: BLE001
+        append_progress(out_dir, f"[W] !!! {tag} post_cfd 异常：{e!r}")
+        return (-999, "")
+    mp = os.path.join(post_dir, "metrics.json")
+    if rc == 0 and os.path.isfile(mp):
+        append_progress(out_dir, f"[W] {tag} post_cfd 完成——metrics.json 就绪")
+        return (0, mp)
+    append_progress(out_dir, f"[W] !!! {tag} post_cfd 失败（exit {rc}）")
+    return (rc, "")
+
+
+def full_chain_thread(cfg, case_id, zlo=None, zhi=None):
+    """T16 全自动链（后台线程）：
+    主算例（结果就绪则复用；否则几何补齐→WSL Allrun→post_cfd）
+    → step3 占位算例×3（含占位体 STL）→ 逐个 WSL Allrun→post_cfd×3
+    → 契约占位档汇编（run_all assemble_contract + 占位 metrics）
+    → step5 导出（F3 六板门禁照常把关）→ 舞台化。
+    红线：run_all/step5 的契约与门禁逻辑一行不动——档案齐了闸门自然放行。"""
+    rec = get_case_record(cfg, case_id)
+    out_dir = rec.get("out_dir") or ""
+    try:
+        _full_chain_impl(cfg, case_id, rec, out_dir, zlo, zhi)
+    except Exception as e:  # noqa: BLE001
+        append_progress(out_dir, f"[W] !!! 全自动链异常：{e!r}")
+        _full_chain_finish(cfg, case_id, "failed",
+                           [f"全自动链异常：{e!r}"], exit_code=-999)
+
+
+def _full_chain_impl(cfg, case_id, rec, out_dir, zlo, zhi):
+    prefix, case = rec.get("prefix"), rec.get("case_name")
+    letter = (prefix or "X")[-1].upper()
+    main_case = f"P0-OF-case-{prefix}-{case}"
+    res_dir = os.path.join(RESULTS_ROOT, f"P0-result-{case_id}-v1")
+    append_progress(out_dir, "[W] T16 全自动链启动：主算例（复用/求解）→ step3 占位×3"
+                    " → WSL 求解×3 → post_cfd×3 → 契约汇编 → step5 导出")
+    _mark_full_chain(cfg, case_id, stage="S5_main", cases_total=4, cases_done=0)
+
+    def _fail(status, failures, exit_code):
+        append_progress(out_dir, "[W] !!! 全自动链中止：" + failures[0])
+        _full_chain_finish(cfg, case_id, status, failures, exit_code)
+        raise SystemExit(0)
+
+    # ---- S5 主算例：结果就绪则复用（pB 路径）；否则几何补齐→Allrun→post_cfd ----
+    main_vtu = RA.find_vtu(res_dir) if os.path.isdir(res_dir) else None
+    main_metrics = os.path.join(res_dir, "后处理", "metrics.json")
+    if main_vtu and os.path.isfile(main_metrics):
+        append_progress(out_dir, f"[W] 主算例结果复用：{res_dir}"
+                        "（VTK/internal.vtu + 后处理/metrics.json 就绪,不重跑）")
+        _mark_full_chain(cfg, case_id, cases_done=1)
+    else:
+        case_dir = _step2_case_dir(rec)
+        if not case_dir:
+            append_progress(out_dir, "[W] 几何缺失——run_all --solve skip 补齐 S0-S3 ...")
+            cmd = [_pipeline_python(), "-X", "utf8", RUN_ALL,
+                   "--dicom-dir", rec.get("dicom_dir") or "",
+                   "--case-prefix", prefix, "--case", case,
+                   "--solve", "skip", "--out-root", out_dir]
+            if rec.get("anatomy_inclusion"):
+                cmd += ["--allow-anatomy-inclusion"]
+            append_progress(out_dir, "[W] $ " + " ".join(cmd))
+            r = subprocess.run(cmd, capture_output=True, text=True,
+                               encoding="utf-8", errors="replace")
+            if r.returncode != 0:
+                _fail("blocked", [f"几何生成失败（run_all exit {r.returncode}），"
+                                  "详见进度日志"], r.returncode)
+            case_dir = _step2_case_dir(rec)
+        if not case_dir:
+            _fail("failed", ["主算例目录缺失（run_all 后仍未找到 constant/）"], 2)
+        # 拷贝到结果目录后原地求解（产物与档案同构落位）
+        if os.path.isdir(res_dir):
+            shutil.rmtree(res_dir)
+        shutil.copytree(case_dir, res_dir)
+        rc, _t = _run_wsl_allrun_monitored(res_dir, out_dir, "算例 1/4 " + main_case)
+        if rc != 0:
+            _fail("failed", [f"主算例 WSL Allrun 失败（exit {rc}）；"
+                             f"日志：{os.path.join(res_dir, 'log.simpleFoam')}"], rc)
+        rc2, main_metrics = _run_postcfd(
+            cfg, os.path.join(res_dir, "VTK"),
+            os.path.join(res_dir, "后处理"), "主算例 post_cfd", out_dir)
+        if rc2 != 0:
+            _fail("failed", [f"主算例 post_cfd 失败（exit {rc2}）"], rc2)
+        main_vtu = RA.find_vtu(res_dir)
+        if not main_vtu:
+            _fail("failed", ["主算例求解完成但 VTK/internal.vtu 缺失"], 2)
+        _mark_full_chain(cfg, case_id, cases_done=1)
+
+    # ---- S7 step3 占位算例生成（幂等：QC json 在则跳过） ----
+    _mark_full_chain(cfg, case_id, stage="S7_step3")
+    mask_npz = _step2_mask_npz(rec)
+    if not mask_npz:
+        _fail("failed", [f"mask npz 缺失（step2 未产出 {_mask_npz_name(prefix, case)}）"], 2)
+    # step5 的 mask 定位固定在 HERE/out/step2——上传病例 npz 在 state 目录时同步一份
+    shared_npz = os.path.join(SHARED_STEP2, os.path.basename(mask_npz))
+    if os.path.abspath(mask_npz) != os.path.abspath(shared_npz) and not os.path.isfile(shared_npz):
+        os.makedirs(SHARED_STEP2, exist_ok=True)
+        shutil.copy2(mask_npz, shared_npz)
+        append_progress(out_dir, f"[W] mask npz 已同步至 step5 定位目录：{shared_npz}")
+    step3_out = os.path.join(out_dir, "step3")
+    qc_name = "narrowing_qc.json" if prefix == "pA" else f"narrowing_qc-{prefix}.json"
+    nqc_path = os.path.join(step3_out, qc_name)
+    if os.path.isfile(nqc_path):
+        append_progress(out_dir, f"[W] step3 QC 已存在,跳过生成：{nqc_path}")
+    else:
+        _zwin_note = ""
+        if zlo is None or zhi is None:
+            zlo, zhi, _zwin_note = _auto_zwin(mask_npz, main_metrics,
+                                              rec.get("dicom_dir") or "")
+        append_progress(out_dir, "[W] zwin口径：" + _zwin_note)
+        # A2 参考入口面积：本例主算例实测（case_stats 优先,主算例 metrics 兜底）
+        ref_l = ref_r = None
+        _cs_p = ""
+        for _root in (os.path.join(rec.get("out_dir") or "", "step2"), SHARED_STEP2):
+            _p = os.path.join(_root, f"case_stats-{prefix}-{case}.json")
+            if os.path.isfile(_p):
+                _cs_p = _p
+                break
+        if _cs_p:
+            _cs = json.load(open(_cs_p, encoding="utf-8"))
+            ref_l = _cs.get("inletL", {}).get("area_mm2")
+            ref_r = _cs.get("inletR", {}).get("area_mm2")
+        if not (ref_l and ref_r):
+            _pm = json.load(open(main_metrics, encoding="utf-8")) \
+                if os.path.isfile(main_metrics) else {}
+            _pp = _pm.get("patches") or {}
+            ref_l = _pp.get("inletL", {}).get("area_mm2")
+            ref_r = _pp.get("inletR", {}).get("area_mm2")
+        append_progress(out_dir, f"[W] step3 占位算例生成（zlo={zlo}, zhi={zhi}, "
+                        f"npz={mask_npz}, A2参考={ref_l}/{ref_r} mm2）...")
+        cmd3 = [_pipeline_python(), "-X", "utf8", STEP3,
+                "--npz", mask_npz,
+                "--dicom-dir", rec.get("dicom_dir") or "",
+                "--case-prefix", prefix,
+                "--out", step3_out,
+                "--zlo", str(int(zlo)), "--zhi", str(int(zhi)),
+                "--export-implant-stl"]
+        if ref_l and ref_r:
+            cmd3 += ["--ref-inlet-l", str(ref_l), "--ref-inlet-r", str(ref_r)]
+        append_progress(out_dir, "[W] $ " + " ".join(cmd3))
+        r = subprocess.run(cmd3, capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=3600)
+        if r.returncode != 0 or not os.path.isfile(nqc_path):
+            _fail("failed", [f"step3 占位算例生成失败（exit {r.returncode}）——"
+                              "D1/D2/D3 断言或 QC 未全过,详见进度日志"], r.returncode)
+        append_progress(out_dir, "[W] step3 占位算例×3 生成完成（P0-OF-case-"
+                        + prefix + "-v6n1/2/3）")
+
+    # ---- S8 占位算例逐个求解 + post_cfd（幂等：结果目录后处理 metrics 在则跳过） ----
+    import json as _json
+    nqc = _json.load(open(nqc_path, encoding="utf-8"))
+    if not nqc.get("all_required_true"):
+        _fail("blocked", ["step3 QC 未全过（all_required_true=false）——占位几何存在"
+                          "断言级问题,按红线停工"], 2)
+    ph_dirs = []
+    for n in (1, 2, 3):
+        _mark_full_chain(cfg, case_id, stage=f"S8_solve_{n}_of_3")
+        ph_name = f"P0-OF-case-{prefix}-v6n{n}"
+        ph_src = os.path.join(step3_out, ph_name)
+        ph_res = os.path.join(RESULTS_ROOT, f"P0-result-{case_id}-v6n{n}")
+        ph_metrics = os.path.join(ph_res, "后处理", "metrics.json")
+        if os.path.isfile(ph_metrics):
+            append_progress(out_dir, f"[W] 占位算例 {n}/3 已有结果,复用：{ph_res}")
+        else:
+            if not os.path.isdir(os.path.join(ph_src, "constant")):
+                _fail("failed", [f"占位算例目录缺失：{ph_src}"], 2)
+            if os.path.isdir(ph_res):
+                shutil.rmtree(ph_res)
+            shutil.copytree(ph_src, ph_res)
+            rc, _t = _run_wsl_allrun_monitored(ph_res, out_dir, f"算例 {n+1}/4 {ph_name}")
+            if rc != 0:
+                _fail("failed", [f"占位算例 {ph_name} WSL Allrun 失败（exit {rc}）；"
+                                 f"日志：{os.path.join(ph_res, 'log.simpleFoam')}"], rc)
+            rc2, ph_metrics = _run_postcfd(
+                cfg, os.path.join(ph_res, "VTK"),
+                os.path.join(ph_res, "后处理"), f"占位 {n}mm post_cfd", out_dir)
+            if rc2 != 0:
+                _fail("failed", [f"占位算例 {ph_name} post_cfd 失败（exit {rc2}）"], rc2)
+            append_progress(out_dir, f"[W] 占位算例 {n}/3 求解+后处理完成（{ph_name}）")
+        ph_dirs.append((ph_name, ph_metrics, nqc["levels"][n - 1]))
+        _mark_full_chain(cfg, case_id, cases_done=1 + n)
+
+    # ---- S9 契约占位档汇编 + step5 导出（幂等：viewer_data.js 在则跳过） ----
+    _mark_full_chain(cfg, case_id, stage="S9_contract_step5")
+    vd_path = os.path.join(out_dir, "step5", "viewer_data.js")
+    if os.path.isfile(vd_path):
+        append_progress(out_dir, f"[W] step5 导出已存在,跳过：{vd_path}")
+    else:
+        contract, missing = RA.assemble_contract(
+            _json.load(open(main_metrics, encoding="utf-8")), letter, case)
+        dps_meta = [round(float(contract["metrics"]["dP_baseline_Pa"]), 2)]
+        vols_curve = [0.0]
+        for n in (1, 2, 3):
+            ph_name, ph_metrics, level = ph_dirs[n - 1]
+            t = _json.load(open(ph_metrics, encoding="utf-8"))["totals"]
+            dp = float(t["dP_Pa"])
+            contract["metrics"][f"dP_{n}mm_Pa"] = round(dp, 1)
+            dps_meta.append(round(dp, 2))
+            vols_curve.append(round(float(level["implant_vol_cm3"]), 3))
+        contract["curve"] = {"volumes_cm3": vols_curve, "dP_Pa": dps_meta,
+                             "band_Pa": [BAND_DP["lo"], BAND_DP["hi"]]}
+        contract["_source"] = ("本例后处理 metrics.json（主+占位×3；"
+                               "run_all 汇编 + T16 占位档接线）")
+        contract_pp = os.path.join(out_dir, "postprocess")
+        os.makedirs(contract_pp, exist_ok=True)
+        contract_path = os.path.join(contract_pp, f"contract-{prefix}-{case}.json")
+        with open(contract_path, "w", encoding="utf-8") as f:
+            _json.dump(contract, f, ensure_ascii=False, indent=1)
+        append_progress(out_dir, f"[W] 契约占位档汇编完成 → {contract_path}"
+                        f"（dP_Pa={dps_meta}, volumes_cm3={vols_curve}）")
+        cmd5 = [_pipeline_python(), "-X", "utf8", STEP5,
+                "--dicom-dir", rec.get("dicom_dir") or "",
+                "--case-prefix", prefix, "--case", case,
+                "--vtu", main_vtu,
+                "--metrics-json", contract_path,
+                "--out-dir", os.path.join(out_dir, "step5"),
+                "--write-mode", "full",
+                "--ph-dir", step3_out]
+        append_progress(out_dir, "[W] step5 查看器数据导出（full 模式,F3 六板门禁把关）...")
+        append_progress(out_dir, "[W] $ " + " ".join(cmd5))
+        r = subprocess.run(cmd5, capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=3600)
+        if r.returncode != 0 or not os.path.isfile(vd_path):
+            boards = os.path.join(out_dir, "step5",
+                                 f"six_boards_{prefix}-{case}.json")
+            detail = ""
+            if os.path.isfile(boards):
+                b = _json.load(open(boards, encoding="utf-8"))
+                bad = {k: v for k, v in (b.get("gates") or {}).items()
+                       if v.get("pass") is False}
+                if bad:
+                    detail = "；F3 门禁 FAIL：" + ", ".join(bad)
+            _fail("blocked", [f"step5 导出中止（exit {r.returncode}）{detail}"
+                              "——六板报表：" + boards + "（闸门红线,如实上报）"], 2)
+
+    # ---- S10 舞台化 + 完成 ----
+    _mark_full_chain(cfg, case_id, stage="S10_stage")
+    reg = load_registry(cfg)
+    r = reg.get(case_id) or rec
+    staged = stage_viewer_if_exported(cfg, r)
+    if staged:
+        append_progress(out_dir, "[W] 查看器数据已舞台化（webapp/cases/"
+                        + case_id + "/viewer_single.html）")
+    append_progress(out_dir, "[W] 全自动链完成：结果档案完整"
+                    "——契约闸门按文件判据自然放行" + ("" if staged else "（注意：舞台化未命中）"))
+    _full_chain_finish(cfg, case_id, "done", exit_code=0)
+
+
 # ---------------------------------------------------------------- 建病例（目录导入 / 网页上传 共用链）
 MAX_UPLOAD_MIB = 2048  # R-11 上传契约：单份 CT 体积上限 2 GiB（2048 MiB）
 
@@ -816,7 +1247,7 @@ def _safe_upload_name(filename):
 
 
 def _register_case(cfg, dicom_dir, prefix, case_name, label, kind, case_id_val,
-                   anatomy_inclusion=False):
+                   anatomy_inclusion=False, extra_rec=None):
     """建病例公共链（POST /api/case 与 POST /api/upload 共用）：
     注册表登记 → PII 闸门（run_all 同款 scan_pii）→ DICOM 头普查 → step1 气道分割。
     返回 (flask_response, status_code)；与既有 POST /api/case 行为一致（逐条同码）。
@@ -832,6 +1263,8 @@ def _register_case(cfg, dicom_dir, prefix, case_name, label, kind, case_id_val,
         "anatomy_inclusion": bool(anatomy_inclusion),
         "created": now_iso(), "updated": now_iso(),
     }
+    if extra_rec:
+        rec.update(extra_rec)  # K3-M4：多序列病例登记原始上传目录，供 DELETE 一并清理
     os.makedirs(out_dir, exist_ok=True)
     append_progress(out_dir, f"[W] server：病例登记 {label}")
 
@@ -1037,7 +1470,11 @@ def _autoselect_upload_series(up_dir):
     groups = _scan_series_groups(up_dir)
     if not groups or len(groups) <= 1:
         return None
-    best = max(groups, key=_series_sort_key)
+    # K3-M1：评分只考虑 CT 序列（多模态混传时防非 CT 序列胜出）；
+    # 全部非 CT -> 回退原评分行为（不过滤），并在 message 说明"未发现 CT 序列"。
+    ct_groups = [g for g in groups if g["modality"] == "CT"]
+    scored = ct_groups if ct_groups else groups
+    best = max(scored, key=_series_sort_key)
     if best["file_count"] < 2:  # 最优序列也要够建病例（>=2 张），否则交回原流程
         return None
     # 移动最优序列文件到独立目录（其余留在 up_dir 作证据）
@@ -1059,10 +1496,12 @@ def _autoselect_upload_series(up_dir):
     message = (f"发现 {len(groups)} 个序列：" + "；".join(lines) +
                f"。已自动选用：{best['description'] or best['kernel'] or '(无描述)'}"
                f"（层厚 {bth} mm，{best['file_count']} 张）")
+    if not ct_groups:  # K3-M1：全部非 CT 的回退说明（评分未过滤）
+        message += "。⚠️ 未发现 CT 序列（各序列 Modality 均非 CT），已按原评分规则回退选用"
     info = [{
         "description": g["description"], "kernel": g["kernel"],
         "thickness": g["thickness"], "file_count": g["file_count"],
-        "window": g["window"], "chosen": g is best,
+        "window": g["window"], "modality": g["modality"], "chosen": g is best,
     } for g in series_list]
     return sel_dir, message, info
 
@@ -1082,7 +1521,7 @@ def _attach_series_note(resp, series_msg, series_list):
     return resp
 
 
-def _register_path_case(cfg, dicom_dir, source_label="服务器目录导入"):
+def _register_path_case(cfg, dicom_dir, source_label="服务器目录导入", extra_rec=None):
     """按 CT 目录建病例：R-11 契约校验（≥2 个 .dcm / ≤2048 MiB）→ 分配前缀 → _register_case。
     供 POST /api/case（source=path）与 POST /api/upload（网页直接上传）共用。
     """
@@ -1101,7 +1540,8 @@ def _register_path_case(cfg, dicom_dir, source_label="服务器目录导入"):
     reg = load_registry(cfg)
     prefix = allocate_prefix(reg)
     return _register_case(cfg, dicom_dir, prefix, "v1",
-                          f"上传病例 {prefix}（{source_label}）", "upload", prefix)
+                          f"上传病例 {prefix}（{source_label}）", "upload", prefix,
+                          extra_rec=extra_rec)
 
 
 # ---------------------------------------------------------------- Flask app
@@ -1291,27 +1731,59 @@ def build_app(cfg):
         if case_id in RUNNING:
             return jsonify({"error": f"病例 {case_id} 正在运行中，暂不可删除"}), 409
         removed = []
-        # ① 本例 out_dir（state_dir/cases/<cid>/）
-        out_dir = rec.get("out_dir") or os.path.join(cfg.state_dir, "cases", case_id)
-        if out_dir and os.path.isdir(out_dir):
-            shutil.rmtree(out_dir, ignore_errors=True)
-            removed.append(os.path.relpath(out_dir, HERE).replace("\\", "/"))
-        # ② uploads 源目录（病例记录里存了来源路径才删；限定在 state_dir/uploads 内）
-        src = rec.get("dicom_dir") or ""
-        if src:
+        rmtree_failed = False
+
+        def _rm_honest(path):
+            """K3-M3：rmtree 失败不静默——失败项标注进 removed 并整体 500（R-004 计数诚实）。"""
+            nonlocal rmtree_failed
             try:
-                real = os.path.realpath(src)
+                rel = os.path.relpath(path, HERE).replace("\\", "/")
+            except ValueError:  # 跨盘 relpath 退化用原路径
+                rel = path
+            try:
+                shutil.rmtree(path)
+            except OSError as e:
+                rmtree_failed = True
+                removed.append(f"{rel} (删除失败: {getattr(e, 'strerror', None) or e})")
+                return
+            removed.append(rel)
+
+        def _rm_under_uploads(path):
+            """K3-M4：uploads 源目录清理——realpath 落在 state_dir/uploads 内才删。"""
+            if not path:
+                return
+            try:
+                real = os.path.realpath(path)
                 up_root = os.path.realpath(os.path.join(cfg.state_dir, "uploads"))
-                if os.path.isdir(real) and (real == up_root
-                                            or real.startswith(up_root + os.sep)):
-                    shutil.rmtree(real, ignore_errors=True)
-                    removed.append(os.path.relpath(real, HERE).replace("\\", "/"))
             except OSError:
-                pass
+                return
+            if not os.path.isdir(real):
+                return
+            if not (real == up_root or real.startswith(up_root + os.sep)):
+                return  # 越界（registry 异常或服务器目录导入来源）——一律不删
+            _rm_honest(real)
+
+        # ① 本例 out_dir（state_dir/cases/<cid>/）
+        # K3-M2：先 realpath 包含性校验（registry 被篡改/损坏时防逃逸 state_dir）——不满足 400
+        out_dir = rec.get("out_dir") or os.path.join(cfg.state_dir, "cases", case_id)
+        if out_dir and not os.path.realpath(out_dir).startswith(
+                os.path.realpath(cfg.state_dir) + os.sep):
+            return jsonify({"error": "病例目录越界（不在 state_dir 内），拒绝删除："
+                            + str(out_dir)}), 400
+        if out_dir and os.path.isdir(out_dir):
+            _rm_honest(out_dir)
+        # ② uploads 源目录（病例记录里存了来源路径才删；限定在 state_dir/uploads 内）
+        # K3-M4：多序列病例的原始上传目录 upload_source_dir（含未选中序列/PII 拦截文件）一并清理
+        _rm_under_uploads(rec.get("dicom_dir") or "")
+        _rm_under_uploads(rec.get("upload_source_dir") or "")
         # ③ registry 条目
         reg.pop(case_id, None)
         save_registry(cfg, reg)
         removed.append("cases.json[" + str(case_id) + "]")
+        if rmtree_failed:
+            return jsonify({"deleted": case_id, "removed": removed,
+                            "error": "部分目录删除失败（Windows 文件锁最常见），"
+                                     "详见 removed 列表标注项"}), 500
         return jsonify({"deleted": case_id, "removed": removed})
 
     @app.route("/api/upload", methods=["POST"])
@@ -1381,7 +1853,9 @@ def build_app(cfg):
             sel = None
         if sel:
             case_dir, series_msg, series_list = sel
-            resp = _register_path_case(cfg, case_dir, source_label="网页上传（自动选序列）")
+            # K3-M4：登记原始上传目录（含未选中序列文件），供 DELETE 时一并清理（PII 收口）
+            resp = _register_path_case(cfg, case_dir, source_label="网页上传（自动选序列）",
+                                       extra_rec={"upload_source_dir": up_dir})
             return _attach_series_note(resp, series_msg, series_list)
         # 走 source=path 同一条链（PII 闸门 → DICOM 头抽检 → step1）
         return _register_path_case(cfg, up_dir, source_label="网页上传")
@@ -1521,6 +1995,7 @@ def build_app(cfg):
             "gate_failures": rec.get("gate_failures") or [],
             "current_stage": current, "stages_seen": stages,
             "n_lines": len(lines),
+            "full_chain": rec.get("full_chain"),  # T16：占位链进度（cases_done/total、stage）
             "updated": now_iso(),
             "lines": lines[-100:],
         })
@@ -1555,6 +2030,55 @@ def build_app(cfg):
         t.start()
         return jsonify({"case_id": case_id, "status": "solving",
                         "message": "WSL Allrun 已启动（20 分钟心跳看护）"}), 202
+
+    @app.route("/api/full/<case_id>", methods=["POST"])
+    def api_full(case_id):
+        """T16 全自动链：几何→主算例→step3 占位×3→WSL 求解×3→post_cfd×3→契约汇编
+        →step5 导出→舞台化（档案完整后契约闸门自然放行,不绕闸门）。
+        幂等：已有产物自动复用（主算例结果/step3 QC/占位结果/step5 导出）。"""
+        rec = get_case_record(cfg, case_id)
+        if rec is None:
+            abort(404)
+        ok, code, msg = gate_case_access(cfg, rec)
+        if not ok:
+            return jsonify({"error": msg}), code
+        if rec.get("kind") == "synthetic":
+            return jsonify({"error": "合成 demo 无需解算——结果已预置（预置回放模式）"}), 400
+        if case_id in RUNNING:
+            return jsonify({"error": f"病例 {case_id} 正在运行中"}), 409
+        body = request.get_json(silent=True) or {}
+        try:
+            zlo = int(body["zlo"]) if body.get("zlo") is not None else None
+            zhi = int(body["zhi"]) if body.get("zhi") is not None else None
+        except (TypeError, ValueError):
+            return jsonify({"error": "zlo/zhi 须为整数（占位档层位窗口）"}), 400
+        # 环境前置探测（缺环境直接 409,不空转）
+        try:
+            probe = subprocess.run(["wsl", "-l", "-v"], capture_output=True, timeout=60)
+            wsl_ok = probe.returncode == 0
+        except Exception:  # noqa: BLE001
+            wsl_ok = False
+        if not wsl_ok:
+            return jsonify({"error": "环境缺失：wsl -l -v 失败——全自动求解不可用"}), 409
+        if not post_cfd_path(cfg):
+            return jsonify({"error": "环境缺失：post_cfd.py 未定位"
+                            "（环境变量 P0_POST_CFD 或 ct_base 相对推导）"}), 409
+        if not (os.path.isfile(STEP3) and os.path.isfile(STEP5)):
+            return jsonify({"error": "环境缺失：step3/step5 管线脚本不存在"}), 409
+        reg = load_registry(cfg)
+        r = reg.get(case_id) or rec
+        r.update(status="running", updated=now_iso(),
+                 run={"full": True, "started": now_iso()})
+        reg[case_id] = r
+        save_registry(cfg, reg)
+        t = threading.Thread(target=full_chain_thread,
+                            args=(cfg, case_id, zlo, zhi), daemon=True)
+        RUNNING[case_id] = t
+        t.start()
+        return jsonify({"case_id": case_id, "status": "running",
+                        "message": "全自动链已启动（主算例复用或求解→step3 占位×3→"
+                        "WSL 求解×3→post_cfd×3→契约汇编→step5;预计 ~60-90 分钟）"
+                        "——轮询 GET /api/progress/" + case_id}), 202
 
     @app.route("/api/metrics/<case_id>")
     def api_metrics(case_id):
@@ -1700,7 +2224,12 @@ code{{background:#0d1117;padding:2px 6px;border-radius:4px;font-size:12px}}
         if cid == "pA":
             return os.path.isfile(os.path.join(WEBAPP_DIR, "cases", "pA", "viewer_single.html"))
         if cid == "pB":
-            return False  # 契约完备性闸门：缺占位档（修订3 试跑如实记录）
+            # T16（2026-10-16）：占位档接线补齐后,本分支退役为档案驱动判据——
+            # 与上传病例同一闸门（step5 viewer_data.js / 舞台化单文件存在才 True）。
+            # 档案不齐 → 文件不存在 → False；run_all/step5 契约红线一行未动。
+            vd = os.path.join(rec.get("out_dir") or "", "step5", "viewer_data.js")
+            single = os.path.join(WEBAPP_DIR, "cases", cid, "viewer_single.html")
+            return os.path.isfile(vd) or os.path.isfile(single)
         if cid == "pC":
             return False  # CFD 结果待笔记本侧回传
         vd = os.path.join(rec.get("out_dir") or "", "step5", "viewer_data.js")
@@ -1709,6 +2238,11 @@ code{{background:#0d1117;padding:2px 6px;border-radius:4px;font-size:12px}}
 
     def _viewer_block_reason(cfg, rec):
         cid = rec["case_id"]
+        # T16（2026-10-16）：档案齐（=闸门文件判据通过）→ 无拦截理由。
+        # BUILTIN_DEFS 的 viewer_block_reason 是修订3 试跑时点"缺占位档"的事实快照,
+        # 占位档补齐后按实际档案状态呈现（不绕过任何 run_all/step5 契约红线）。
+        if _viewer_available(cfg, rec):
+            return ""
         if cid in BUILTIN_DEFS and BUILTIN_DEFS[cid].get("viewer_block_reason"):
             return BUILTIN_DEFS[cid]["viewer_block_reason"]
         if rec.get("status") == "blocked":

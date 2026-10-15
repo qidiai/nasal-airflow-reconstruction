@@ -175,6 +175,22 @@ iframe.hero-frame{
 .hero3d-open:hover{background:var(--teal-deep)}
 .hero3d-load{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
   color:#9fb6c8;font-size:15px}
+/* ---------- Hero 图层勾选面板（demo 查看器图层控制同款交互：勾选即时切 visible） ---------- */
+.hero3d-layers{position:absolute;top:50px;right:14px;z-index:5;
+  background:rgba(13,25,40,.74);border:1px solid #3d6f8f66;border-radius:10px;
+  padding:8px 12px 9px;backdrop-filter:blur(4px);
+  display:flex;flex-direction:column;gap:2px}
+.hero3d-layers .hl-title{font-size:11px;color:#8fb0c8;letter-spacing:2px;margin:0 0 3px}
+.hero3d-layers label{display:flex;align-items:center;gap:7px;font-size:12.5px;color:#dceefb;
+  cursor:pointer;line-height:1.7;white-space:nowrap}
+.hero3d-layers label:hover{color:#fff}
+.hero3d-layers input[type=checkbox]{accent-color:#2A9D8F;width:14px;height:14px;margin:0;
+  cursor:pointer;flex:none}
+.hero3d-layers label.off{color:#5f7a90}
+.hero3d-layers label.off .dot{opacity:.35}
+.hero3d-layers .dot{width:8px;height:8px;border-radius:50%;flex:none}
+/* ---------- Hero 视图切换标签（🏥 3D 模型 / 💨 气流动画，互斥） ---------- */
+.hero-viewtoggle{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:2px 0 10px}
 /* ---------- 量表（数字有情绪） ---------- */
 .gauges{display:grid;grid-template-columns:1fr;gap:14px}
 .gauge{
@@ -358,6 +374,10 @@ footer .fixed-sentence{
     <div class="lead">基于您的 CT 三维重建 —— 大气道模型在下方"呼吸"（拖拽旋转 / 呼吸粒子 / 流线 / 探针读数）。</div>
     <div class="pills" id="airway-pills"><span class="muted">病例加载中…</span></div>
     <div class="hint" id="cases-status" style="margin:-6px 0 8px"></div>
+    <div class="hero-viewtoggle" id="hero-viewtoggle" style="display:none">
+      <button type="button" class="pill vt" id="vt-model" style="display:none">🏥 3D 模型</button>
+      <button type="button" class="pill vt" id="vt-flow" style="display:none">💨 气流动画</button>
+    </div>
     <div class="hero" id="hero-box">
       <div class="hero-loading"><span class="spin"></span>正在加载气道模型…</div>
     </div>
@@ -697,6 +717,9 @@ function destroyHeroModel(){
   if(!HERO) return;
   try{ if(HERO.raf) cancelAnimationFrame(HERO.raf); }catch(e){}
   try{ if(HERO.controls && HERO.controls.dispose) HERO.controls.dispose(); }catch(e){}
+  try{ if(HERO.flowGeo && HERO.flowGeo.dispose) HERO.flowGeo.dispose(); }catch(e){}
+  try{ if(HERO.wireMat && HERO.wireMat.dispose) HERO.wireMat.dispose(); }catch(e){}
+  try{ if(HERO.renderer && HERO.renderer.forceContextLoss) HERO.renderer.forceContextLoss(); }catch(e){}
   try{ if(HERO.renderer && HERO.renderer.dispose) HERO.renderer.dispose(); }catch(e){}
   try{ if(HERO.onResize) window.removeEventListener("resize", HERO.onResize); }catch(e){}
   HERO = null;
@@ -710,6 +733,168 @@ function heightColor(t){
   return [(a[0]+(b[0]-a[0])*f)/255,(a[1]+(b[1]-a[1])*f)/255,(a[2]+(b[2]-a[2])*f)/255];
 }
 
+/* ================= Hero 图层系统（demo 查看器同款交互：勾选即时切 visible） =================
+   三层：气道模型（现有 GLB）/ 气流粒子（新增，默认开）/ 线框网格（默认关）。
+   粒子交互语言参考 webapp/demo/viewer.html：图层勾选 bindChk（2020-2028 行）、
+   呼吸粒子 F6（4s 正弦周期 + BufferGeometry Points，2143-2228 行）——
+   hero 无流线数据，改为"GLB 表面面积加权采样 + 沿法线呼吸往复"实现。 */
+
+/* 勾选框 -> three.js 对象 visible（demo bindChk 同款） */
+function bindHeroChk(id, obj, def){
+  const el = $(id);
+  if(!el) return;
+  if(!obj){ el.disabled = true; el.checked = false;
+    if(el.parentNode) el.parentNode.classList.add("off"); return; }
+  el.checked = !!def;
+  obj.visible = el.checked;
+  if(el.parentNode) el.parentNode.classList.toggle("off", !el.checked);
+  el.addEventListener("change", function(){
+    obj.visible = el.checked;
+    if(el.parentNode) el.parentNode.classList.toggle("off", !el.checked);
+  });
+}
+
+/* 气道 GLB 表面采样：按三角形面积加权取 target 个点（世界空间位置 + 法线） */
+function sampleSurfacePoints(root, target){
+  const meshes = [];
+  root.traverse(function(o){
+    if(o.isMesh && o.geometry && o.geometry.attributes.position) meshes.push(o);
+  });
+  if(!meshes.length) return null;
+  const vA=new THREE.Vector3(), vB=new THREE.Vector3(), vC=new THREE.Vector3();
+  const e1=new THREE.Vector3(), e2=new THREE.Vector3(), cr=new THREE.Vector3();
+  const entries = [], cumEntry = [];
+  let total = 0;
+  for(let k=0;k<meshes.length;k++){
+    const m = meshes[k], geo = m.geometry, pos = geo.attributes.position;
+    const idx = geo.index ? geo.index.array : null;
+    const triN = idx ? (idx.length/3|0) : (pos.count/3|0);
+    if(triN < 1) continue;
+    const areas = new Float32Array(triN);
+    let acc = 0;
+    for(let t=0;t<triN;t++){
+      const i0 = idx?idx[t*3]:t*3, i1 = idx?idx[t*3+1]:t*3+1, i2 = idx?idx[t*3+2]:t*3+2;
+      vA.fromBufferAttribute(pos,i0).applyMatrix4(m.matrixWorld);
+      vB.fromBufferAttribute(pos,i1).applyMatrix4(m.matrixWorld);
+      vC.fromBufferAttribute(pos,i2).applyMatrix4(m.matrixWorld);
+      e1.subVectors(vB,vA); e2.subVectors(vC,vA);
+      acc += cr.crossVectors(e1,e2).length()*0.5;
+      areas[t] = acc;
+    }
+    if(acc <= 1e-12) continue;
+    total += acc;
+    entries.push({pos:pos, idx:idx, areas:areas, area:acc,
+                  meshWorld:m.matrixWorld, nrm:(geo.attributes.normal||null)});
+    cumEntry.push(total);
+  }
+  if(!entries.length || total <= 1e-12) return null;
+  const P = new Float32Array(target*3), Nn = new Float32Array(target*3);
+  const nm = new THREE.Matrix3();
+  const nA=new THREE.Vector3(), nB=new THREE.Vector3(), nC=new THREE.Vector3();
+  for(let s=0;s<target;s++){
+    const r = Math.random()*total;
+    let k = 0; while(k < cumEntry.length-1 && r > cumEntry[k]) k++;
+    const ent = entries[k];
+    const d = Math.random()*ent.area;
+    let lo=0, hi=ent.areas.length-1, mid;
+    while(lo < hi-1){ mid=(lo+hi)>>1; if(ent.areas[mid] <= d) lo=mid; else hi=mid; }
+    const t = lo;
+    const i0 = ent.idx?ent.idx[t*3]:t*3, i1 = ent.idx?ent.idx[t*3+1]:t*3+1, i2 = ent.idx?ent.idx[t*3+2]:t*3+2;
+    let u=Math.random(), v=Math.random();
+    if(u+v > 1){ u=1-u; v=1-v; }
+    const w = 1-u-v;
+    vA.fromBufferAttribute(ent.pos,i0).applyMatrix4(ent.meshWorld);
+    vB.fromBufferAttribute(ent.pos,i1).applyMatrix4(ent.meshWorld);
+    vC.fromBufferAttribute(ent.pos,i2).applyMatrix4(ent.meshWorld);
+    P[s*3]   = w*vA.x + u*vB.x + v*vC.x;
+    P[s*3+1] = w*vA.y + u*vB.y + v*vC.y;
+    P[s*3+2] = w*vA.z + u*vB.z + v*vC.z;
+    if(ent.nrm){  /* 顶点法线重心插值 -> 世界空间（normalMatrix = 逆转置） */
+      nm.getNormalMatrix(ent.meshWorld);
+      nA.fromBufferAttribute(ent.nrm,i0).applyMatrix3(nm).normalize();
+      nB.fromBufferAttribute(ent.nrm,i1).applyMatrix3(nm).normalize();
+      nC.fromBufferAttribute(ent.nrm,i2).applyMatrix3(nm).normalize();
+      Nn[s*3]   = w*nA.x + u*nB.x + v*nC.x;
+      Nn[s*3+1] = w*nA.y + u*nB.y + v*nC.y;
+      Nn[s*3+2] = w*nA.z + u*nB.z + v*nC.z;
+    } else {      /* 无法线属性 -> 面法线兜底 */
+      e1.subVectors(vB,vA); e2.subVectors(vC,vA);
+      cr.crossVectors(e1,e2);
+      Nn[s*3]=cr.x; Nn[s*3+1]=cr.y; Nn[s*3+2]=cr.z;
+    }
+    const nl = Math.sqrt(Nn[s*3]*Nn[s*3]+Nn[s*3+1]*Nn[s*3+1]+Nn[s*3+2]*Nn[s*3+2]);
+    if(nl < 1e-9){ Nn[s*3]=0; Nn[s*3+1]=0; Nn[s*3+2]=1; }
+    else { Nn[s*3]/=nl; Nn[s*3+1]/=nl; Nn[s*3+2]/=nl; }
+  }
+  return {pos:P, nor:Nn};
+}
+
+/* 气流粒子层：~500 点，暖色琥珀/白与蓝青模型对比；BufferGeometry+PointsMaterial（GPU 友好）。
+   气道 GLB 为空腔网格（实测 ~62% 法线朝内腔），先按采样质心把法线统一"朝外"，
+   粒子贴壁外浮呼吸——内腔在 opaque 壁内不可见，外浮才能形成可见气流动画（标注已声明为示意） */
+function buildFlowLayer(scene, root, radius){
+  const N = 500;
+  const smp = sampleSurfacePoints(root, N);
+  if(!smp) return null;
+  const P = smp.pos, Nn = smp.nor;
+  let cx=0, cy=0, cz=0;
+  for(let i=0;i<N;i++){ cx+=P[i*3]; cy+=P[i*3+1]; cz+=P[i*3+2]; }
+  cx/=N; cy/=N; cz/=N;
+  for(let i=0;i<N;i++){
+    const vx=P[i*3]-cx, vy=P[i*3+1]-cy, vz=P[i*3+2]-cz;
+    if(vx*Nn[i*3] + vy*Nn[i*3+1] + vz*Nn[i*3+2] < 0){
+      Nn[i*3]=-Nn[i*3]; Nn[i*3+1]=-Nn[i*3+1]; Nn[i*3+2]=-Nn[i*3+2];
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(P), 3));
+  const col = new Float32Array(N*3), colBase = new Float32Array(N*3), phase = new Float32Array(N);
+  const palette = [[1.00,0.66,0.28],[1.00,0.78,0.45],[1.00,0.90,0.68],[0.99,0.83,0.58]];
+  for(let i=0;i<N;i++){
+    const c = palette[(Math.random()*palette.length)|0];
+    const jit = 0.85 + Math.random()*0.15;
+    colBase[i*3]=c[0]*jit; colBase[i*3+1]=c[1]*jit; colBase[i*3+2]=c[2]*jit;
+    col[i*3]=colBase[i*3]; col[i*3+1]=colBase[i*3+1]; col[i*3+2]=colBase[i*3+2];
+    phase[i] = Math.random()*Math.PI*2;   /* 每粒子相位 -> 波浪式呼吸 */
+  }
+  geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
+  const mat = new THREE.PointsMaterial({
+    size:5.2, sizeAttenuation:false, vertexColors:true,
+    transparent:true, opacity:0.9, depthWrite:false,
+    blending:THREE.AdditiveBlending});
+  const pts = new THREE.Points(geo, mat);
+  pts.frustumCulled = false;
+  pts.renderOrder = 4;
+  scene.add(pts);
+  return {pts:pts, geo:geo, mat:mat, N:N, base:P, nor:Nn,
+          colBase:colBase, phase:phase,
+          amp:Math.max(radius*0.025, 1e-3), period:4};
+}
+
+/* 呼吸往复动画：sin 相位沿法线微位移 + 亮度/透明度呼吸（demo F6 同款 4s 正弦周期）。
+   位移取 0.30–1.00 倍幅值（贴壁外浮，不完全沉入壁面），层隐藏时直接返回——勾选切换零开销 */
+function updateHeroFlow(now){
+  const f = HERO && HERO.flow;
+  if(!f || !f.pts.visible) return;
+  const t = now*0.001, T = f.period;
+  const pa = f.geo.attributes.position.array, ca = f.geo.attributes.color.array;
+  for(let i=0;i<f.N;i++){
+    const s = Math.sin((t/T)*Math.PI*2 + f.phase[i]);
+    const d = f.amp * (0.30 + 0.70*(0.5 + 0.5*s));
+    const b = i*3;
+    pa[b]   = f.base[b]   + f.nor[b]   * d;
+    pa[b+1] = f.base[b+1] + f.nor[b+1] * d;
+    pa[b+2] = f.base[b+2] + f.nor[b+2] * d;
+    const tw = 0.72 + 0.28*(0.5 + 0.5*s);
+    ca[b]   = f.colBase[b]   * tw;
+    ca[b+1] = f.colBase[b+1] * tw;
+    ca[b+2] = f.colBase[b+2] * tw;
+  }
+  f.geo.attributes.position.needsUpdate = true;
+  f.geo.attributes.color.needsUpdate = true;
+  f.mat.opacity = 0.72 + 0.26*(0.5 + 0.5*Math.sin((t/T)*Math.PI*2));
+}
+
 function renderModelHero(cid, c){
   const hero = $("hero-box");
   destroyHeroModel();
@@ -721,8 +906,18 @@ function renderModelHero(cid, c){
       '<div class="hero3d-badge">真实 CT 气道重建</div>' +
       (c.viewer_available ? '<a class="hero3d-open" href="/viewer/' + encodeURIComponent(cid) +
         '" target="_blank" rel="noopener">完整 CFD 查看器 →</a>' : "") +
-      '<div class="hero3d-cap">' + esc(meta.label) +
-        " 真实 CT 气道重建（" + meta.orig + " → " + meta.simp + "）</div>" +
+      '<div class="hero3d-layers" id="hero3d-layers">' +
+        '<div class="hl-title">图层</div>' +
+        '<label><input type="checkbox" id="hero-ly-model" checked>' +
+          '<span class="dot" style="background:#69d8c8"></span>气道模型</label>' +
+        '<label><input type="checkbox" id="hero-ly-flow" checked>' +
+          '<span class="dot" style="background:#f4a261"></span>气流粒子</label>' +
+        '<label><input type="checkbox" id="hero-ly-wire">' +
+          '<span class="dot" style="background:#bfe6ff"></span>线框/网格</label>' +
+      '</div>' +
+      '<div class="hero3d-cap" title="' + esc(meta.label) + " 真实 CT 气道重建（" +
+        meta.orig + " → " + meta.simp + '）">' + esc(meta.label) +
+        " · 真实 CT 气道 + 气流粒子示意（粒子为示意动画，定量分布见下方指标与切片图）</div>" +
       '<div class="hero3d-hint">拖拽旋转 · 滚轮缩放 · 自动缓慢旋转</div>' +
       '<div class="hero3d-load" id="hero3d-load"><span class="spin"></span>正在加载三维模型…</div>' +
     "</div>";
@@ -733,6 +928,11 @@ function renderModelHero(cid, c){
     renderer = new THREE.WebGLRenderer({canvas:canvas, antialias:true, alpha:true});
   }catch(e){
     $("hero3d-load").innerHTML = "WebGL 不可用（" + esc(e.message) + "）";
+    ["hero-ly-model","hero-ly-flow","hero-ly-wire"].forEach(function(id){
+      const el = $(id);
+      if(el){ el.disabled = true; el.checked = false;
+        if(el.parentNode) el.parentNode.classList.add("off"); }
+    });
     return;
   }
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
@@ -794,6 +994,28 @@ function renderModelHero(cid, c){
       }
     });
     scene.add(root);
+    /* ---------- 图层构建：线框副本（默认关）+ 气流粒子（默认开）+ 勾选绑定 ---------- */
+    root.updateMatrixWorld(true);
+    const wireMat = new THREE.MeshBasicMaterial({wireframe:true, color:0xbfe6ff,
+      transparent:true, opacity:0.16, depthWrite:false});
+    const wireGroup = new THREE.Group();
+    root.traverse(function(o){
+      if(o.isMesh){
+        const w = new THREE.Mesh(o.geometry, wireMat);  /* 共享几何体，不复制数据 */
+        o.matrixWorld.decompose(w.position, w.quaternion, w.scale);
+        wireGroup.add(w);
+      }
+    });
+    wireGroup.visible = false;
+    scene.add(wireGroup);
+    const flow = buildFlowLayer(scene, root, radius);
+    HERO.wireMat = wireMat;
+    HERO.flowGeo = flow ? flow.geo : null;
+    HERO.flow = flow;
+    HERO.layers = {model:root, flow:(flow ? flow.pts : null), wire:wireGroup};
+    bindHeroChk("hero-ly-model", HERO.layers.model, true);
+    bindHeroChk("hero-ly-flow", HERO.layers.flow, true);
+    bindHeroChk("hero-ly-wire", HERO.layers.wire, false);
     camera.position.set(radius*1.5, -radius*2.3, radius*1.0);
     camera.near = radius*0.01; camera.far = radius*40;
     camera.updateProjectionMatrix();
@@ -804,11 +1026,17 @@ function renderModelHero(cid, c){
       if(!HERO) return;
       HERO.raf = requestAnimationFrame(loop);
       controls.update();
+      updateHeroFlow(performance.now());
       renderer.render(scene, camera);
     })();
   }, undefined, function(err){
     const ld = $("hero3d-load");
     if(ld) ld.innerHTML = "三维模型加载失败：" + esc(err && err.message ? err.message : err);
+    ["hero-ly-model","hero-ly-flow","hero-ly-wire"].forEach(function(id){
+      const el = $(id);
+      if(el){ el.disabled = true; el.checked = false;
+        if(el.parentNode) el.parentNode.classList.add("off"); }
+    });
   });
 }
 function fmtNum(v, digits){
@@ -928,6 +1156,9 @@ async function selectCase(cid){
   const c = S.cases.find(x=>x.case_id === cid) || {};
   const hero = $("hero-box");
   hero.innerHTML = '<div class="hero-loading"><span class="spin"></span>正在加载气道模型…</div>';
+  const vtBar = $("hero-viewtoggle");
+  if(vtBar) vtBar.style.display = "none";
+  if(hero.dataset.view) delete hero.dataset.view;
 
   // 指标（先于查看器——数字更快到位）
   const m = await api(`/api/metrics/${encodeURIComponent(cid)}`);
@@ -956,15 +1187,9 @@ async function selectCase(cid){
   renderResults(c, cid);
   renderFigures(c, cid);
 
-  // Hero：查看器可用则 iframe（≥60vh），否则暖色占位卡
-  if(c.model_available){
-    renderModelHero(cid, c);
-  } else if(c.viewer_available){
-    hero.innerHTML = '<iframe class="hero-frame" src="/viewer/' + encodeURIComponent(cid) +
-      '" title="气道三维查看器（拖拽旋转 / 呼吸粒子 / 流线 / 探针读数）"></iframe>';
-  } else {
-    renderHeroPlaceholder(c, cid);
-  }
+  // Hero 视图切换：3D 模型（three.js+图层勾选）/ 气流动画（查看器 iframe）互斥标签。
+  // 默认视图：3D 模型（用户指令 2026-10-15 晚）；气流动画为可切换的第二视图。
+  renderHeroWithToggle(cid, c);
 }
 
 function renderHeroPlaceholder(c, cid){
@@ -989,6 +1214,76 @@ function renderHeroPlaceholder(c, cid){
     (c.note ? '<p class="muted" style="font-size:13px">' + esc(c.note) + "</p>" : "") +
     "</div>";
 }
+
+/* ---------- Hero 视图切换（🏥 3D 模型 / 💨 气流动画，互斥标签） ----------
+   model_available  → "🏥 3D 模型"：renderModelHero（three.js 场景 + 图层勾选面板）；
+   viewer_available → "💨 气流动画"：iframe /viewer/<cid>（per-case 查看器优先）；
+   两者皆无         → 暖色占位卡（历史行为不变）。
+   气流动画对无 per-case 查看器的病例回退合成 demo 查看器（恢复改版前的呼吸粒子/流线画面）。
+   默认视图：无条件 3D 模型（用户指令 2026-10-15 晚）；气流动画为可切换的第二视图。模型标签按 model_available 显隐；
+   气流动画标签恒显（per-case 优先、demo 兜底），两者皆无（无任何 hero 内容）时整条隐藏走占位卡。 */
+function renderHeroWithToggle(cid, c){
+  const hasModel = !!c.model_available;
+  const hasViewer = !!c.viewer_available;
+  const bar = $("hero-viewtoggle");
+  const bm = $("vt-model"), bf = $("vt-flow");
+  const hero = $("hero-box");
+  if(!bar || !bm || !bf){ renderHeroPlaceholder(c, cid); return; }
+  if(!hasModel && !hasViewer){
+    bar.style.display = "none";
+    bm.style.display = "none";
+    bf.style.display = "none";
+    bm.classList.remove("active");
+    bf.classList.remove("active");
+    if(hero.dataset.view) delete hero.dataset.view;   /* 复位视图态，防跨病例残留 */
+    renderHeroPlaceholder(c, cid);
+    return;
+  }
+  bm.style.display = hasModel ? "" : "none";
+  /* 气流动画标签恒可显示：有 per-case 查看器用 /viewer/<cid>，
+     否则回退合成 demo 查看器（"否则 demo viewer"）。 */
+  bf.style.display = "";
+  bar.style.display = "";
+  setHeroView(cid, c, "model", true);
+}
+
+function setHeroView(cid, c, view, force){
+  const hero = $("hero-box");
+  if(!force && hero.dataset.view === view) return;   /* 同视图幂等：防误重建/WebGL 重复初始化 */
+  hero.dataset.view = view;
+  const bm = $("vt-model"), bf = $("vt-flow");
+  if(bm) bm.classList.toggle("active", view === "model");
+  if(bf) bf.classList.toggle("active", view === "flow");
+  if(view === "flow"){
+    destroyHeroModel();   /* 切走时销毁 three 场景并 forceContextLoss 释放 WebGL 上下文 */
+    const src = c.viewer_available
+      ? "/static/cases/" + encodeURIComponent(cid) + "/viewer_single.html"
+      : "/static/demo/viewer.html?breath=1&ct=0";
+    hero.innerHTML = '<iframe class="hero-frame" src="' + src +
+      '" title="' + (c.viewer_available
+        ? "气道三维查看器（拖拽旋转 / 呼吸粒子 / 流线 / 探针读数）"
+        : "气流动画 · 合成 demo 查看器（呼吸粒子 / 流线 / 图层勾选，100% 合成示例）") +
+      '"></iframe>';
+  } else {
+    renderModelHero(cid, c);   /* 内部先 destroyHeroModel 再重建 three 场景；图层勾选面板随 3D 视图重建 */
+  }
+}
+
+/* 视图切换标签点击（一次性绑定；病例上下文取自 S.selected / S.cases） */
+(function bindHeroViewToggle(){
+  const bm = $("vt-model"), bf = $("vt-flow");
+  if(!bm || !bf) return;
+  bm.addEventListener("click", function(){
+    if(S.selected == null) return;
+    const c = S.cases.find(x=>x.case_id === S.selected) || {};
+    setHeroView(S.selected, c, "model");
+  });
+  bf.addEventListener("click", function(){
+    if(S.selected == null) return;
+    const c = S.cases.find(x=>x.case_id === S.selected) || {};
+    setHeroView(S.selected, c, "flow");
+  });
+})();
 
 /* ---------- 量表渲染 ---------- */
 function gaugeHtml(opt){

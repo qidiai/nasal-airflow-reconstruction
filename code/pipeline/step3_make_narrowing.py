@@ -579,13 +579,67 @@ echo "== 完成。把整个case目录拷回共享文件夹即可 =="
 # =====================================================================
 # main
 # =====================================================================
+def export_implant_stl(implant, ps, dz, path, min_comp_vox=200):
+    """占位体 STL 导出（T16 全自动接线；step4 同法：壳已由调用方算好，此处仅面化）。
+
+    marching_cubes + trimesh fix_normals，碎屑（<min_comp_vox 体素连通分量）丢弃；
+    文件名 virtual-placeholder-<mm>mm.stl 与 step5 --ph-dir 的 glob 约定对齐。
+    返回统计 dict（faces/watertight/vol_cm3）或 None（无可保留分量）。
+    """
+    from scipy import ndimage as _ndi
+    from skimage.measure import marching_cubes
+    import trimesh
+    lab, n = _ndi.label(implant, structure=_ndi.generate_binary_structure(3, 1))
+    if n == 0:
+        return None
+    sizes = np.bincount(lab.ravel())
+    keep_ids = [i for i in range(1, n + 1) if sizes[i] >= min_comp_vox]
+    if not keep_ids:
+        return None
+    sel = np.isin(lab, keep_ids)
+    spacing = (float(dz), float(ps[0]), float(ps[1]))
+    verts, faces, _, _ = marching_cubes(sel.astype(np.uint8), level=0.5, spacing=spacing)
+    mesh = trimesh.Trimesh(vertices=verts, faces=faces, process=True)
+    mesh.fix_normals()
+    mesh.export(path)
+    return {"faces": int(len(mesh.faces)), "watertight": bool(mesh.is_watertight),
+            "vol_cm3": round(abs(mesh.volume) / 1000.0, 3),
+            "dropped_comp_vox": int(sum(sizes[i] for i in range(1, n + 1)
+                                        if sizes[i] < min_comp_vox))}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--zlo", type=int, default=100)
     ap.add_argument("--zhi", type=int, default=160)
     ap.add_argument("--mms", type=float, nargs="+", default=[1.0, 2.0, 3.0])
     ap.add_argument("--out", default=os.path.join("out", "step3"))
+    # ---- T16 全自动接线参数化（默认值 = pA 现行为，向后兼容） ----
+    ap.add_argument("--npz", default=None,
+                    help="mask npz 路径（默认 <WS>/out/step2/mask_full.npz；pA 向后兼容）")
+    ap.add_argument("--dicom-dir", default=None,
+                    help="DICOM 目录（默认环境变量 P0_DICOM_DIR 或 ./dicom）")
+    ap.add_argument("--case-prefix", default="pA",
+                    help="病例前缀（默认 pA；算例名 P0-OF-case-<prefix>-v6n<N> 与 "
+                         "QC 文件名 narrowing_qc[-<prefix>].json 随之）")
+    ap.add_argument("--export-implant-stl", action="store_true",
+                    help="导出各档占位体 STL virtual-placeholder-<mm>mm.stl "
+                         "（供 step5 --ph-dir；A4 占位档三件齐）")
+    ap.add_argument("--ref-inlet-l", type=float, default=None,
+                    help="A2 参考入口面积 mm²（默认 pA v5 参考 95.3/149.1 向后兼容；"
+                         "多患者由编排层传本例主算例实测值）")
+    ap.add_argument("--ref-inlet-r", type=float, default=None)
     args = ap.parse_args()
+    global DATA_DIR, NPZ, REF_INLET_L, REF_INLET_R
+    if args.dicom_dir:
+        DATA_DIR = args.dicom_dir
+    if args.npz:
+        NPZ = args.npz
+    if args.ref_inlet_l:
+        REF_INLET_L = float(args.ref_inlet_l)
+    if args.ref_inlet_r:
+        REF_INLET_R = float(args.ref_inlet_r)
+    PREFIX = args.case_prefix
     out_dir = args.out if os.path.isabs(args.out) else os.path.join(WS, args.out)
     os.makedirs(out_dir, exist_ok=True)
 
@@ -597,12 +651,17 @@ def main():
                  "hu_min": int(vol.min()), "hu_max": int(vol.max())}
     del vol                                   # v2 算法不使用 HU，及时释放
 
-    log("[2/7] 读 mask_full.npz ...")
+    log(f"[2/7] 读 mask npz: {NPZ} ...")
     d = np.load(NPZ)
     mask, cut = d["mask"], d["cut"]
-    assert mask.shape == (394, 512, 512), f"mask shape {mask.shape} != (394,512,512)"
-    assert cut.shape == (394, 512, 512), f"cut shape {cut.shape} != (394,512,512)"
-    log(f"    mask={int(mask.sum())} cut={int(cut.sum())}")
+    # T16 全自动接线：形状不再硬编码 pA (394,512,512)——多患者任意 (nz,rows,cols) 可跑；
+    # npz 与 DICOM 层数/行数/列数一致由本例入口闸门把关，形状记录进 QC inputs。
+    assert mask.shape == cut.shape, f"mask shape {mask.shape} != cut shape {cut.shape}"
+    assert mask.ndim == 3, f"mask ndim {mask.ndim} != 3"
+    if tuple(vol_stats["shape"]) != tuple(mask.shape):
+        raise SystemExit(f"!!! npz 形状 {tuple(mask.shape)} != DICOM 形状 "
+                         f"{tuple(vol_stats['shape'])}——输入错配，中止 !!!")
+    log(f"    shape={mask.shape} mask={int(mask.sum())} cut={int(cut.sum())}")
 
     zlo, zhi = args.zlo, args.zhi
     zw = np.zeros(mask.shape[0], bool); zw[zlo:zhi] = True
@@ -627,6 +686,7 @@ def main():
         + ("" if clean else "  !!! 警告：中隔不干净"))
     log(f"    (规格书 line 47 字面读法 axis1=rows 得 xs_s={xs_s_lit}；已按文字'zwin 内'取 z 层带)")
 
+    vox_mm = float(ps[0])   # T16：体素实测边长（pA 0.3496/pB 0.468）
     log("[5/7] EDT（cavity 一次，return_indices）...")
     t0 = time.time()
     d_, ind = ndimage.distance_transform_edt(cavity, return_indices=True)
@@ -646,7 +706,7 @@ def main():
     levels = []
     prev_implant = None
     for mm in args.mms:
-        R = int(round(mm / VOXEL_MM))
+        R = int(round(mm / vox_mm))
         tag = f"[v6n{args.mms.index(mm)+1} {mm:g}mm R={R}]"
         log(f"[6/7] 占位档 {tag}")
         t0 = time.time()
@@ -670,9 +730,18 @@ def main():
             raise SystemExit(f"!!! [D1/D2/D3] 失败: D1a={D1a} D1b={D1b} D2={D2} D3={D3} !!!")
 
         depth = d_[implant] if imp_vox else np.array([0.0])
-        case_name = f"P0-OF-case-pA-v6n{args.mms.index(mm)+1}"
+        case_name = f"P0-OF-case-{PREFIX}-v6n{args.mms.index(mm)+1}"
         case_dir = os.path.join(out_dir, case_name)
         st = build_case(mask_narrow, cut, ps, dz, case_dir, int(round(xs_s / 2.0)), tag)
+
+        # ---- T16：占位体 STL 导出（--export-implant-stl；step5 --ph-dir 契约件） ----
+        if args.export_implant_stl:
+            stl_path = os.path.join(out_dir, f"virtual-placeholder-{mm:g}mm.stl")
+            stl_info = export_implant_stl(implant, ps, dz, stl_path)
+            if stl_info:
+                log(f"    占位体 STL -> {os.path.basename(stl_path)} {stl_info}")
+            else:
+                log("    !!! 占位体 STL 导出失败（无可保留分量）")
 
         # ---- A7：zwin 逐层截面积 ----
         prof_n = mask_narrow[zlo:zhi, :, :].sum(axis=(1, 2)).astype(float)   # z 层带 (axis0=z)
@@ -701,9 +770,9 @@ def main():
                            shell_depth_vox={"mean": round(float(depth.mean()), 3),
                                             "min": round(float(depth.min()), 3),
                                             "max": round(float(depth.max()), 3)},
-                           shell_depth_mm_nominal={"mean": round(float(depth.mean()) * VOXEL_MM, 3),
-                                                   "min": round(float(depth.min()) * VOXEL_MM, 3),
-                                                   "max": round(float(depth.max()) * VOXEL_MM, 3)},
+                           shell_depth_mm_nominal={"mean": round(float(depth.mean()) * vox_mm, 3),
+                                                   "min": round(float(depth.min()) * vox_mm, 3),
+                                                   "max": round(float(depth.max()) * vox_mm, 3)},
                            xs_s=xs_s, cavity_zwin_over_mask_zwin=round(cavity_zwin_ratio, 4)),
             A7_min_area=min_vox,
             A7_min_area_mm2=min_mm2, A7_min_area_z=min_z,
@@ -727,7 +796,12 @@ def main():
                    "ps_mm": ps, "dz_mm": dz, "mask_vox": int(mask.sum()), "cut_vox": int(cut.sum()),
                    "vol": vol_stats},
         "params": {"zlo": zlo, "zhi": zhi, "mms": list(args.mms),
-                   "R_vox": [int(round(m / VOXEL_MM)) for m in args.mms], "out_dir": out_dir},
+                   "R_vox": [int(round(m / vox_mm)) for m in args.mms], "out_dir": out_dir,
+                   "case_prefix": PREFIX, "voxel_mm": vox_mm,
+                   "export_implant_stl": bool(args.export_implant_stl),
+                   "ref_inlet_mm2": {"L": REF_INLET_L, "R": REF_INLET_R,
+                                     "source": ("args(本例主算例实测)" if args.ref_inlet_l
+                                                else "默认 pA v5 参考(95.3/149.1)")}},
         "cavity": {"n_eroded_labels": n_lab, "keep_label": keep, "core_vox": int(cavity_core.sum()),
                    "cavity_vox": int(cavity.sum()), "core_in_zwin": core_zwin,
                    "cavity_zwin_over_mask_zwin": round(cavity_zwin_ratio, 4)},
@@ -751,7 +825,9 @@ def main():
         "all_required_true": bool(all(req.values())),
         "runtime_s": round(time.time() - t_all, 1),
     }
-    with open(os.path.join(out_dir, NARROW_FILE), "w", encoding="utf-8", newline="\n") as f:
+    # T16：QC 文件名 per-prefix（pA 保持原名向后兼容；与 run_all mask npz 命名规则同构）
+    _qc_name = NARROW_FILE if PREFIX == "pA" else f"narrowing_qc-{PREFIX}.json"
+    with open(os.path.join(out_dir, _qc_name), "w", encoding="utf-8", newline="\n") as f:
         json.dump(qc, f, ensure_ascii=False, indent=2)
 
     log("[7/7] QC 表 (T/F)")

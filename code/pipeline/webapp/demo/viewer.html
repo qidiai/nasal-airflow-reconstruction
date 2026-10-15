@@ -2228,6 +2228,23 @@ return LineSegments2;
     if (breathOn) { breathT = 0; lastPhase = ''; refreshBreathColors(); }
   });
 
+  /* URL 参数：breath=1 自动开呼吸模式；ct=0 关闭体绘制（保帧率）——供工作台「气流动画」iframe 联动 */
+  try {
+    var qp = new URLSearchParams(location.search);
+    var qpApplied = [];
+    if (qp.get('breath') === '1' && cbBreath && !cbBreath.checked) {
+      cbBreath.checked = true;
+      cbBreath.dispatchEvent(new Event('change'));   /* 走正式链路（breathOn 驱动） */
+      qpApplied.push('breath=1');
+    }
+    if (qp.get('ct') === '0' && cbCt && cbCt.checked) {
+      cbCt.checked = false;
+      cbCt.dispatchEvent(new Event('change'));
+      qpApplied.push('ct=0');
+    }
+    if (qpApplied.length) { console.info('[viewer] URL params applied: ' + qpApplied.join(' ')); }
+  } catch (e) { console.warn('[viewer] URL param parse:', e); }
+
   /* ---------- F7：悬停流速探针（流线阈值3mm/切片阈值1.5mm；60ms节流；数值按当前流量缩放） ---------- */
   var raycaster = new THREE.Raycaster();
   raycaster.params.Line.threshold = 3;
