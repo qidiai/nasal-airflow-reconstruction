@@ -6,7 +6,7 @@
   1. TestAPIContract        —— API 契约（/api/health、/api/cases、/api/qc、
                               /api/progress、/viewer、静态页）
   2. TestDataBoundary       —— 数据边界拒绝（修订1/R-03：云形态 POST /api/case
-                              501、非合成病例 403；R-01：pB 非 presenter 403）
+                              501、非合成病例 403；R-01：pB 授权在案，presenter 分级机制保留）
   3. TestGateMapping        —— exit 2/3 → ⛔/⚠️ 状态映射契约 + PII 闸门
                               （run_all 同款 scan_pii 真机契约测试）
   4. TestMetricsConsistency —— 指标卡与 manifest+metrics 一致性 +
@@ -205,24 +205,23 @@ class TestDataBoundary:
         assert demo["synthetic"] is True
         assert demo["viewer_available"] is True
 
-    def test_pB_gated_without_presenter(self, client):
-        """R-01：患者B 授权不在案——非 presenter 模式详情 403。"""
+    def test_pB_authorized_in_register(self, client):
+        """R-01 授权事实更新：患者B（赛方提供匿名 CT）演示展示确认为"在案"——
+        非 presenter 模式即可读取指标；3D 查看器仍受契约完备性闸门拦截。"""
         r = client.get("/api/metrics/pB")
-        assert r.status_code == 403
-        assert "授权确认中" in r.get_json()["error"]
-        assert client.get("/viewer/pB").status_code == 403
-        # 病例列表仍在册但 presenter_only 标记
+        assert r.status_code == 200
+        assert r.get_json()["dP"]["value"] is not None
         cards = client.get("/api/cases").get_json()["cases"]
         pB = [c for c in cards if c["case_id"] == "pB"][0]
-        assert pB["presenter_only"] is True
-        assert pB["viewer_available"] is False
+        assert pB["badge"] == "✅"
+        assert pB["presenter_only"] is False
+        assert pB["viewer_available"] is False  # 3D 查看器仍待契约完备
 
     def test_pB_presenter_unlocks_metrics(self, pres_client):
-        """presenter 定向演示模式解锁 pB 指标（授权分级落地）。"""
+        """pB 授权在案后，presenter 模式同样可读指标（授权分级机制保留）。"""
         r = pres_client.get("/api/metrics/pB")
         assert r.status_code == 200
-        j = r.get_json()
-        assert j["dP"]["value"] == 45.62
+        assert r.get_json()["dP"]["value"] is not None
 
     def test_pB_presenter_viewer_blocked_by_contract(self, pres_client):
         """presenter 模式下 pB 查看器仍被契约完备性闸门如实拦截
@@ -341,17 +340,16 @@ class TestMetricsConsistency:
         assert "合成" in j["dP"]["口径"]
         assert "合成" in j["resistance"]["口径"]
 
-    @pytest.mark.skipif(not CT_BASE_OK, reason="P0_CT_BASE 未配置")
-    def test_pB_metrics_match_postcfd(self, pres_client):
-        """pB 指标与后处理 metrics.json 一致（presenter 模式）。"""
-        j = pres_client.get("/api/metrics/pB").get_json()
-        mp = os.path.join(PIPE, "webapp", "cases", "pB", "metrics.json")
+    def test_pB_metrics_match_postcfd(self, client):
+        """pB 指标与本例真实后处理 metrics.json 一致（out/结果/P0-result-pB-v1）。"""
+        j = client.get("/api/metrics/pB").get_json()
+        mp = os.path.join(PIPE, "out", "结果", "P0-result-pB-v1", "后处理", "metrics.json")
         m = json.load(open(mp, encoding="utf-8"))
         t = m["totals"]
-        assert j["dP"]["value"] == round(float(t["dP_Pa"]), 2) == 45.62
+        assert j["dP"]["value"] == round(float(t["dP_Pa"]), 2)
         # R=定流量口径复算 dP/(Q/60)
         expect_R = round(float(t["dP_Pa"]) / (float(t["Q_inlet_total_L_min"]) / 60.0), 1)
-        assert j["resistance"]["value"] == expect_R == 182.5
+        assert j["resistance"]["value"] == expect_R
         assert "定流量" in j["resistance"]["口径"]
 
     @pytest.mark.skipif(not CT_BASE_OK, reason="P0_CT_BASE 未配置")

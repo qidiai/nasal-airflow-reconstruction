@@ -12,7 +12,7 @@
 
 部署形态（数据边界硬闸 · 修订1）：
 - m1-local（默认；M1 笔记本=服务器）：ONLY_SYNTHETIC=false，真实患者数据
-  可展示（pA 演示展示在案；pB 需 presenter 定向演示模式 --presenter，R-01）
+  可展示（pA/pB 演示展示在案；R-01 授权分级机制保留——对 presenter_only 病例生效）
 - m2-cloud（M2/M3 云形态）：ONLY_SYNTHETIC=true，仅合成 demo；
   POST /api/case 代码级禁用（501，R-03）；非合成病例访问一律 403 + 中文提示
 
@@ -22,7 +22,7 @@
 用法：
   python server.py                          # M1 本地服务器形态（端口 8080）
   python server.py --mode m2-cloud          # 云形态（仅合成数据）
-  python server.py --presenter              # presenter 定向演示模式（解锁 pB 详情，R-01）
+  python server.py --presenter              # presenter 定向演示模式（解锁 presenter_only 病例详情，R-01 机制）
 """
 import argparse
 import glob
@@ -57,6 +57,32 @@ RUN_ALL = os.path.join(HERE, "run_all.py")
 VIEWER_TEMPLATE = os.path.join(WEBAPP_DIR, "viewer_template", "viewer.html")
 BUILD_SINGLE = os.path.join(WEBAPP_DIR, "tools", "build_single_file.py")
 
+# 本例真实结果目录（只读导出源）：out/结果/P0-result-<case_id>-v1/后处理/
+RESULTS_ROOT = os.path.join(HERE, "out", "结果")
+# 只读结果导出白名单（ASCII 文件名 → MIME）；目录名按 case_id 硬编码（中文路径不进 URL）
+RESULTS_WHITELIST = {
+    "metrics.json": "application/json",
+    "report.md": "text/markdown",
+    "fig1_velocity_slice.png": "image/png",
+    "fig2_pressure_slice.png": "image/png",
+    "fig3_streamlines.png": "image/png",
+    "fig4_wss_histogram.png": "image/png",
+}
+
+
+def case_results_dir(case_id):
+    """真实结果目录 out/结果/P0-result-<case_id>-v1/后处理/（仅 pA/pB 有结果）。"""
+    if case_id not in ("pA", "pB"):
+        return ""
+    return os.path.join(RESULTS_ROOT, f"P0-result-{case_id}-v1", "后处理")
+
+
+def case_results_metrics_path(case_id):
+    """本例真实 metrics.json 路径（不存在时返回空串）。"""
+    d = case_results_dir(case_id)
+    p = os.path.join(d, "metrics.json") if d else ""
+    return p if os.path.isfile(p) else ""
+
 # ---------------------------------------------------------------- 内置病例定义（相对 CT 根，R-14）
 BUILTIN_DEFS = {
     "pA": {
@@ -69,14 +95,13 @@ BUILTIN_DEFS = {
         "evidence": ["提交包-20261002/viewer_single.html（15,069,209 B 自包含）"],
     },
     "pB": {
-        "label": "患者B · 对照",
+        "label": "患者B · 对照（演示展示在案）",
         "prefix": "pB", "case": "v1",
         "dicom_rel": ["赛方CT", "ISO_Soft_0.468mm"],
-        "badge": "🔒", "badge_text": "授权确认中",
-        "preset_status": "gated",
-        "presenter_only": True,
-        "note": "数据来源方演示展示确认在办（R-01：授权不在案）；"
-                "确认前仅 presenter 定向演示模式可见详情",
+        "badge": "✅", "badge_text": "演示展示在案",
+        "preset_status": "done",
+        "note": "赛方提供匿名 CT（PatientID 20260521-103609/Anonymous，逐头匿名化断言 PASS）；"
+                "演示展示确认在案（R-01 授权事实更新：由'确认在办'改为'在案'）",
         "viewer_block_reason": "查看器导出受阻（T15 修订3 试跑实测，双闸门任一即足拦截）："
                                "①F3 六板门禁——airwayCavity 壳平滑后 L/R 比率漂移 0.111%＞0.1% 容差"
                                "（board4；airwayMesh 0.027% 通过），seg1 负 x 顶点 15→16（board6）；"
@@ -247,7 +272,7 @@ def gate_case_access(cfg, rec):
                 f"病例 {rec.get('case_id')} 含真实患者数据，仅限本地模式（M1 笔记本=服务器）")
     if rec.get("presenter_only") and not cfg.presenter:
         return (False, 403,
-                "授权确认中（R-01）：患者B 数据来源方演示展示确认在办；"
+                "授权确认中（R-01）：该病例数据来源方演示展示确认在办；"
                 "确认前详情仅 presenter 定向演示模式可见（服务器启动加 --presenter）")
     return (True, None, "")
 
@@ -740,6 +765,26 @@ def build_app(cfg):
     def index():
         return send_file(os.path.join(WEBAPP_DIR, "index.html"))
 
+    @app.route("/api/results/<case_id>/<fn>")
+    def api_results(case_id, fn):
+        """只读导出本例真实分析结果（out/结果/.../后处理/ 白名单文件）。
+        目录名按 case_id 硬编码（中文路径不进 URL），仅白名单 ASCII 文件名。"""
+        if cfg.only_synthetic:
+            return jsonify({"error":
+                            "数据边界硬闸（修订1/R-03）：云形态仅合成数据，"
+                            "真实患者分析结果不开放（HTTP 403）"}), 403
+        d = case_results_dir(case_id)
+        if not d or fn not in RESULTS_WHITELIST:
+            abort(404)
+        p = os.path.join(d, fn)
+        if not os.path.isfile(p):
+            abort(404)
+        resp = send_file(p, mimetype=RESULTS_WHITELIST[fn], as_attachment=False,
+                         download_name=fn)
+        if fn.endswith(".md"):
+            resp.headers["Content-Type"] = "text/markdown; charset=utf-8"
+        return resp
+
     @app.route("/api/health")
     def api_health():
         return jsonify({
@@ -1164,6 +1209,11 @@ def build_app(cfg):
             if meta:
                 return jsonify(metrics_from_viewer_meta(
                     "pA", meta, "webapp/cases/pA/viewer_single.html（冻结资产只读解析）"))
+            rp = case_results_metrics_path("pA")
+            if rp:
+                return jsonify(metrics_from_postcfd_json(
+                    "pA", rp,
+                    "out/结果/P0-result-pA-v1/后处理/metrics.json（本例真实结果，只读复用）"))
             return jsonify({"error": "pA 冻结查看器副本缺失"}), 500
         if case_id == "demo":
             meta = extract_viewer_meta(os.path.join(WEBAPP_DIR, "demo", "viewer_data.js"))
@@ -1173,9 +1223,13 @@ def build_app(cfg):
             return jsonify({"error": "demo viewer_data.js 缺失"}), 500
         if case_id == "pB":
             mp = os.path.join(WEBAPP_DIR, "cases", "pB", "metrics.json")
-            if os.path.isfile(mp):
-                return jsonify(metrics_from_postcfd_json(
-                    "pB", mp, "P0-result-pB-v1/后处理/metrics.json（只读复用副本）"))
+            if not os.path.isfile(mp):
+                mp = case_results_metrics_path("pB")  # 回退本例真实结果
+            if mp and os.path.isfile(mp):
+                src = ("P0-result-pB-v1/后处理/metrics.json（只读复用副本）"
+                       if "webapp" in mp
+                       else "out/结果/P0-result-pB-v1/后处理/metrics.json（本例真实结果，只读复用）")
+                return jsonify(metrics_from_postcfd_json("pB", mp, src))
             return jsonify({"error": "pB metrics 副本缺失（部署件未执行）"}), 500
         if case_id == "pC":
             sp = os.path.join(WEBAPP_DIR, "cases", "pC", "case_stats-pC-v4.json")
@@ -1321,6 +1375,20 @@ code{{background:#0d1117;padding:2px 6px;border-radius:4px;font-size:12px}}
                     return {"dP_Pa": round(float(t.get("dP_Pa", 0)), 2),
                             "split_L_pct": round(float(t.get("flow_share_L_pct", 0)), 1),
                             "split_R_pct": round(float(t.get("flow_share_R_pct", 0)), 1),
+                            "口径": "定流量口径（Run-A dP/Q）"}
+            if cid in ("pA", "pB"):
+                # 部署副本缺失时回退本例真实结果 out/结果/.../后处理/metrics.json
+                mp = case_results_metrics_path(cid)
+                if mp:
+                    m = json.load(open(mp, encoding="utf-8"))
+                    t = m.get("totals", {})
+                    dP = float(t.get("dP_Pa", 0))
+                    Q = float(t.get("Q_inlet_total_L_min", 0))
+                    R = dP / (Q / 60.0) if Q else None
+                    return {"dP_Pa": round(dP, 2),
+                            "split_L_pct": round(float(t.get("flow_share_L_pct", 0)), 1),
+                            "split_R_pct": round(float(t.get("flow_share_R_pct", 0)), 1),
+                            "resistance": round(R, 1) if R else None,
                             "口径": "定流量口径（Run-A dP/Q）"}
             if cid == "pC":
                 sp = os.path.join(WEBAPP_DIR, "cases", "pC", "case_stats-pC-v4.json")

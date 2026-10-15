@@ -326,6 +326,20 @@ footer .fixed-sentence{
     <div class="qc3" id="qc-grid"></div>
     <div class="hint" id="qc-note"></div>
   </div>
+
+  <div class="card" id="results-card" style="display:none">
+    <h2>导出分析结果</h2>
+    <div class="lead">本例全链路分析的真实产物（只读下载）——指标 JSON / 分析报告 / 图表逐项下载。</div>
+    <div class="btnrow" id="results-links"></div>
+    <div class="hint" id="results-note"></div>
+  </div>
+
+  <div class="card" id="figures-card" style="display:none">
+    <h2>截面气流与分析图表</h2>
+    <div class="lead">气流仿真的截面与结果图（本例真实结果）——速度切片 = 截面气流情况。</div>
+    <div class="qc3" id="figures-grid"></div>
+    <div class="hint" id="figures-note"></div>
+  </div>
 </section>
 
 <!-- ================= 页签 2：了解 ENS ================= -->
@@ -377,7 +391,7 @@ footer .fixed-sentence{
     <h3>隐私与授权</h3>
     <p style="font-size:15px;margin:6px 0">
       您的 CT 在进入分析前，逐文件通过匿名化断言（患者姓名/编号等字段必须为空，否则停工）；
-      患者A 为社区患者<b>书面授权</b>在案；赛方发放数据有来源记录在案；患者B 的数据来源方演示展示确认<b>在办</b>（确认前默认不展示详情）。
+      患者A 为社区患者<b>书面授权</b>在案；赛方发放数据有来源记录在案；患者B 为赛方提供的<b>匿名 CT</b>，逐头匿名化核验 PASS，演示展示确认<b>在案</b>。
     </p>
     <p style="font-size:14px;margin:6px 0">授权与匿名化核验记录：见提交包 <code>授权与数据来源/</code> 目录（逐文件断言 JSON + 授权确认记录）。</p>
   </div>
@@ -424,7 +438,7 @@ footer .fixed-sentence{
       <label class="f">内置病例</label>
       <select class="f" id="nc-case-id">
         <option value="pA">患者A · 基线（演示展示在案）</option>
-        <option value="pB">患者B · 对照（授权确认中——需定向演示模式）</option>
+        <option value="pB">患者B · 对照（演示展示在案）</option>
         <option value="pC">患者C · 拦截修复实证</option>
       </select>
     </div>
@@ -516,7 +530,7 @@ footer .fixed-sentence{
     <ul class="story-list">
       <li>患者A：社区患者<b>书面授权</b>在案（演示展示）；</li>
       <li>赛方数据（患者B/C）：来源记录 + 逐文件匿名化核验在案；</li>
-      <li>患者B：数据来源方演示展示确认<b>在办</b>——确认前默认不展示详情（定向演示模式可见指标）；</li>
+      <li>患者B：赛方提供匿名 CT，演示展示确认<b>在案</b>（逐头匿名化核验 PASS）；</li>
       <li>合成 demo：100% 参数化管腔（开源仓库生成器产物），无 CT、无患者数据。</li>
     </ul>
   </div>
@@ -678,6 +692,8 @@ async function selectCase(cid){
   } else {
     $("qc-card").style.display = "none";
   }
+  renderResults(cid);
+  renderFigures(cid);
 
   // Hero：查看器可用则 iframe（≥60vh），否则暖色占位卡
   if(c.viewer_available){
@@ -691,9 +707,9 @@ async function selectCase(cid){
 function renderHeroPlaceholder(c, cid){
   const hero = $("hero-box");
   let emoji, title, lines;
-  if(cid === "pB" || (c.presenter_only && !S.presenter)){
+  if(c.presenter_only && !S.presenter){
     emoji = "🔒"; title = "这份数据正在确认授权";
-    lines = ["患者B 的数据来源方演示展示确认在办——确认前默认不展示详情。",
+    lines = ["该病例的数据来源方演示展示确认在办——确认前默认不展示详情。",
              "获得确认后（或在定向演示模式下），这里将显示他的气道三维模型。"];
   } else if(c.status === "blocked" || (c.gate_failures && c.gate_failures.length)){
     emoji = "🕐"; title = "这份 CT 我们需要仔细检查";
@@ -875,7 +891,7 @@ function renderGaugesDenied(c){
   $("gauge-grid").innerHTML =
     `<div class="warm-card"><div class="warm-head"><span class="warm-emoji">🔒</span>
       <div><h3>指标详情正在确认授权</h3>
-      <div class="reason">这份数据（患者B）的数据来源方演示展示确认在办——确认前默认不展示指标详情。</div>
+      <div class="reason">这份数据的数据来源方演示展示确认在办——确认前默认不展示指标详情。</div>
       <div class="comfort">获得确认后，或在<b>定向演示模式</b>下，这里将显示他的量化指标。</div></div>
     </div></div>`;
   $("koujing-note").textContent = "";
@@ -905,6 +921,51 @@ function renderQC(q, gridId, cardId, noteId){
     box.appendChild(fig);
   }
   $(noteId).textContent = q.r02_note || "";
+}
+
+/* ---------- 结果导出 + 截面图表（本例真实结果，只读复用） ---------- */
+const RESULT_CASES = ["pA", "pB"];
+function resultUrl(cid, fn){
+  return "/api/results/" + encodeURIComponent(cid) + "/" + encodeURIComponent(fn);
+}
+function renderResults(cid){
+  const card = $("results-card");
+  if(!RESULT_CASES.includes(cid)){ card.style.display = "none"; return; }
+  card.style.display = "";
+  const files = [
+    {fn:"metrics.json", label:"指标 JSON"},
+    {fn:"report.md", label:"分析报告（Markdown）"},
+    {fn:"fig1_velocity_slice.png", label:"图1 速度切片"},
+    {fn:"fig2_pressure_slice.png", label:"图2 压力切片"},
+    {fn:"fig3_streamlines.png", label:"图3 流线"},
+    {fn:"fig4_wss_histogram.png", label:"图4 WSS 直方图"}
+  ];
+  $("results-links").innerHTML = files.map(f=>
+    '<a class="btn" href="' + resultUrl(cid, f.fn) + '" download>' + esc(f.label) + '</a>').join("");
+  $("results-note").textContent =
+    "文件来自本例真实分析结果档案（out/结果/P0-result-" + cid +
+    "-v1/后处理/）；只读复用——严禁套用其他患者数字（结果契约闸门）。";
+}
+function renderFigures(cid){
+  const card = $("figures-card");
+  if(!RESULT_CASES.includes(cid)){ card.style.display = "none"; return; }
+  card.style.display = "";
+  const figs = [
+    {fn:"fig1_velocity_slice.png", title:"图1：速度切片（截面气流）",
+     note:"冠状/矢状速度切片——色标 m/s；直接回答“每个截面的气流情况”。"},
+    {fn:"fig2_pressure_slice.png", title:"图2：压力切片",
+     note:"压力场切片——色标 Pa；与速度切片对照看压力耗散位置。"},
+    {fn:"fig3_streamlines.png", title:"图3：流线",
+     note:"气流流线——展示气流走向、主干通道与低速滞留区。"},
+    {fn:"fig4_wss_histogram.png", title:"图4：壁面剪切应力直方图",
+     note:"鼻腔内壁摩擦力（WSS）分布——横轴 Pa。"}
+  ];
+  $("figures-grid").innerHTML = figs.map(f=>
+    '<figure><img src="' + resultUrl(cid, f.fn) + '" alt="' + esc(f.title) +
+    '" loading="lazy"><figcaption>' + esc(f.title) +
+    '<br><span class="muted">' + esc(f.note) + '</span></figcaption></figure>').join("");
+  $("figures-note").textContent =
+    "数据来源：本例 CFD 后处理结果（P0-result-" + cid + "-v1）；层流下界估计，不确定度±20–50%。";
 }
 
 /* ================= 上传分析 ================= */
