@@ -82,8 +82,8 @@ python code/pipeline/run_all.py --dicom-dir <CT目录>  # 一键总控编排（s
 ### 3b. 测试
 
 - `tests/test_quickstart.py`：开箱冒烟——源码可编译、依赖清单存在、README 占位说明、
-  合成示例数据完整、step1/step2 裸跑友好报错、cli capabilities。开箱仓库直接 `pytest` 全绿。
-- `tests/test_api.py`：工作台 API 测试四类 28 项（契约 / 数据边界拒绝 / exit 2/3 闸门映射 /
+  合成示例数据完整、step1/step2 裸跑友好报错、cli capabilities。开箱仓库直接 `pytest tests/test_quickstart.py` 全绿（7 项开箱冒烟）；`tests/test_api.py` 全量需配置 CT 根与部署资产。
+- `tests/test_api.py`：工作台 API 测试五类 36 项（契约 / 数据边界拒绝 / exit 2/3 闸门映射 /
   指标一致性，含双口径不可互换断言）。需工作台服务端 `code/pipeline/server.py`（随仓库发布；CT 根经 `P0_CT_BASE` 注入，不含患者数据；
   未配置该环境变量时内置用例跳过）。
 
@@ -91,6 +91,7 @@ python code/pipeline/run_all.py --dicom-dir <CT目录>  # 一键总控编排（s
 
 - `code/pipeline/run_all.py`：一键总控（step1→step7 顺序链路 + 五闸门；`--ext/--iso/--voxel-z/--merge-mode/--publish` 透传）。
 - `code/pipeline/server.py` + `code/pipeline/webapp/`：多患者 Web 工作台（Flask 后端 + 前端；CT 根经 `P0_CT_BASE` 注入，不含患者数据）。
+- 工作台默认仅监听本机（`--host` 默认 `127.0.0.1`，演示安全）；同网投屏 / 多机访问可显式 `--host 0.0.0.0`。
 - `code/pipeline/标注协议-KHub鼻腔气道-20261009.md`：KHub 标注协议 v1（出口标志写死 / 冻结参数表）。
 
 ## 仓库剔除说明

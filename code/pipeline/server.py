@@ -79,10 +79,41 @@ RESULTS_WHITELIST = {
 
 
 def case_results_dir(case_id):
-    """真实结果目录 out/结果/P0-result-<case_id>-v1/后处理/（仅 pA/pB 有结果）。"""
+    """真实结果目录 out/结果/P0-result-<case_id>-v1/后处理/（通用拼路径 + 存在性判定）。
+
+    去 RESULT_CASES 硬编码（原先只认 pA/pB）：改按 case_id 通用拼路径，
+    目录存在才返回（上传病例跑完管线并回填结果后自动命中）。
+    case_id 仅接受安全令牌（字母/数字/下划线/连字符）——防 URL 路径穿越。
+    """
+    if not case_id or not re.match(r"^[A-Za-z0-9_-]+$", str(case_id)):
+        return ""
+    d = os.path.join(RESULTS_ROOT, f"P0-result-{case_id}-v1", "后处理")
+    return d if os.path.isdir(d) else ""
+
+
+# ---------------------------------------------------------------- 真实鼻腔 3D 模型（GLB）  [MODEL-ROUTE]
+def case_model_path(case_id):
+    """真实气道 GLB 路径（白名单 pA/pB；不存在返回空串）。"""
     if case_id not in ("pA", "pB"):
         return ""
-    return os.path.join(RESULTS_ROOT, f"P0-result-{case_id}-v1", "后处理")
+    p = os.path.join(WEBAPP_DIR, "models", f"airway_{case_id}.glb")
+    return p if os.path.isfile(p) else ""
+
+
+def digest_pii_fail(f):
+    """PII 闸门失败记录脱敏：保留字段名与判定语，值字段（第 3 个元素）摘要化。
+
+    run_all.scan_pii 的 fails 元素形如 (文件名, 字段名, 原始值, 判定语)——
+    原始值为患者标识（姓名/编号等），落库与前端展示前必须摘要化（安全底线）。
+    """
+    try:
+        parts = list(map(str, f))
+    except Exception:  # noqa: BLE001
+        return str(f)
+    if len(parts) >= 3:
+        raw = parts[2]
+        parts[2] = "<值已隐藏,长度%d>" % len(raw)
+    return parts
 
 
 def case_results_metrics_path(case_id):
@@ -90,6 +121,17 @@ def case_results_metrics_path(case_id):
     d = case_results_dir(case_id)
     p = os.path.join(d, "metrics.json") if d else ""
     return p if os.path.isfile(p) else ""
+
+
+def case_results_available(cfg, case_id):
+    """本例"导出结果"是否就绪（判定 = out/结果/P0-result-<cid>-v1/后处理/metrics.json 存在）。
+
+    上传病例跑完管线并回填结果后自动 true（去 RESULT_CASES 硬编码）。
+    云形态（only_synthetic）下恒 False——与 /api/results 的 403 数据边界硬闸一致。
+    """
+    if cfg.only_synthetic:
+        return False
+    return bool(case_results_metrics_path(case_id))
 
 # ---------------------------------------------------------------- 内置病例定义（相对 CT 根，R-14）
 BUILTIN_DEFS = {
@@ -159,7 +201,7 @@ DISCLOSURE = ("层流下界估计，不确定度±20-50%；概念验证 · 非�
 # ---------------------------------------------------------------- 配置
 class ServerConfig:
     def __init__(self, mode="m1-local", base_dir=None, state_dir=None,
-                 solve="skip", presenter=False, host="0.0.0.0", port=8080):
+                 solve="skip", presenter=False, host="127.0.0.1", port=8080):
         self.mode = mode
         self.only_synthetic = (mode == "m2-cloud")
         self.presenter = bool(presenter) or os.environ.get("P0_PRESENTER") == "1"
@@ -808,7 +850,7 @@ def _register_case(cfg, dicom_dir, prefix, case_name, label, kind, case_id_val,
                     f" ×{pii.get('fail_count', 0)}（{pii.get('files', 0)} 头）")
     if not pii["pass"]:
         rec.update(status="blocked", gate="PII 头扫描（run_all 同款闸门）",
-                   gate_failures=[list(map(str, f)) for f in pii.get("fails", [])][:10],
+                   gate_failures=[digest_pii_fail(f) for f in pii.get("fails", [])][:10],
                    exit_code=2)
         reg[rec["case_id"]] = rec
         save_registry(cfg, reg)
@@ -885,6 +927,161 @@ def _register_case(cfg, dicom_dir, prefix, case_name, label, kind, case_id_val,
                     "message": "PII 扫描 PASS + step1 完成；可 POST /api/run 启动全链"})
 
 
+# ---------------------------------------------------------------- 上传序列自动识别  [SERIES-AUTOSELECT]
+# 用户常选中含多个序列的父目录 → basename 拍平后多序列混叠 → z 非单调被层序断言拦。
+# 这里按 SeriesInstanceUID 分组，自动挑"软组织窗/标准核 > 层厚薄 > z 覆盖长 > 文件多"的序列，
+# 只把该序列文件移入独立病例目录，其余留在 uploads 原处作证据；单序列目录行为不变（分组=1 直通）。
+_SERIES_RANK = {"soft": 2, "unknown": 1, "bone": 0}
+_IMG_Z_RE = re.compile(r"^b([5-9]\d|100)", re.I)
+
+
+def _classify_series_window(desc, kernel):
+    """序列窗口分类：软组织窗/标准核 -> 'soft'；骨/锐算法 -> 'bone'；其余 -> 'unknown'。"""
+    d = (desc or "").lower()
+    k = (kernel or "").strip().lower()
+    soft = bone = False
+    if any(t in d for t in ("soft", "sft", "软组织", "平滑", "标准")):
+        soft = True
+    if any(t in d for t in ("bone", "骨", "sharp", "锐", "detail", "edge", "high res")):
+        bone = True
+    if "c-" in d:
+        bone = True
+    if k:
+        if any(t in k for t in ("soft", "sft", "smooth", "stnd", "std", "standard",
+                                "fc0", "fc1", "fc2", "fc3", "b31", "b30", "b40", "b45")):
+            soft = True
+        if (k in ("b", "bone", "c", "c-", "cd") or "bone" in k
+                or k.startswith("c-") or bool(_IMG_Z_RE.match(k))):
+            bone = True
+    if soft:
+        return "soft"
+    if bone:
+        return "bone"
+    return "unknown"
+
+
+def _scan_series_groups(dicom_dir):
+    """按 SeriesInstanceUID 分组扫描 dicom_dir 下的 .dcm（stop_before_pixels）。
+    任一文件无法解析 -> 返回 None（交回原 PII/头抽检流程，保持既有闸门行为）。"""
+    try:
+        names = sorted(f for f in os.listdir(dicom_dir) if f.lower().endswith(".dcm"))
+    except OSError:
+        return None
+    if len(names) < 2:
+        return None
+    groups = {}
+    for fn in names:
+        fp = os.path.join(dicom_dir, fn)
+        try:
+            ds = RA.pydicom.dcmread(fp, stop_before_pixels=True, force=True)
+        except Exception:  # noqa: BLE001
+            return None
+        uid = str(getattr(ds, "SeriesInstanceUID", "") or "").strip() or "(no-series-uid)"
+        g = groups.get(uid)
+        if g is None:
+            g = {"series_uid": uid, "files": [], "modalities": set(),
+                 "descriptions": set(), "kernels": set(), "thicknesses": [], "zs": []}
+            groups[uid] = g
+        g["files"].append(fp)
+        g["modalities"].add(str(getattr(ds, "Modality", "") or "").strip())
+        g["descriptions"].add(str(getattr(ds, "SeriesDescription", "") or "").strip())
+        g["kernels"].add(str(getattr(ds, "ConvolutionKernel", "") or "").strip())
+        st = getattr(ds, "SliceThickness", None)
+        if st is not None:
+            try:
+                g["thicknesses"].append(float(st))
+            except (TypeError, ValueError):
+                pass
+        ipp = getattr(ds, "ImagePositionPatient", None)
+        if ipp is not None and len(ipp) >= 3:
+            try:
+                g["zs"].append(float(ipp[2]))
+            except (TypeError, ValueError):
+                pass
+    out = []
+    for uid, g in groups.items():
+        th = min(g["thicknesses"]) if g["thicknesses"] else None
+        zs = sorted(g["zs"]) if g["zs"] else []
+        zmin = zs[0] if zs else None
+        zmax = zs[-1] if zs else None
+        mono = all(zs[i] < zs[i + 1] for i in range(len(zs) - 1)) if len(zs) >= 2 else False
+        desc = next((s for s in sorted(g["descriptions"]) if s), "") or ""
+        kern = next((s for s in sorted(g["kernels"]) if s), "") or ""
+        cov = (zmax - zmin) if (zmin is not None and zmax is not None) else 0.0
+        out.append({
+            "series_uid": uid,
+            "files": g["files"],
+            "file_count": len(g["files"]),
+            "modality": next((s for s in sorted(g["modalities"]) if s), "") or "",
+            "description": desc,
+            "kernel": kern,
+            "thickness": th,
+            "z_min": zmin, "z_max": zmax,
+            "z_coverage": cov,
+            "z_monotonic": mono,
+            "window": _classify_series_window(desc, kern),
+        })
+    return out
+
+
+def _series_sort_key(g):
+    """评分：软组织窗/标准核 > 层厚薄 > z 覆盖长 > 文件多（> z 单调为末位微调）。"""
+    th = g["thickness"] if g["thickness"] is not None else 1e9  # 未知层厚排最后
+    return (_SERIES_RANK.get(g["window"], 1), -th, g["z_coverage"],
+            g["file_count"], 1 if g["z_monotonic"] else 0)
+
+
+def _autoselect_upload_series(up_dir):
+    """扫描上传目录；多序列 -> 自动挑最优序列，移入独立病例目录。
+    返回 (case_dir, message, series_list) 或 None（单序列/不可解析/最优不足 2 张 -> 走原流程）。"""
+    groups = _scan_series_groups(up_dir)
+    if not groups or len(groups) <= 1:
+        return None
+    best = max(groups, key=_series_sort_key)
+    if best["file_count"] < 2:  # 最优序列也要够建病例（>=2 张），否则交回原流程
+        return None
+    # 移动最优序列文件到独立目录（其余留在 up_dir 作证据）
+    sel_dir = up_dir + "-sel"
+    n = 2
+    while os.path.exists(sel_dir):
+        sel_dir = f"{up_dir}-sel{n}"
+        n += 1
+    os.makedirs(sel_dir, exist_ok=True)
+    for fp in best["files"]:
+        shutil.move(fp, os.path.join(sel_dir, os.path.basename(fp)))
+    series_list = sorted(groups, key=_series_sort_key, reverse=True)
+    lines = []
+    for g in series_list:
+        th = f"{g['thickness']:g}" if g["thickness"] is not None else "?"
+        win = {"soft": "软组织窗", "bone": "骨窗", "unknown": "窗口未知"}[g["window"]]
+        lines.append(f"{g['description'] or '(无序列描述)'}（层厚 {th} mm，{g['file_count']} 张，{win}）")
+    bth = f"{best['thickness']:g}" if best["thickness"] is not None else "?"
+    message = (f"发现 {len(groups)} 个序列：" + "；".join(lines) +
+               f"。已自动选用：{best['description'] or best['kernel'] or '(无描述)'}"
+               f"（层厚 {bth} mm，{best['file_count']} 张）")
+    info = [{
+        "description": g["description"], "kernel": g["kernel"],
+        "thickness": g["thickness"], "file_count": g["file_count"],
+        "window": g["window"], "chosen": g is best,
+    } for g in series_list]
+    return sel_dir, message, info
+
+
+def _attach_series_note(resp, series_msg, series_list):
+    """把序列识别结论注入注册响应（message 前缀 + series_selection 结构化字段）。"""
+    try:
+        data = resp.get_json()
+    except Exception:  # noqa: BLE001
+        data = None
+    if isinstance(data, dict):
+        data["series_selection"] = {"message": series_msg, "series": series_list}
+        base = data.get("message") or ""
+        data["message"] = series_msg + ("  " + base if base else "")
+        resp.set_data(json.dumps(data, ensure_ascii=False))
+        resp.mimetype = "application/json"
+    return resp
+
+
 def _register_path_case(cfg, dicom_dir, source_label="服务器目录导入"):
     """按 CT 目录建病例：R-11 契约校验（≥2 个 .dcm / ≤2048 MiB）→ 分配前缀 → _register_case。
     供 POST /api/case（source=path）与 POST /api/upload（网页直接上传）共用。
@@ -936,6 +1133,19 @@ def build_app(cfg):
             resp.headers["Content-Type"] = "text/markdown; charset=utf-8"
         return resp
 
+    @app.route("/models/<case_id>")
+    def models_file(case_id):
+        """只读 serve 真实鼻腔气道 GLB（白名单 pA/pB；云形态 403，与 /api/results 同款闸）。"""
+        if cfg.only_synthetic:
+            return jsonify({"error":
+                            "数据边界硬闸（限定1/R-03）：云形态仅合成数据，"
+                            "真实气道路由在云形态不可访问（HTTP 403）。"}), 403
+        p = case_model_path(case_id)
+        if not p:
+            abort(404)
+        return send_file(p, mimetype="model/gltf-binary", as_attachment=False,
+                         download_name=f"airway_{case_id}.glb")
+
     @app.route("/api/health")
     def api_health():
         return jsonify({
@@ -964,7 +1174,9 @@ def build_app(cfg):
                 "dicom_configured": dicom_ok,
                 "presenter_only": bool(rec.get("presenter_only")) and not cfg.presenter,
                 "viewer_available": _viewer_available(cfg, rec),
+                "model_available": (not cfg.only_synthetic) and bool(case_model_path(cid)),
                 "viewer_block_reason": _viewer_block_reason(cfg, rec),
+                "results_available": case_results_available(cfg, cid),
                 "metrics_summary": summary,
                 "qc_available": bool(qc_views_for_case(cfg, rec)),
                 "note": rec.get("note") or d["note"],
@@ -979,6 +1191,7 @@ def build_app(cfg):
             "status": rec["status"], "dicom_configured": True,
             "presenter_only": False,
             "viewer_available": True, "viewer_block_reason": "",
+            "results_available": case_results_available(cfg, "demo"),
             "metrics_summary": _builtin_metrics_summary(cfg, "demo"),
             "qc_available": False,
             "note": rec["note"], "evidence": [
@@ -1002,6 +1215,7 @@ def build_app(cfg):
                 "presenter_only": False,
                 "viewer_available": _viewer_available(cfg, r),
                 "viewer_block_reason": _viewer_block_reason(cfg, r),
+                "results_available": case_results_available(cfg, cid),
                 "metrics_summary": _upload_metrics_summary(cfg, r),
                 "qc_available": bool(qc_views_for_case(cfg, r)),
                 "note": r.get("note") or "",
@@ -1053,6 +1267,52 @@ def build_app(cfg):
             return _register_path_case(cfg, dicom_dir, source_label="服务器目录导入")
         else:
             return jsonify({"error": "source 须为 builtin|path|demo"}), 400
+
+    @app.route("/api/case/<case_id>", methods=["DELETE"])
+    def api_case_delete(case_id):
+        """删除上传病例（仅 kind==upload）：registry 条目 + cases/<cid>/ + uploads 源目录。
+
+        内置/合成病例（pA/pB/pC/demo 等）一律 403——保护赛方与预置数据。
+        云形态与其它写端点同款闸（503，代码级禁用）。删除不可恢复。
+        """
+        if cfg.only_synthetic:
+            return jsonify({
+                "error": "云形态数据边界（修订1/R-03）：本形态（M2/M3）仅合成 demo 数据，"
+                         "删除操作已在代码级禁用（HTTP 503）"}), 503
+        if not re.match(r"^[A-Za-z0-9_-]+$", str(case_id)):  # 防路径穿越（防御性）
+            return jsonify({"error": f"非法病例标识：{case_id}"}), 400
+        reg = load_registry(cfg)
+        rec = reg.get(case_id)
+        if rec is None or rec.get("kind") != "upload":
+            # 非上传病例（内置/合成 pA/pB/pC/demo）一律 403；未知 id → 404
+            if get_case_record(cfg, case_id) is not None:
+                return jsonify({"error": "内置病例不可删除"}), 403
+            return jsonify({"error": f"病例不存在：{case_id}"}), 404
+        if case_id in RUNNING:
+            return jsonify({"error": f"病例 {case_id} 正在运行中，暂不可删除"}), 409
+        removed = []
+        # ① 本例 out_dir（state_dir/cases/<cid>/）
+        out_dir = rec.get("out_dir") or os.path.join(cfg.state_dir, "cases", case_id)
+        if out_dir and os.path.isdir(out_dir):
+            shutil.rmtree(out_dir, ignore_errors=True)
+            removed.append(os.path.relpath(out_dir, HERE).replace("\\", "/"))
+        # ② uploads 源目录（病例记录里存了来源路径才删；限定在 state_dir/uploads 内）
+        src = rec.get("dicom_dir") or ""
+        if src:
+            try:
+                real = os.path.realpath(src)
+                up_root = os.path.realpath(os.path.join(cfg.state_dir, "uploads"))
+                if os.path.isdir(real) and (real == up_root
+                                            or real.startswith(up_root + os.sep)):
+                    shutil.rmtree(real, ignore_errors=True)
+                    removed.append(os.path.relpath(real, HERE).replace("\\", "/"))
+            except OSError:
+                pass
+        # ③ registry 条目
+        reg.pop(case_id, None)
+        save_registry(cfg, reg)
+        removed.append("cases.json[" + str(case_id) + "]")
+        return jsonify({"deleted": case_id, "removed": removed})
 
     @app.route("/api/upload", methods=["POST"])
     def api_upload():
@@ -1113,6 +1373,17 @@ def build_app(cfg):
                             + os.path.relpath(up_dir, HERE).replace("\\", "/")
                             + "）：请选择包含完整 DICOM 序列的文件夹"}), 400
         # 复用 source=path 建病例链（PII 闸门 → DICOM 头普查 → step1）
+        # ---- 上传序列自动识别（多序列父目录 → 自动挑选最优序列）----  [SERIES-AUTOSELECT]
+        sel = None
+        try:
+            sel = _autoselect_upload_series(up_dir)
+        except Exception:  # noqa: BLE001
+            sel = None
+        if sel:
+            case_dir, series_msg, series_list = sel
+            resp = _register_path_case(cfg, case_dir, source_label="网页上传（自动选序列）")
+            return _attach_series_note(resp, series_msg, series_list)
+        # 走 source=path 同一条链（PII 闸门 → DICOM 头抽检 → step1）
         return _register_path_case(cfg, up_dir, source_label="网页上传")
 
     @app.route("/api/qc/<case_id>")
@@ -1549,7 +1820,7 @@ def main():
                     help="POST /api/run 默认求解模式（默认 skip：只到算例+断言）")
     ap.add_argument("--presenter", action="store_true",
                     help="presenter 定向演示模式（解锁 pB 详情，R-01 授权分级）")
-    ap.add_argument("--host", default="0.0.0.0")
+    ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8080)
     args = ap.parse_args()
     cfg = ServerConfig(mode=args.mode, base_dir=args.base_dir,

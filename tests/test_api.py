@@ -37,6 +37,11 @@ CT_BASE = os.environ.get(
     os.path.expandvars(r"%DATA_ROOT%\参赛群资料"))
 CT_BASE_OK = os.path.isdir(CT_BASE)
 
+# pB 的 CFD 结果档案不随仓库发布（隐私政策）——缺资产时相关用例自动跳过，
+# 避免干净克隆（开源社区）下因缺 out/结果 资产而误报失败。
+PB_METRICS = os.path.join(PIPE, "out", "结果", "P0-result-pB-v1", "后处理", "metrics.json")
+PB_METRICS_OK = os.path.isfile(PB_METRICS)
+
 try:
     import server as SRV  # noqa: E402
 except ImportError:
@@ -208,6 +213,8 @@ class TestDataBoundary:
         assert demo["synthetic"] is True
         assert demo["viewer_available"] is True
 
+    @pytest.mark.skipif(not PB_METRICS_OK,
+                        reason="CFD 结果档案不随仓库发布（隐私政策）")
     def test_pB_authorized_in_register(self, client):
         """R-01 授权事实更新：患者B（赛方提供匿名 CT）演示展示确认为"在案"——
         非 presenter 模式即可读取指标；3D 查看器仍受契约完备性闸门拦截。"""
@@ -220,6 +227,8 @@ class TestDataBoundary:
         assert pB["presenter_only"] is False
         assert pB["viewer_available"] is False  # 3D 查看器仍待契约完备
 
+    @pytest.mark.skipif(not PB_METRICS_OK,
+                        reason="CFD 结果档案不随仓库发布（隐私政策）")
     def test_pB_presenter_unlocks_metrics(self, pres_client):
         """pB 授权在案后，presenter 模式同样可读指标（授权分级机制保留）。"""
         r = pres_client.get("/api/metrics/pB")
@@ -343,6 +352,8 @@ class TestMetricsConsistency:
         assert "合成" in j["dP"]["口径"]
         assert "合成" in j["resistance"]["口径"]
 
+    @pytest.mark.skipif(not PB_METRICS_OK,
+                        reason="CFD 结果档案不随仓库发布（隐私政策）")
     def test_pB_metrics_match_postcfd(self, client):
         """pB 指标与本例真实后处理 metrics.json 一致（out/结果/P0-result-pB-v1）。"""
         j = client.get("/api/metrics/pB").get_json()

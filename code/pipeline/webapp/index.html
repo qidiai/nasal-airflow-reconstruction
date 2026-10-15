@@ -121,6 +121,16 @@ input.f:focus,select.f:focus{outline:2px solid #2A9D8F55;border-color:var(--teal
 .pill.active{border-color:var(--teal);background:var(--teal-soft);font-weight:600;color:var(--teal-deep)}
 .pill .st{font-size:12px;color:var(--ink-soft);margin-left:5px}
 .pill.gated{opacity:.75}
+/* 病例项 + 删除按钮（仅上传病例；blocked 更显眼） */
+.pill-wrap{display:inline-flex;align-items:center;gap:4px}
+.pill-del{
+  border:1.5px solid var(--coral);background:var(--panel);color:var(--coral);
+  border-radius:999px;padding:6px 12px;font-size:13.5px;cursor:pointer;
+  font-family:inherit;font-weight:600;box-shadow:var(--shadow);
+}
+.pill-del:hover{background:var(--coral-soft)}
+.pill-del.blocked{background:var(--coral);border-color:var(--coral);color:#fff}
+.pill-del.blocked:hover{background:#D05A3C;border-color:#D05A3C}
 /* ---------- Hero：3D 查看器主角 ≥60vh ---------- */
 .hero{
   border-radius:var(--radius);overflow:hidden;border:1px solid var(--line);
@@ -139,6 +149,32 @@ iframe.hero-frame{
 .hero-ph h3{font-size:19px;margin:4px 0}
 .hero-ph p{color:var(--ink-soft);max-width:520px;margin:2px 0;font-size:14.5px}
 .hero-loading{padding:60px 20px;text-align:center;color:var(--ink-soft);font-size:15px}
+/* ---------- 上传序列识别提示 ---------- */
+.series-note{margin-top:10px;border:1px solid #2A9D8F55;background:var(--teal-soft);
+  border-radius:10px;padding:10px 12px;font-size:14px}
+.series-note .sn-head{font-weight:600;color:var(--teal-deep);margin-bottom:6px}
+.series-note ul{margin:0;padding-left:18px}
+.series-note li{margin:2px 0;color:var(--ink-soft)}
+.series-note li.chosen{color:var(--ink);font-weight:600}
+/* ---------- Hero 真实鼻腔 3D 模型 ---------- */
+.hero3d{position:relative;height:62vh;min-height:380px;
+  background:radial-gradient(120% 90% at 50% 8%,#20304a 0%,#0e1726 55%,#070b12 100%);
+  overflow:hidden}
+.hero3d canvas{display:block;width:100%;height:100%;cursor:grab;touch-action:none}
+.hero3d canvas:active{cursor:grabbing}
+.hero3d-badge{position:absolute;top:12px;left:14px;padding:4px 12px;border-radius:999px;
+  font-size:12.5px;color:#bfefff;background:rgba(20,40,64,.55);border:1px solid #3d6f8f66;
+  backdrop-filter:blur(4px);letter-spacing:.4px}
+.hero3d-cap{position:absolute;left:14px;bottom:34px;right:150px;color:#cfe6f5;font-size:13.5px;
+  text-shadow:0 1px 6px rgba(0,0,0,.7)}
+.hero3d-hint{position:absolute;right:14px;bottom:12px;color:#8fb0c8;font-size:12px;
+  text-shadow:0 1px 6px rgba(0,0,0,.7)}
+.hero3d-open{position:absolute;top:12px;right:14px;color:#eaf6ff;font-size:13px;
+  background:rgba(42,157,143,.85);border-radius:999px;padding:5px 13px;text-decoration:none;
+  font-weight:600}
+.hero3d-open:hover{background:var(--teal-deep)}
+.hero3d-load{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  color:#9fb6c8;font-size:15px}
 /* ---------- 量表（数字有情绪） ---------- */
 .gauges{display:grid;grid-template-columns:1fr;gap:14px}
 .gauge{
@@ -166,6 +202,7 @@ iframe.hero-frame{
 .gauge-verdict.in{color:#1E8E4A}
 .gauge-verdict.high{color:var(--coral)}
 .gauge-verdict.na{color:var(--ink-soft)}
+.gauge-annot{font-size:13px;color:var(--teal-deep);margin:9px 0 0;padding-left:9px;border-left:3px solid #2A9D8F66;line-height:1.55}
 .chip{
   display:inline-block;font-size:12px;border-radius:6px;padding:1px 8px;
   background:var(--teal-soft);color:var(--teal-deep);border:1px solid #2A9D8F33;
@@ -320,6 +357,7 @@ footer .fixed-sentence{
     <h2>您的鼻腔气道</h2>
     <div class="lead">基于您的 CT 三维重建 —— 大气道模型在下方"呼吸"（拖拽旋转 / 呼吸粒子 / 流线 / 探针读数）。</div>
     <div class="pills" id="airway-pills"><span class="muted">病例加载中…</span></div>
+    <div class="hint" id="cases-status" style="margin:-6px 0 8px"></div>
     <div class="hero" id="hero-box">
       <div class="hero-loading"><span class="spin"></span>正在加载气道模型…</div>
     </div>
@@ -369,8 +407,9 @@ footer .fixed-sentence{
     <p style="font-size:15px;margin:6px 0">
       我们的观点：把主观的"喘不上气"，变成可以看见、可以比较的气流数据。
       同一份 CT → 三维气道 → 流体仿真 → 每个截面的气流速度/压力/阻力。
-      患者A 实测：压降 ΔP = 18.45 Pa（常人带 30–150 Pa）——"过度通畅"第一次有了数字。
+      <span id="ens-live-dp">患者A 实测：压降 ΔP = 18.45 Pa（常人带 30–150 Pa）</span>——"过度通畅"第一次有了数字。
     </p>
+    <div class="hint">数值随本病例结果档案自动更新</div>
   </div>
 
   <div class="card">
@@ -380,19 +419,19 @@ footer .fixed-sentence{
         <div class="m-head"><span class="m-emoji">💨</span>气流是否均匀</div>
         <div class="m-one">空气流过鼻腔每个截面时，分布均不均匀——有没有"一股独大"的窄道。</div>
         <details><summary>技术细节</summary>
-          <div class="m-tech">气流分布均匀性：各截面速度分布的离散度（变异系数），由速度场 VTK 逐截面统计。</div>
+          <div class="m-tech">检查气流是不是一股脑冲进一边、另一边没气（统计口径已定义，逐截面统计开发中）。</div>
         </details>
       </div>
       <div class="m-card">
         <div class="m-head"><span class="m-emoji">🔍</span>有没有"死区"</div>
         <div class="m-one">鼻甲区有没有气流几乎不经过的小角落——那里的感觉可能最"空"。</div>
         <details><summary>技术细节</summary>
-          <div class="m-tech">鼻甲区低速死区：下鼻甲区域速度低于阈值的体素占比（低速滞留区检测）。</div>
+          <div class="m-tech">检查该有“通气感”的地方是不是感觉不到气流（统计口径已定义，开发中）。</div>
         </details>
       </div>
       <div class="m-card">
         <div class="m-head"><span class="m-emoji">🖐</span>鼻腔内壁摩擦力</div>
-        <div class="m-one">气流贴着鼻腔内壁流动时产生的摩擦——内壁感受的"刺激"量级。</div>
+        <div class="m-one">气流滑过鼻腔内壁的“抚摸感”——太弱了大脑就感觉不到在呼吸（空鼻症的核心）。</div>
         <details><summary>技术细节</summary>
           <div class="m-tech">壁面剪切应力（WSS）：壁面处速度梯度 × 流体黏度，单位 Pa；报均值与 p95。</div>
         </details>
@@ -601,6 +640,9 @@ footer .fixed-sentence{
   鼻腔气流分析 · T16 患者优先 UI 重设计 · 管线七脚本/查看器/门禁体系/审计链全部复用，本工作台仅为浏览器外壳
 </footer>
 
+<script src="/static/vendor/three.min.js"></script>
+<script src="/static/vendor/OrbitControls.js"></script>
+<script src="/static/vendor/GLTFLoader.js"></script>
 <script>
 "use strict";
 /* ================= 状态 ================= */
@@ -628,6 +670,147 @@ function esc(s){
     c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 }
 function $(id){ return document.getElementById(id); }
+
+/* ================= 上传序列识别提示（任务1） ================= */
+function seriesNoteHtml(b){
+  const ss = b && b.series_selection;
+  if(!ss || !ss.series || !ss.series.length) return "";
+  const rows = ss.series.map(s=>{
+    const win = s.window === "soft" ? "软组织窗" : s.window === "bone" ? "骨算法" : "窗口未知";
+    const th = (s.thickness == null) ? "?" : String(Number(s.thickness));
+    return "<li" + (s.chosen ? ' class="chosen"' : "") + ">" +
+      esc(s.description || "(无序列描述)") + " · 层厚 " + esc(th) + " mm · " +
+      esc(s.file_count) + " 张 · " + win + (s.chosen ? " · <b>已选用</b>" : "") + "</li>";
+  }).join("");
+  return '<div class="series-note"><div class="sn-head">🧭 上传目录含 ' + ss.series.length +
+    " 个序列，已自动识别并选用最优序列（软组织窗优先）：</div><ul>" + rows + "</ul></div>";
+}
+
+/* ================= Hero 真实鼻腔 3D 模型（任务2，three.js 本地 vendor） ================= */
+const MODEL_META = {
+  pA:{label:"患者A", orig:"91.8 万面", simp:"12 万面"},
+  pB:{label:"患者B", orig:"88.2 万面", simp:"12 万面"},
+};
+let HERO = null;
+
+function destroyHeroModel(){
+  if(!HERO) return;
+  try{ if(HERO.raf) cancelAnimationFrame(HERO.raf); }catch(e){}
+  try{ if(HERO.controls && HERO.controls.dispose) HERO.controls.dispose(); }catch(e){}
+  try{ if(HERO.renderer && HERO.renderer.dispose) HERO.renderer.dispose(); }catch(e){}
+  try{ if(HERO.onResize) window.removeEventListener("resize", HERO.onResize); }catch(e){}
+  HERO = null;
+}
+
+function heightColor(t){
+  /* 0 低 -> 深蓝，1 高 -> 青白（按气道高度映射顶点色） */
+  const c1=[26,58,132], c2=[64,168,196], c3=[176,240,255];
+  let a,b,f;
+  if(t < 0.5){ a=c1; b=c2; f=t/0.5; } else { a=c2; b=c3; f=(t-0.5)/0.5; }
+  return [(a[0]+(b[0]-a[0])*f)/255,(a[1]+(b[1]-a[1])*f)/255,(a[2]+(b[2]-a[2])*f)/255];
+}
+
+function renderModelHero(cid, c){
+  const hero = $("hero-box");
+  destroyHeroModel();
+  if(typeof THREE === "undefined"){ renderHeroPlaceholder(c, cid); return; }
+  const meta = MODEL_META[cid] || {label:cid, orig:"?", simp:"?"};
+  hero.innerHTML =
+    '<div class="hero3d">' +
+      '<canvas id="hero-gl"></canvas>' +
+      '<div class="hero3d-badge">真实 CT 气道重建</div>' +
+      (c.viewer_available ? '<a class="hero3d-open" href="/viewer/' + encodeURIComponent(cid) +
+        '" target="_blank" rel="noopener">完整 CFD 查看器 →</a>' : "") +
+      '<div class="hero3d-cap">' + esc(meta.label) +
+        " 真实 CT 气道重建（" + meta.orig + " → " + meta.simp + "）</div>" +
+      '<div class="hero3d-hint">拖拽旋转 · 滚轮缩放 · 自动缓慢旋转</div>' +
+      '<div class="hero3d-load" id="hero3d-load"><span class="spin"></span>正在加载三维模型…</div>' +
+    "</div>";
+  const canvas = $("hero-gl");
+  const wrap = canvas.parentElement;
+  let renderer;
+  try{
+    renderer = new THREE.WebGLRenderer({canvas:canvas, antialias:true, alpha:true});
+  }catch(e){
+    $("hero3d-load").innerHTML = "WebGL 不可用（" + esc(e.message) + "）";
+    return;
+  }
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setClearColor(0x000000, 0);
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100000);
+  camera.up.set(0, 0, 1);   /* 医学 CT 为 z-up（沿气道长轴） */
+  scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+  const key = new THREE.DirectionalLight(0xffffff, 1.15); key.position.set(1.1, -1.6, 1.2); scene.add(key);
+  const fill = new THREE.DirectionalLight(0x9db8d2, 0.55); fill.position.set(-1.2, 0.5, -0.9); scene.add(fill);
+  const rim = new THREE.DirectionalLight(0xbfe6ff, 0.7); rim.position.set(-0.4, 1.2, -1.4); scene.add(rim);
+  const controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  controls.autoRotate = true;
+  controls.autoRotateSpeed = 0.9;
+  controls.enablePan = false;
+  controls.minDistance = 1;
+
+  HERO = {renderer:renderer, scene:scene, camera:camera, controls:controls, raf:0, onResize:null};
+
+  function resize(){
+    const w = wrap.clientWidth || 640, h = wrap.clientHeight || 380;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / Math.max(1, h);
+    camera.updateProjectionMatrix();
+  }
+  HERO.onResize = resize;
+  window.addEventListener("resize", resize);
+  resize();
+
+  const loader = new THREE.GLTFLoader();
+  loader.load("/models/" + encodeURIComponent(cid), function(gltf){
+    if(!HERO) return;
+    const root = gltf.scene || (gltf.scenes && gltf.scenes[0]);
+    root.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(root);
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3());
+    const radius = Math.max(size.x, size.y, size.z) * 0.5 || 1;
+    root.position.sub(center);                 /* 居中到原点 */
+    const mat = new THREE.MeshStandardMaterial({
+      vertexColors:true, metalness:0.12, roughness:0.58,
+      side:THREE.DoubleSide, flatShading:false});
+    root.traverse(function(o){
+      if(o.isMesh){
+        o.material = mat;
+        o.geometry.computeBoundingBox();
+        const pos = o.geometry.attributes.position;
+        if(!o.geometry.attributes.normal) o.geometry.computeVertexNormals();
+        const bb = o.geometry.boundingBox;
+        const zmin = bb.min.z, dz = (bb.max.z - zmin) || 1;
+        const col = new Float32Array(pos.count * 3);
+        for(let i = 0; i < pos.count; i++){
+          const cc = heightColor((pos.getZ(i) - zmin) / dz);
+          col[i*3] = cc[0]; col[i*3+1] = cc[1]; col[i*3+2] = cc[2];
+        }
+        o.geometry.setAttribute("color", new THREE.BufferAttribute(col, 3));
+      }
+    });
+    scene.add(root);
+    camera.position.set(radius*1.5, -radius*2.3, radius*1.0);
+    camera.near = radius*0.01; camera.far = radius*40;
+    camera.updateProjectionMatrix();
+    controls.target.set(0, 0, 0);
+    controls.update();
+    const ld = $("hero3d-load"); if(ld) ld.parentNode.removeChild(ld);
+    (function loop(){
+      if(!HERO) return;
+      HERO.raf = requestAnimationFrame(loop);
+      controls.update();
+      renderer.render(scene, camera);
+    })();
+  }, undefined, function(err){
+    const ld = $("hero3d-load");
+    if(ld) ld.innerHTML = "三维模型加载失败：" + esc(err && err.message ? err.message : err);
+  });
+}
 function fmtNum(v, digits){
   if(v == null || isNaN(v)) return "—";
   const n = Number(v);
@@ -680,18 +863,64 @@ async function loadCases(){
   const pills = $("airway-pills");
   pills.innerHTML = "";
   for(const c of S.cases){
+    const wrap = document.createElement("span");
+    wrap.className = "pill-wrap";
     const b = document.createElement("button");
     b.className = "pill" + (c.presenter_only && !S.presenter ? " gated" : "");
     b.dataset.cid = c.case_id;
     b.innerHTML = esc(c.badge) + " " + esc(c.label) +
       '<span class="st">' + esc(c.badge_text || c.status) + "</span>";
     b.addEventListener("click", ()=>selectCase(c.case_id));
-    pills.appendChild(b);
+    wrap.appendChild(b);
+    /* 删除按钮：仅上传病例（内置/合成病例不渲染）——blocked 的更显眼（用户痛点） */
+    if(c.kind === "upload"){
+      const del = document.createElement("button");
+      del.className = "pill-del" + (c.status === "blocked" ? " blocked" : "");
+      del.type = "button";
+      del.title = "删除该病例（不可恢复）";
+      del.textContent = "🗑 删除";
+      del.addEventListener("click", ()=>{ deleteCase(c); });
+      wrap.appendChild(del);
+    }
+    pills.appendChild(wrap);
+  }
+}
+
+/* ---------- 删除上传病例（DELETE /api/case/<cid>；内置/合成病例无按钮） ---------- */
+function casesStatus(msg, isErr){
+  const el = $("cases-status");
+  if(!el) return;
+  el.innerHTML = msg
+    ? (isErr ? '<span class="warn">' + esc(msg) + "</span>"
+             : '<span class="ok">' + esc(msg) + "</span>")
+    : "";
+}
+
+async function deleteCase(c){
+  const cid = c.case_id;
+  const label = c.label || cid;
+  if(!confirm("确定删除病例 " + label + "？此操作不可恢复。")) return;
+  casesStatus("");
+  const r = await api("/api/case/" + encodeURIComponent(cid), {method:"DELETE"});
+  if(!r.ok){
+    casesStatus("删除失败（HTTP " + r.status + "）：" +
+                ((r.body && r.body.error) || "未知错误"), true);
+    return;
+  }
+  const removed = (r.body && r.body.removed)
+    ? "（已清理 " + r.body.removed.length + " 项）" : "";
+  casesStatus("已删除病例 " + label + "（" + cid + "）" + removed + "。");
+  await loadCases();
+  fillCaseSelects();
+  if(S.selected === cid){
+    const next = S.cases.find(x=>x.case_id === "pA") || S.cases[0];
+    if(next) selectCase(next.case_id);
   }
 }
 
 /* ================= 查看气道（Hero + 量表 + QC） ================= */
 async function selectCase(cid){
+  destroyHeroModel();
   S.selected = cid;
   document.querySelectorAll("#airway-pills .pill").forEach(p=>{
     p.classList.toggle("active", p.dataset.cid === cid);
@@ -704,10 +933,13 @@ async function selectCase(cid){
   const m = await api(`/api/metrics/${encodeURIComponent(cid)}`);
   if(m.ok && m.body){
     renderGauges(m.body, c);
+    updateEnsLive(cid, m.body);
   } else if(m.status === 403){
     renderGaugesDenied(c);
+    updateEnsLive(cid, null);
   } else {
     renderGaugesPending(cid, m);
+    updateEnsLive(cid, null);
   }
 
   // QC 三平面
@@ -721,11 +953,13 @@ async function selectCase(cid){
   } else {
     $("qc-card").style.display = "none";
   }
-  renderResults(cid);
-  renderFigures(cid);
+  renderResults(c, cid);
+  renderFigures(c, cid);
 
   // Hero：查看器可用则 iframe（≥60vh），否则暖色占位卡
-  if(c.viewer_available){
+  if(c.model_available){
+    renderModelHero(cid, c);
+  } else if(c.viewer_available){
     hero.innerHTML = '<iframe class="hero-frame" src="/viewer/' + encodeURIComponent(cid) +
       '" title="气道三维查看器（拖拽旋转 / 呼吸粒子 / 流线 / 探针读数）"></iframe>';
   } else {
@@ -781,6 +1015,7 @@ function gaugeHtml(opt){
       <span class="gauge-label">${esc(opt.label)}${opt.techTerm ? ` <span class="tech-term">（${esc(opt.techTerm)}）</span>` : ""}${chip}</span>
       <span class="gauge-value">${fmtNum(v, opt.digits)}<em>${esc(opt.unit)}</em></span>
     </div>
+    ${opt.annot ? `<div class="gauge-annot">${esc(opt.annot)}</div>` : ""}
     <div class="gauge-track">
       <div class="gauge-band" style="left:${bl.toFixed(1)}%;width:${bw.toFixed(1)}%"></div>
       ${pct == null ? "" : `<div class="gauge-marker" style="left:${pct.toFixed(1)}%"></div>`}
@@ -805,6 +1040,7 @@ function renderGauges(m, c){
       label:"呼吸顺畅度 · 压降", techTerm:"ΔP",
       value:m.dP.value, unit:m.dP.unit || "Pa", digits:2,
       band:BAND_DP_UI, koujing:m.dP.口径,
+      annot:"呼吸时气流需要“推开”的阻力，越小越省力",
       verdictLow:VERDICT_LOW, verdictIn:VERDICT_IN, verdictHigh:VERDICT_HIGH,
       whatHtml:`<div class="m-tech">
         压降 = 空气从鼻孔流到鼻咽处"掉"了多少压力。数值越小，气流通过越顺畅。
@@ -818,6 +1054,7 @@ function renderGauges(m, c){
       label:"鼻腔总阻力", techTerm:"R",
       value:m.resistance.value, unit:m.resistance.unit || "Pa/(L/s)", digits:1,
       band:BAND_R_UI, koujing:m.resistance.口径,
+      annot:"鼻子通气的“费劲程度”，患者自己每天都能感觉到的那个劲儿",
       verdictLow:VERDICT_LOW, verdictIn:VERDICT_IN, verdictHigh:VERDICT_HIGH,
       whatHtml:`<div class="m-tech">
         阻力 = 让空气以固定流量通过鼻腔需要多大"推力"。数值越小越顺畅。
@@ -835,6 +1072,7 @@ function renderGauges(m, c){
         <span class="gauge-label">左右分流比</span>
         <span class="gauge-value" style="font-size:22px">${esc(m.split.L)}<em> / </em>${esc(m.split.R)}<em>%</em></span>
       </div>
+      <div class="gauge-annot">两边鼻腔各分到多少气——一边独大就说明另一边堵或空</div>
       <div class="split-wrap" style="margin-top:10px">
         <svg class="split-ring" viewBox="0 0 120 120" width="118" height="118" role="img" aria-label="左右鼻分流半环图">
           <path d="M60 60 L60 8 A52 52 0 0 0 60 112 Z" fill="#2A9D8F" opacity="0.92"/>
@@ -861,6 +1099,7 @@ function renderGauges(m, c){
         <span class="gauge-label">鼻腔内壁摩擦力</span>
         <span class="gauge-value">${fmtNum(m.wss.mean)}<em>Pa（均值）</em></span>
       </div>
+      <div class="gauge-annot">气流滑过鼻腔内壁的“抚摸感”——太弱了大脑就感觉不到在呼吸（空鼻症的核心）</div>
       <div class="gauge-scale" style="margin-top:12px"><span>峰值 p95 ${fmtNum(m.wss.p95)} Pa</span><span>与正常鼻腔的同机对比未执行</span></div>
       <details><summary>什么是这个指标？</summary>
         <div class="m-tech">患者语言：气流贴着鼻腔内壁流动时产生的摩擦（技术名：壁面剪切应力 WSS = 壁面速度梯度 × 黏度）。
@@ -938,6 +1177,20 @@ function renderGaugesPending(cid, m){
   $("metrics-disclaimer").textContent = "";
 }
 
+/* ---------- ENS 页签：压降数值随选中病例的结果档案动态更新 ---------- */
+function updateEnsLive(cid, m){
+  const el = $("ens-live-dp");
+  if(!el) return;
+  const c = (S.cases || []).find(x=>x.case_id === cid) || {};
+  const name = c.label || cid;
+  if(m && m.dP && m.dP.value != null){
+    el.textContent = name + " 实测：压降 ΔP = " + fmtNum(m.dP.value, 2) +
+      " Pa（常人带 30–150 Pa）";
+  } else {
+    el.textContent = name + " 实测：压降数值待本例结果档案就绪";
+  }
+}
+
 /* ---------- QC 三平面 ---------- */
 function renderQC(q, gridId, cardId, noteId){
   $(cardId).style.display = "";
@@ -953,14 +1206,19 @@ function renderQC(q, gridId, cardId, noteId){
 }
 
 /* ---------- 结果导出 + 截面图表（本例真实结果，只读复用） ---------- */
-const RESULT_CASES = ["pA", "pB"];
 function resultUrl(cid, fn){
   return "/api/results/" + encodeURIComponent(cid) + "/" + encodeURIComponent(fn);
 }
-function renderResults(cid){
+function renderResults(c, cid){
+  cid = cid || (c && c.case_id) || "";
   const card = $("results-card");
-  if(!RESULT_CASES.includes(cid)){ card.style.display = "none"; return; }
   card.style.display = "";
+  if(!(c && c.results_available)){          /* 结果未就绪：弱化提示，不整卡隐藏 */
+    $("results-links").innerHTML = "";
+    $("results-note").innerHTML =
+      '<span class="muted">本例结果尚未就绪（跑完管线并回填后自动出现）。</span>';
+    return;
+  }
   const files = [
     {fn:"metrics.json", label:"指标 JSON"},
     {fn:"report.md", label:"分析报告（Markdown）"},
@@ -975,10 +1233,16 @@ function renderResults(cid){
     "文件来自本例真实分析结果档案（out/结果/P0-result-" + cid +
     "-v1/后处理/）；只读复用——严禁套用其他患者数字（结果契约闸门）。";
 }
-function renderFigures(cid){
+function renderFigures(c, cid){
+  cid = cid || (c && c.case_id) || "";
   const card = $("figures-card");
-  if(!RESULT_CASES.includes(cid)){ card.style.display = "none"; return; }
   card.style.display = "";
+  if(!(c && c.results_available)){          /* 结果未就绪：弱化提示，不整卡隐藏 */
+    $("figures-grid").innerHTML = "";
+    $("figures-note").innerHTML =
+      '<span class="muted">本例结果尚未就绪（跑完管线并回填后自动出现）。</span>';
+    return;
+  }
   const figs = [
     {fn:"fig1_velocity_slice.png", title:"图1：速度切片（截面气流）",
      note:"冠状/矢状速度切片——色标 m/s；直接回答“每个截面的气流情况”。"},
@@ -1080,16 +1344,16 @@ async function handleUploadResponse(xhr){
   const code = xhr.status;
   const err = (b && b.error) || ("HTTP " + code);
   if(code === 503){
-    $("up-result").innerHTML = '<div class="warm-card"><div class="warm-head"><span class="warm-emoji">🔒</span>' +
+    $("up-result").innerHTML = (seriesNoteHtml(b) || "") + '<div class="warm-card"><div class="warm-head"><span class="warm-emoji">🔒</span>' +
       '<div><h3>云形态仅合成数据</h3><div class="reason">' + esc(err) + "</div></div></div></div>";
     return;
   }
   if(code === 413){
-    $("up-result").innerHTML = '<div class="warn">体积超限（HTTP 413）：' + esc(err) + "</div>";
+    $("up-result").innerHTML = (seriesNoteHtml(b) || "") + '<div class="warn">体积超限（HTTP 413）：' + esc(err) + "</div>";
     return;
   }
   if(code !== 200 || !b){
-    $("up-result").innerHTML = '<div class="warn">上传被拒绝（HTTP ' + code + "）：" + esc(err) + "</div>";
+    $("up-result").innerHTML = (seriesNoteHtml(b) || "") + '<div class="warn">上传被拒绝（HTTP ' + code + "）：" + esc(err) + "</div>";
     return;
   }
   /* 200：病例已登记（可能被 PII/层序/step1 闸门拦截 → status=blocked） */
@@ -1101,7 +1365,7 @@ async function handleUploadResponse(xhr){
   S.selectedProgress = cid;
   if($("pg-case")) $("pg-case").value = cid;
   if(b.status === "blocked"){
-    $("up-result").innerHTML =
+    $("up-result").innerHTML = (seriesNoteHtml(b) || "") +
       '<div class="ok">📝 病例已登记：' + esc(label) + "（case_id " + esc(cid) + "）——质检未通过，已生成拦截卡。</div>" +
       warmGateCardHtml({gate: b.gate, gate_failures: b.gate_failures}) +
       '<div class="btnrow" style="margin-top:10px">' +
@@ -1109,7 +1373,7 @@ async function handleUploadResponse(xhr){
     return;
   }
   const nfiles = (b.pii && b.pii.files != null) ? b.pii.files : "—";
-  $("up-result").innerHTML =
+  $("up-result").innerHTML = (seriesNoteHtml(b) || "") +
     '<div class="ok">✅ 病例已登记：' + esc(label) + "（case_id " + esc(cid) + "）——隐私检查 PASS（" + esc(nfiles) + " 头 CT），气道模型已重建。</div>" +
     '<div class="btnrow" style="margin-top:10px">' +
     `<button class="btn primary" onclick='switchTab("upload");document.getElementById("pg-case").value="${esc(cid)}";loadProgress();document.getElementById("pg-run").scrollIntoView({block:"center"});'>去跑管线 →</button>` +
@@ -1200,7 +1464,7 @@ function warmGateCardHtml(c){
         <div style="margin-top:8px">
           <a class="warm-link" href="#quality-stds" onclick="switchTab('ens')">我们的质量标准 →</a>
         </div>
-        <details><summary>技术详情（原始拦截原因）</summary>
+        <details><summary>技术详情（拦截原因·值已脱敏）</summary>
           <pre class="tech">${esc(items.join("\n"))}</pre>
         </details>
       </div>
