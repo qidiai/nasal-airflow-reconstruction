@@ -2000,6 +2000,18 @@ def build_app(cfg):
     app = Flask(__name__, static_folder=WEBAPP_DIR, static_url_path="/static")
     app.config["SERVER_CONFIG"] = cfg
 
+    @app.before_request
+    def static_patient_gate():
+        """云形态（only_synthetic）下，患者衍生静态数据直通一律 403（step5 审计 Medium 修复）"""
+        from flask import request as _rq, current_app as _ca
+        p = _rq.path or ""
+        sc = (_ca.config.get("SERVER_CONFIG") if _ca else None)
+        if sc is not None and getattr(sc, "only_synthetic", False) and (p.startswith("/static/cases/") or p.startswith("/static/models/")):
+            return jsonify({"error": "云形态不提供患者衍生数据文件"}), 403
+        return None
+
+    
+
     @app.route("/")
     def index():
         return send_file(os.path.join(WEBAPP_DIR, "index.html"))
@@ -2936,6 +2948,9 @@ def main():
     print(f"[T15 server] CT 根目录：{cfg.ct_base or '（未配置 --base-dir，内置病例 CT 不可用）'}")
     print(f"[T15 server] 状态目录：{cfg.state_dir}")
     app.run(host=cfg.host, port=cfg.port, threaded=True)
+
+
+
 
 
 if __name__ == "__main__":

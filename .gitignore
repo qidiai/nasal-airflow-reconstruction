@@ -58,3 +58,5 @@ Thumbs.db
 **/webapp/cases/**/viewer_single.html
 **/webapp/cases/**/viewer_data.js
 **/webapp/models/**
+**/webapp/models/airway_pA.glb
+**/webapp/models/airway_pB.glb
