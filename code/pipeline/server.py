@@ -130,11 +130,20 @@ def case_results_dir(case_id):
 
 
 # ---------------------------------------------------------------- 真实鼻腔 3D 模型（GLB）  [MODEL-ROUTE]
+# 白名单（case_id → 文件名）；pN（正常对照）为简化版单独命名 airway_pN_simplified.glb。
+MODEL_FILES = {
+    "pA": "airway_pA.glb",
+    "pB": "airway_pB.glb",
+    "pN": "airway_pN_simplified.glb",
+}
+
+
 def case_model_path(case_id):
-    """真实气道 GLB 路径（白名单 pA/pB；不存在返回空串）。"""
-    if case_id not in ("pA", "pB"):
+    """真实气道 GLB 路径（白名单 pA/pB/pN；不存在返回空串）。"""
+    fn = MODEL_FILES.get(case_id)
+    if not fn:
         return ""
-    p = os.path.join(WEBAPP_DIR, "models", f"airway_{case_id}.glb")
+    p = os.path.join(WEBAPP_DIR, "models", fn)
     return p if os.path.isfile(p) else ""
 
 
@@ -170,6 +179,108 @@ def case_results_available(cfg, case_id):
     if cfg.only_synthetic:
         return False
     return bool(case_results_metrics_path(case_id))
+
+
+# ---------------------------------------------------------------- 三例对比（患者/家属友好聚合）  [COMPARE]
+# 路演核心演示：一屏并排"患者 A / 患者 B / 正常对照"约 8 项指标。
+# 数据全部只读自既有产物——不新增计算、不改动任何管线/契约：
+#   指标（ΔP/分流/WSS/Re…）：out/结果/P0-result-<cid>-v1/后处理/metrics.json
+#   气道体积（cm³）        ：run_all 清单 run_all_manifest-<cid>-v1.json
+#                            （stages.S2_step1.airway_volume_cm3；回退 step1 指标）
+# 三例路径白名单硬编码（cid 不外泄为路径）；缺失/解析失败该例标记 ready=False，绝不抛异常。
+COMPARE_ORDER = ("pA", "pB", "pN")
+COMPARE_LABELS = {
+    "pA": "患者A（空鼻症）",
+    "pB": "患者B（赛方 CT）",
+    "pN": "正常对照（官方提供）",
+}
+COMPARE_NOTES = {
+    "口径": "同管线同参数（voxel-z 2.0）口径对比；pN 网格较粗（53,747 单元）"
+            "与闭合差 1.18% 已如实标注",
+    "volume_source": "气道体积只读自本例 step1 指标"
+                     "（run_all 清单 stages.S2_step1.airway_volume_cm3）",
+    "wss_note": "内壁摩擦感（WSS）为一次守恒体素估计，"
+                "见本例后处理 report.md「局限」一节",
+    "resistance_calc": "鼻阻力 R = ΔP ÷ (Q_inlet_total ÷ 60)（定流量口径）",
+}
+
+
+def _compare_volume_cm3(cid):
+    """气道体积（cm³，只读）：run_all 清单优先，step1 指标回退。
+    返回 (volume_or_None, 相对来源路径)。所有路径由 cid 白名单拼出，只读。"""
+    cands = [
+        (os.path.join(HERE, "out", f"run_all_manifest-{cid}-v1.json"),
+         ("stages", "S2_step1", "airway_volume_cm3")),
+        (os.path.join(HERE, "out", "step1", f"metrics_{cid}_v2.json"),
+         ("airway_volume_cm3",)),
+    ]
+    for path, keys in cands:
+        if not os.path.isfile(path):
+            continue
+        try:
+            with open(path, encoding="utf-8") as f:  # UTF-8 硬编码（中文路径/字段）
+                node = json.load(f)
+            for k in keys:
+                if not isinstance(node, dict):
+                    node = None
+                    break
+                node = node.get(k)
+            if node is not None:
+                return float(node), os.path.relpath(path, HERE).replace("\\", "/")
+        except (OSError, ValueError, TypeError):
+            continue
+    return None, ""
+
+
+def _compare_fnum(node):
+    """安全转 float；None/空/不可转 → None。"""
+    if node is None:
+        return None
+    try:
+        return float(node)
+    except (ValueError, TypeError):
+        return None
+
+
+def compare_case_metrics(cid):
+    """单例对比指标聚合。文件缺失/解析失败 → ready=False（不抛异常，不炸整端）。"""
+    out = {"cid": cid, "label": COMPARE_LABELS.get(cid, cid),
+           "ready": False, "metrics": {}, "source": "", "volume_source": ""}
+    mp = case_results_metrics_path(cid)
+    if not mp:
+        return out
+    try:
+        with open(mp, encoding="utf-8") as f:  # UTF-8 硬编码
+            m = json.load(f)
+        t = m.get("totals", {}) or {}
+        wss = m.get("wss", {}) or {}
+        dP = _compare_fnum(t.get("dP_Pa"))
+        Q = _compare_fnum(t.get("Q_inlet_total_L_min"))
+        fl = _compare_fnum(t.get("flow_share_L_pct"))
+        fr = _compare_fnum(t.get("flow_share_R_pct"))
+        re_eq = _compare_fnum(t.get("Re_eq"))
+        wm = _compare_fnum(wss.get("mean_Pa"))
+        w95 = _compare_fnum(wss.get("p95_Pa"))
+    except (OSError, ValueError, TypeError):
+        return out
+    vol, vsrc = _compare_volume_cm3(cid)
+    R = round(dP / (Q / 60.0), 1) if (dP is not None and Q) else None
+    out["metrics"] = {
+        "dP_Pa": round(dP, 2) if dP is not None else None,
+        "resistance_Pa_per_Ls": R,
+        "split_L_pct": round(fl, 1) if fl is not None else None,
+        "split_R_pct": round(fr, 1) if fr is not None else None,
+        "wss_mean_Pa": round(wm, 4) if wm is not None else None,
+        "wss_p95_Pa": round(w95, 4) if w95 is not None else None,
+        "Re": round(re_eq, 0) if re_eq is not None else None,
+        "volume_cm3": round(vol, 1) if vol is not None else None,
+        "Q_inlet_L_min": round(Q, 3) if Q is not None else None,
+    }
+    out["ready"] = True
+    out["source"] = os.path.relpath(mp, HERE).replace("\\", "/")
+    out["volume_source"] = vsrc
+    return out
+
 
 # ---------------------------------------------------------------- 内置病例定义（相对 CT 根，R-14）
 BUILTIN_DEFS = {
@@ -214,6 +325,22 @@ BUILTIN_DEFS = {
                      "解剖结构验证/P0-OF-case-pC-v4.zip",
                      "交接文档-笔记本执行-pC-v4.md",
                      "看板7-T14b报告.md"],
+    },
+    "pN": {
+        "label": "正常对照（官方提供）",
+        "prefix": "pN", "case": "v1",
+        "dicom_rel": ["副鼻窦27例_合规版", "例1_重排"],
+        "dicom_label": "N (soft tissue window, ISO 0.488mm)",
+        "badge": "✅", "badge_text": "演示展示在案",
+        "preset_status": "done",
+        "note": "赛方“参赛群资料”提供的正常无症状对照 CT（副鼻窦 27 例·合规版·例1，"
+                "逐头匿名化核验 PASS）；与 pA/pB 同管线同参数口径（voxel-z 2.0）。"
+                "授权口径同赛方（演示展示在案）。正常对照 = 没有空鼻症的“标准气流”。",
+        "evidence": ["pipeline/out/run_all_manifest-pN-v1.json",
+                     "pipeline/out/step2/case_stats-pN-v1.json",
+                     "pipeline/out/结果/P0-result-pN-v1/后处理/metrics.json",
+                     "webapp/models/airway_pN_simplified.glb",
+                     "webapp/models/flowlines_pN.json"],
     },
 }
 
@@ -342,7 +469,7 @@ def get_case_record(cfg, case_id):
 
 def allocate_prefix(reg):
     """上传病例前缀分配：pX, pX2, pX3...（避开内置 pA/pB/pC）。"""
-    used = set(reg.keys()) | {"pA", "pB", "pC", "demo"}
+    used = set(reg.keys()) | {"pA", "pB", "pC", "pN", "demo"}
     if "pX" not in used:
         return "pX"
     n = 2
@@ -1897,6 +2024,26 @@ def build_app(cfg):
             resp.headers["Content-Type"] = "text/markdown; charset=utf-8"
         return resp
 
+    @app.route("/api/compare")
+    def api_compare():
+        """三例对比聚合（pA 患者 / pB 患者 / pN 正常对照）——前端一屏并排对比用。
+
+        三例路径白名单硬编码（见模块级 COMPARE_ORDER）；每例只读既有产物，
+        缺失/解析失败该例 ready=False（不炸整端）。云形态（only_synthetic）503——
+        与其它真实患者数据端点同款数据边界硬闸（修订1/R-03）。
+        """
+        if cfg.only_synthetic:
+            return jsonify({"error":
+                            "数据边界硬闸（修订1/R-03）：云形态仅合成 demo 数据，"
+                            "真实患者三例对比不开放（HTTP 503）"}), 503
+        return jsonify({
+            "mode": cfg.mode,
+            "only_synthetic": cfg.only_synthetic,
+            "order": list(COMPARE_ORDER),
+            "cases": [compare_case_metrics(cid) for cid in COMPARE_ORDER],
+            "notes": dict(COMPARE_NOTES, disclaimer=DISCLOSURE),
+        })
+
     @app.route("/models/<case_id>")
     def models_file(case_id):
         """只读 serve 真实鼻腔气道 GLB（白名单 pA/pB；云形态 403，与 /api/results 同款闸）。"""
@@ -1926,7 +2073,7 @@ def build_app(cfg):
     def api_cases():
         reg = load_registry(cfg)
         cards = []
-        for cid in ("pA", "pB", "pC"):
+        for cid in ("pA", "pB", "pC", "pN"):
             rec = get_case_record(cfg, cid)
             d = BUILTIN_DEFS[cid]
             dicom_ok = bool(rec["dicom_dir"]) and os.path.isdir(rec["dicom_dir"])
@@ -1938,6 +2085,7 @@ def build_app(cfg):
                 "badge": d["badge"], "badge_text": d["badge_text"],
                 "status": rec["status"],
                 "dicom_configured": dicom_ok,
+                "dicom_label": d.get("dicom_label", ""),
                 "presenter_only": bool(rec.get("presenter_only")) and not cfg.presenter,
                 "viewer_available": _viewer_available(cfg, rec),
                 "model_available": (not cfg.only_synthetic) and bool(case_model_path(cid)),
@@ -2537,6 +2685,14 @@ def build_app(cfg):
                 return jsonify(metrics_from_case_stats(
                     "pC", sp, "解剖结构验证/case_stats-pC-v4.json（只读复用副本）"))
             return jsonify({"error": "pC case_stats 副本缺失（部署件未执行）"}), 500
+        if case_id == "pN":
+            # 正常对照：本例真实后处理 metrics.json（只读复用，同 pB 单例口径）
+            mp = case_results_metrics_path("pN")
+            if mp:
+                return jsonify(metrics_from_postcfd_json(
+                    "pN", mp,
+                    "out/结果/P0-result-pN-v1/后处理/metrics.json（本例真实结果，只读复用）"))
+            return jsonify({"error": "pN metrics 缺失（结果档案不在位）"}), 500
         # 上传病例：优先 step5 导出 meta，其次后处理契约
         out_dir = rec.get("out_dir") or ""
         vd = os.path.join(out_dir, "step5", "viewer_data.js")
@@ -2691,7 +2847,7 @@ code{{background:#0d1117;padding:2px 6px;border-radius:4px;font-size:12px}}
                             "split_L_pct": round(float(t.get("flow_share_L_pct", 0)), 1),
                             "split_R_pct": round(float(t.get("flow_share_R_pct", 0)), 1),
                             "口径": "定流量口径（Run-A dP/Q）"}
-            if cid in ("pA", "pB"):
+            if cid in ("pA", "pB", "pN"):
                 # 部署副本缺失时回退本例真实结果 out/结果/.../后处理/metrics.json
                 mp = case_results_metrics_path(cid)
                 if mp:

@@ -383,6 +383,51 @@ footer .fixed-sentence{
     </div>
   </div>
 
+  <!-- ================= 三例对比（患者 vs 正常对照，路演核心演示） ================= -->
+  <style>
+  .cmp-insights{display:flex;flex-direction:column;gap:8px;margin:12px 0}
+  .cmp-insight{background:var(--teal-soft);border:1px solid #2A9D8F33;border-radius:10px;
+    padding:10px 12px;font-size:14.5px;line-height:1.55}
+  .cmp-insight .ico{font-weight:700;margin-right:6px;color:var(--teal-deep)}
+  .cmp-table{width:100%;border-collapse:collapse;font-size:14px;margin:10px 0}
+  .cmp-table th,.cmp-table td{border-bottom:1px solid var(--line);padding:8px 6px;
+    text-align:right;vertical-align:top}
+  .cmp-table th:first-child,.cmp-table td:first-child{text-align:left;width:36%}
+  .cmp-table thead th{font-size:12.5px;color:var(--ink-soft);font-weight:600;line-height:1.4}
+  .cmp-table .rlabel{font-weight:600;color:var(--ink)}
+  .cmp-table .rhuman{display:block;font-size:12px;color:var(--ink-soft);font-weight:400;
+    line-height:1.45;margin-top:2px}
+  .cmp-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px}
+  .cmp-bars{margin:14px 0 4px}
+  .cmp-bar-row{margin:10px 0}
+  .cmp-bar-name{font-size:13.5px;font-weight:600;margin-bottom:5px}
+  .cmp-bar-track{display:flex;align-items:center;gap:8px;margin:3px 0}
+  .cmp-bar-track .bname{flex:0 0 68px;font-size:12px;color:var(--ink-soft)}
+  .cmp-bar-wrap{flex:1;background:#EFE9DF;border-radius:7px;height:14px;overflow:hidden}
+  .cmp-bar{display:block;height:100%;border-radius:7px;min-width:2px}
+  .cmp-bar-val{flex:0 0 84px;font-size:12px;color:var(--ink-soft);white-space:nowrap;
+    text-align:right}
+  .cmp-note{font-size:12.5px;color:var(--ink-soft);margin:8px 0 0}
+  .cmp-wait{color:var(--amber-deep)}
+  </style>
+  <div class="card" id="compare-card" style="display:none">
+    <h2>三例并排对比 · 患者 vs 正常对照</h2>
+    <div class="lead">同一套管线、同一参数口径，把三例放进一张表：谁更“空”、谁更“堵”、
+      谁更接近正常——一眼看明白。</div>
+    <div class="btnrow">
+      <button class="btn primary" id="compare-toggle" type="button">展开三例对比 ▾</button>
+    </div>
+    <div id="compare-body" style="display:none">
+      <div class="btnrow" style="margin:12px 0 2px">
+        <button class="btn primary" id="compare-open-pn" type="button">👁 查看正常对照的气流</button>
+      </div>
+      <div class="cmp-insights" id="compare-insights"></div>
+      <div id="compare-table"></div>
+      <div class="cmp-bars" id="compare-bars"></div>
+      <div class="cmp-note" id="compare-note"></div>
+    </div>
+  </div>
+
   <div class="card" id="metrics-card" style="display:none">
     <h2>呼吸顺畅度 · 量化指标</h2>
     <div class="lead" id="metrics-source">—</div>
@@ -773,6 +818,7 @@ function seriesNoteHtml(b){
 const MODEL_META = {
   pA:{label:"患者A", orig:"91.8 万面", simp:"12 万面"},
   pB:{label:"患者B", orig:"88.2 万面", simp:"12 万面"},
+  pN:{label:"正常对照", orig:"34.8 万面", simp:"12 万面"},
 };
 let HERO = null;
 
@@ -1012,10 +1058,16 @@ function loadCfdFlow(cid, scene, center){
       const pos = [], col = [];
       for(let li = 0; li < D.lines.length; li++){
         const p = D.lines[li].p, s = D.lines[li].s, m = s.length;
+        /* p 兼容两种形态：扁平 [x,y,z,...]（pA 提取脚本）或嵌套 [[x,y,z],...]（pN pyvista 积分）。
+           transform_viewer_to_glb 为 null（pN：case-native）时前端无需变换——坐标已与 GLB 同帧。 */
+        const nested = Array.isArray(p[0]);
+        const pxAt = function(k){ return nested ? p[k][0] : p[k * 3]; };
+        const pyAt = function(k){ return nested ? p[k][1] : p[k * 3 + 1]; };
+        const pzAt = function(k){ return nested ? p[k][2] : p[k * 3 + 2]; };
         for(let i = 0; i < m - 1; i++){        /* 折线 -> 线段对（LineSegments 单 draw call） */
           for(let e = 0; e < 2; e++){
-            const j = i + e, b = j * 3;
-            pos.push(p[b] - center.x, p[b+1] - center.y, p[b+2] - center.z);
+            const j = i + e;
+            pos.push(pxAt(j) - center.x, pyAt(j) - center.y, pzAt(j) - center.z);
             const c = cfdViridis(s[j] / vmax);
             col.push(c[0], c[1], c[2]);
           }
@@ -1032,6 +1084,8 @@ function loadCfdFlow(cid, scene, center){
       HERO.cfd = {seg:seg, geo:geo, mat:mat, modelMat:null,
                   nLines:D.lines.length, nPts:(D.n_points || 0), vmax:vmax};
       HERO.layers.cfd = seg;
+      const tl = $("hero-ly-cfd-t");           /* 图层面板文案带本例流线条数 */
+      if(tl) tl.textContent = "真实气流（CFD 流线）" + D.lines.length + " 条";
       const el = $("hero-ly-cfd");
       if(el){
         seg.visible = el.checked;              /* 尊重加载期间的既有勾选态 */
@@ -1065,7 +1119,8 @@ function renderModelHero(cid, c){
         '<div class="hl-title">图层</div>' +
         '<label title="CFD 稳态解流线（速度着色，simpleFoam 稳态 ≤1500 步收敛解，v5 @15 L/min）——与气道 GLB 同源坐标对齐">' +
           '<input type="checkbox" id="hero-ly-cfd" checked>' +
-          '<span class="dot" style="background:#21918c"></span>真实气流（CFD 流线）</label>' +
+          '<span class="dot" style="background:#21918c"></span>' +
+          '<span id="hero-ly-cfd-t">真实气流（CFD 流线）</span></label>' +
         '<label><input type="checkbox" id="hero-ly-model" checked>' +
           '<span class="dot" style="background:#69d8c8"></span>气道模型</label>' +
         '<label title="示意动画（非真实解）——真实流线见上方 CFD 流线层">' +
@@ -1347,6 +1402,7 @@ async function selectCase(cid){
   }
   renderResults(c, cid);
   renderFigures(c, cid);
+  renderCompare(c, cid);   /* 三例对比入口卡：仅 pA/pB/pN 显示 */
 
   // Hero 视图切换：3D 模型（three.js+图层勾选）/ 气流动画（查看器 iframe）互斥标签。
   // 默认视图：3D 模型（用户指令 2026-10-15 晚）；气流动画为可切换的第二视图。
@@ -1715,6 +1771,180 @@ function renderFigures(c, cid){
     '<br><span class="muted">' + esc(f.note) + '</span></figcaption></figure>').join("");
   $("figures-note").textContent =
     "数据来源：本例 CFD 后处理结果（P0-result-" + cid + "-v1）；层流下界估计，不确定度±20–50%。";
+}
+
+/* ================= 三例对比（患者 vs 正常对照，路演核心演示） ================= */
+const COMPARE_CIDS = ["pA", "pB", "pN"];
+/* 三色三例：pA 医疗蓝 / pB 青绿 / pN 琥珀（纯 CSS 条形，无图表库） */
+const COMPARE_META = {
+  pA: {name:"患者 A", color:"#3E7CB1"},
+  pB: {name:"患者 B", color:"#2A9D8F"},
+  pN: {name:"正常对照", color:"#E0A24B"}
+};
+/* 行 = 指标；human = 患者语言注解（太弱了大脑感觉不到在呼吸——空鼻症核心） */
+const COMPARE_ROWS = [
+  {key:"dP_Pa",             label:"ΔP 压降",        unit:"Pa",      digits:2,
+   human:"呼吸时要推开的阻力"},
+  {key:"resistance_Pa_per_Ls", label:"鼻阻力 R",    unit:"Pa/(L/s)", digits:1,
+   human:"把气流推过去的“费劲程度”（压降 ÷ 流量）"},
+  {key:"split_L_pct",       label:"左鼻孔分流",     unit:"%",       digits:1,
+   human:"从左鼻孔通过的气流占比"},
+  {key:"split_R_pct",       label:"右鼻孔分流",     unit:"%",       digits:1,
+   human:"从右鼻孔通过的气流占比"},
+  {key:"wss_mean_Pa",       label:"内壁摩擦感 · 均值", unit:"Pa",   digits:4,
+   human:"气流滑过内壁的抚摸感——太弱了大脑感觉不到在呼吸"},
+  {key:"wss_p95_Pa",        label:"内壁摩擦感 · p95",  unit:"Pa",   digits:4,
+   human:"摩擦感的高值（最用力的那部分）"},
+  {key:"Re",                label:"雷诺数 Re",      unit:"",        digits:0,
+   human:"气流是安静平顺还是开始打旋（越小越平顺）"},
+  {key:"volume_cm3",        label:"气道体积",       unit:"cm³",     digits:1,
+   human:"鼻腔“空”的程度——越大越空（鼻甲缺失的量化）"}
+];
+let CMP_CACHE = null;   /* /api/compare 响应缓存（三例数据与选中病例无关） */
+
+/* 跳到某病例详情页并滚动到 hero（对比卡"查看正常对照的气流"按钮用） */
+function gotoCaseHero(cid){
+  selectCase(cid);
+  const hero = $("hero-box");
+  if(hero && hero.scrollIntoView) hero.scrollIntoView({behavior:"smooth", block:"start"});
+}
+
+/* 从给定对比响应数据取某例某指标值；未就绪/缺失 → null（不读全局缓存，
+   使"数据待就绪"分支严格随传入数据判定） */
+function cmpVal(data, cid, key){
+  if(!data) return null;
+  const c = (data.cases || []).find(x => x.cid === cid);
+  if(!(c && c.ready && c.metrics)) return null;
+  const v = c.metrics[key];
+  return (v == null || isNaN(v)) ? null : v;
+}
+
+async function renderCompare(c, cid){
+  const card = $("compare-card");
+  if(!card) return;
+  if(COMPARE_CIDS.indexOf(cid) < 0){   /* pC / demo / 上传病例：不显示对比入口 */
+    card.style.display = "none";
+    return;
+  }
+  card.style.display = "";
+  const toggle = $("compare-toggle"), body = $("compare-body");
+  if(toggle && !toggle.dataset.bound){
+    toggle.dataset.bound = "1";
+    toggle.addEventListener("click", function(){
+      const open = body.style.display === "none";
+      body.style.display = open ? "" : "none";
+      toggle.textContent = open ? "收起三例对比 ▴" : "展开三例对比 ▾";
+    });
+  }
+  const pnBtn = $("compare-open-pn");   /* 一键看"正常无症状的气流"（pN） */
+  if(pnBtn && !pnBtn.dataset.bound){
+    pnBtn.dataset.bound = "1";
+    pnBtn.addEventListener("click", function(){ gotoCaseHero("pN"); });
+  }
+  if(CMP_CACHE === null){
+    const r = await api("/api/compare");
+    CMP_CACHE = (r.ok && r.body)
+      ? {ok:true, data:r.body}
+      : {ok:false, status:r.status, body:r.body};
+  }
+  renderCompareBody(CMP_CACHE);
+}
+
+function renderCompareBody(res){
+  const insEl = $("compare-insights"), tabEl = $("compare-table");
+  const barEl = $("compare-bars"), noteEl = $("compare-note");
+  if(!res.ok){
+    const msg = (res.body && res.body.error) ||
+      ("三例对比暂不可用（HTTP " + res.status + "）");
+    insEl.innerHTML = '<div class="cmp-insight"><span class="ico">ℹ️</span>' +
+      esc(msg) + "</div>";
+    tabEl.innerHTML = ""; barEl.innerHTML = ""; noteEl.textContent = "";
+    const nb0 = $("compare-open-pn"); if(nb0) nb0.style.display = "none";
+    return;
+  }
+  const d = res.data;
+  const nb = $("compare-open-pn"); if(nb) nb.style.display = "";
+  const cols = d.order || COMPARE_CIDS;
+  const labelOf = {};
+  (d.cases || []).forEach(c => { labelOf[c.cid] = c.label; });
+
+  /* ---- 洞察行（顶部三条，从 /api/compare 实时算，不硬编码） ---- */
+  const vA = cmpVal(d,"pA","volume_cm3"), vB = cmpVal(d,"pB","volume_cm3"),
+        vN = cmpVal(d,"pN","volume_cm3");
+  const wA = cmpVal(d,"pA","wss_mean_Pa"), wN2 = cmpVal(d,"pN","wss_mean_Pa");
+  const ins = [];
+  if(vA != null && vB != null && vN){
+    const rA = Math.floor((vA / vN - 1) * 100);
+    const rB = Math.floor((vB / vN - 1) * 100);
+    ins.push("气道体积：两例空鼻症（ENS）患者比正常对照宽 " + rA + "% / " + rB +
+             "%（鼻甲缺失的“空鼻”量化）");
+  } else {
+    ins.push("气道体积：<span class=\"cmp-wait\">数据待就绪</span>");
+  }
+  if(wA != null && wN2){
+    const pctA = Math.floor(wA / wN2 * 100);
+    ins.push("黏膜“抚摸感”（内壁摩擦感 WSS）：患者 A 只有正常对照的 " + pctA +
+             "%——气流还在走，但“感觉”变弱了");
+  } else {
+    ins.push("黏膜“抚摸感”（内壁摩擦感 WSS）：<span class=\"cmp-wait\">数据待就绪</span>");
+  }
+  if(vA != null && vB != null && vN && wA != null && wN2){
+    ins.push("三例呈现三种形态：宽-低阻-低感 / 窄-高阻 / 正常居中——同管线量出的个体差异");
+  } else {
+    ins.push("三例形态：<span class=\"cmp-wait\">数据待就绪</span>");
+  }
+  insEl.innerHTML = ins.map((t,i) =>
+    '<div class="cmp-insight"><span class="ico">' + (i+1) + ".</span>" + t + "</div>").join("");
+
+  /* ---- 对比表：行=指标（含人话注解），列=pA/pB/pN ---- */
+  let head = '<table class="cmp-table"><thead><tr><th>指标（人话注解）</th>';
+  for(const cid of cols){
+    const meta = COMPARE_META[cid] || {name:cid, color:"#888"};
+    head += '<th><span class="cmp-dot" style="background:' + meta.color + '"></span>' +
+      esc(labelOf[cid] || meta.name) + "</th>";
+  }
+  head += "</tr></thead><tbody>";
+  let rows = "";
+  for(const row of COMPARE_ROWS){
+    rows += '<tr><td><span class="rlabel">' + esc(row.label) + "</span>" +
+      '<span class="rhuman">' + esc(row.human) + "</span></td>";
+    for(const cid of cols){
+      const v = cmpVal(d, cid, row.key);
+      rows += "<td>" + ((v == null) ? '<span class="muted">—</span>'
+        : esc(fmtNum(v, row.digits)) +
+          (row.unit ? ' <span class="muted">' + esc(row.unit) + "</span>" : "")) + "</td>";
+    }
+    rows += "</tr>";
+  }
+  tabEl.innerHTML = head + rows + "</tbody></table>";
+
+  /* ---- 条形对比：每指标一组，三色三例，最大值归一化 ---- */
+  let bars = "";
+  for(const row of COMPARE_ROWS){
+    const vals = cols.map(cid => cmpVal(d, cid, row.key));
+    const max = Math.max.apply(null, vals.filter(v => v != null).concat([0]));
+    bars += '<div class="cmp-bar-row"><div class="cmp-bar-name">' + esc(row.label) +
+      ' <span class="muted" style="font-weight:400">· ' + esc(row.human) + "</span></div>";
+    for(let i = 0; i < cols.length; i++){
+      const cid = cols[i], meta = COMPARE_META[cid] || {name:cid, color:"#888"};
+      const v = vals[i];
+      const pct = (v != null && max > 0) ? Math.max(2, v / max * 100) : 0;
+      bars += '<div class="cmp-bar-track"><span class="bname">' + esc(meta.name) + "</span>" +
+        '<span class="cmp-bar-wrap"><span class="cmp-bar" style="width:' +
+        pct.toFixed(1) + "%;background:" + meta.color + '"></span></span>' +
+        '<span class="cmp-bar-val">' +
+        ((v == null) ? "—" : esc(fmtNum(v, row.digits)) +
+          (row.unit ? " " + esc(row.unit) : "")) + "</span></div>";
+    }
+    bars += "</div>";
+  }
+  barEl.innerHTML = bars;
+
+  /* ---- 口径标注 ---- */
+  const n = d.notes || {};
+  noteEl.textContent = (n.口径 || "") +
+    (n.volume_source ? "　" + n.volume_source : "") +
+    (n.resistance_calc ? "　" + n.resistance_calc : "");
 }
 
 /* ================= 上传分析 ================= */
