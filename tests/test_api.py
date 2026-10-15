@@ -24,7 +24,7 @@ import zipfile
 
 import pytest
 
-PIPE = os.path.dirname(os.path.abspath(__file__))
+PIPE = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "code", "pipeline"))
 if PIPE not in sys.path:
     sys.path.insert(0, PIPE)
 
@@ -34,7 +34,11 @@ CT_BASE = os.environ.get(
     os.path.expandvars(r"%DATA_ROOT%\参赛群资料"))
 CT_BASE_OK = os.path.isdir(CT_BASE)
 
-import server as SRV  # noqa: E402
+try:
+    import server as SRV  # noqa: E402
+except ImportError:
+    pytest.skip("server/flask 不可用（可选 Web 控制台后端未安装），跳过 API 契约测试",
+                allow_module_level=True)
 
 STATE_M1 = os.path.join(PIPE, "out", "webapp-state-test-m1")
 STATE_CLOUD = os.path.join(PIPE, "out", "webapp-state-test-cloud")
@@ -158,7 +162,7 @@ class TestAPIContract:
     def test_frozen_pA_single_untouched(self, client):
         """冻结资产零接触：webapp 内 pA 单文件版与提交包逐字节一致。"""
         src = (os.path.expandvars(r"%DATA_ROOT%\项目")
-               r"\P0-鼻塞设计工具\提交包-20261002\viewer_single.html")
+               + r"\P0-鼻塞设计工具\提交包-20261002\viewer_single.html")
         dst = os.path.join(PIPE, "webapp", "cases", "pA", "viewer_single.html")
         if not (os.path.isfile(src) and os.path.isfile(dst)):
             pytest.skip("冻结资产副本不在位")

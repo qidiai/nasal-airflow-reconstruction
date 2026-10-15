@@ -74,6 +74,10 @@ os.makedirs(os.path.join(OUT_DIR, "qc_fig"), exist_ok=True)
 
 # ---------- 1. 读入 ----------
 files = sorted(glob.glob(os.path.join(DATA_DIR, "*.dcm")))
+if not files:
+    print("[错误] 在目录未找到任何 DICOM 文件（*.dcm）：" + DATA_DIR)
+    print("请通过 --dicom-dir 或环境变量 P0_DICOM_DIR 指定真实 CT 的 DICOM 目录后再运行。")
+    raise SystemExit(1)
 print(f"[1/7] 读取 {len(files)} 层 DICOM ...")
 slices = [pydicom.dcmread(f) for f in files]
 slices.sort(key=lambda s: float(s.ImagePositionPatient[2]))

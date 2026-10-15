@@ -64,6 +64,10 @@ NU_AIR = 1.80e-05             # 审计Y2：气道内空气~35C 的运动粘度 m
 # ========== 1. 分割 ==========
 print("[1/6] 读 DICOM 分割 ...")
 files = sorted(glob.glob(os.path.join(DATA_DIR, "*.dcm")))
+if not files:
+    print("[错误] 在目录未找到任何 DICOM 文件（*.dcm）：" + DATA_DIR)
+    print("请通过 --dicom-dir 或环境变量 P0_DICOM_DIR 指定真实 CT 的 DICOM 目录后再运行。")
+    raise SystemExit(1)
 slices = [pydicom.dcmread(f) for f in files]
 slices.sort(key=lambda s: float(s.ImagePositionPatient[2]))
 nz, rows, cols = len(slices), slices[0].Rows, slices[0].Columns

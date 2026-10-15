@@ -740,12 +740,14 @@ def main():
         for rel in need:
             if not os.path.isfile(os.path.join(d, rel)):
                 die(2, f"step2 产物缺失：{os.path.join(d, rel)}")
-    mask_npz = os.path.join(OUT_ROOT, "step2",
-                            "mask_full.npz" if (PREFIX == "pA" and CASE == "v5")
-                            else f"mask_full-{PREFIX}-{CASE}.npz")
-    stats_json = os.path.join(OUT_ROOT, "step2",
-                              "case_stats.json" if (PREFIX == "pA" and CASE == "v5")
-                              else f"case_stats-{PREFIX}-{CASE}.json")
+    _mask_name = ("mask_full.npz" if (PREFIX == "pA" and CASE == "v5")
+                  else (f"mask_full-{CASE}.npz" if PREFIX == "pA"
+                        else f"mask_full-{PREFIX}-{CASE}.npz"))
+    _stats_name = ("case_stats.json" if (PREFIX == "pA" and CASE == "v5")
+                   else (f"case_stats-{CASE}.json" if PREFIX == "pA"
+                         else f"case_stats-{PREFIX}-{CASE}.json"))
+    mask_npz = os.path.join(OUT_ROOT, "step2", _mask_name)
+    stats_json = os.path.join(OUT_ROOT, "step2", _stats_name)
     for p in (mask_npz, stats_json):
         if not os.path.isfile(p):
             die(2, f"step2 产物缺失：{p}")
@@ -1267,9 +1269,11 @@ def run_laptop_handover(manifest, OUT_ROOT, PREFIX, CASE, CASE_NAME, CASE_NAME_B
     # T14b：case_stats + 掩码随包（笔记本建议⑤——此前只在共享树
     #       step2/ 下、未进 zip；§10 指针文件现随 zip 一并交付）
     _stats_name = ("case_stats.json" if (PREFIX == "pA" and CASE == "v5")
-                   else f"case_stats-{PREFIX}-{CASE}.json")
+                   else (f"case_stats-{CASE}.json" if PREFIX == "pA"
+                         else f"case_stats-{PREFIX}-{CASE}.json"))
     _mask_name = ("mask_full.npz" if (PREFIX == "pA" and CASE == "v5")
-                  else f"mask_full-{PREFIX}-{CASE}.npz")
+                  else (f"mask_full-{CASE}.npz" if PREFIX == "pA"
+                        else f"mask_full-{PREFIX}-{CASE}.npz"))
     _extra_root = [os.path.join(OUT_ROOT, "step2", _stats_name),
                    os.path.join(OUT_ROOT, "step2", _mask_name)]
     # T14c：桥区/并合界面体素坐标随包（诊断报告10 建议④）
@@ -1425,7 +1429,8 @@ def _collect_deliverables(out_root, prefix, case, case_name, case_name_b):
     if prefix == "pA" and case == "v5":
         add("case_stats", os.path.join(out_root, "step2", "case_stats.json"))
     add("case_stats", os.path.join(out_root, "step2",
-                                   f"case_stats-{prefix}-{case}.json"))
+                                   f"case_stats-{case}.json" if prefix == "pA"
+                                   else f"case_stats-{prefix}-{case}.json"))
     # 3) manifest / deferred / progress JSON
     add("manifest", os.path.join(out_root,
                                  f"run_all_manifest-{prefix}-{case}.json"))
