@@ -16,6 +16,14 @@
 - m2-cloud（M2/M3 云形态）：ONLY_SYNTHETIC=true，仅合成 demo；
   POST /api/case 代码级禁用（501，R-03）；非合成病例访问一律 403 + 中文提示
 
+上传/建病例接口（两条路共用同一条链）：
+- POST /api/case（source=builtin|path|demo）与 POST /api/upload
+  （multipart/form-data，字段 files，多个 .dcm）都汇入 _register_case：
+  注册表登记 → PII 闸门（run_all 同款 scan_pii）→ DICOM 头普查 → step1 气道分割。
+- /api/upload 落盘 <state_dir>/uploads/<YYYYmmdd-HHMMSS>（文件名只取 basename）；
+  云形态 503（R-03）；R-11：仅 .dcm / ≥2 个（否则 400）/ ≤2048 MiB（413 并清理
+  已写文件）/ 扫描超时 900 s / 建病例失败保留上传目录不清理。
+
 退出码契约（run_all）：
 - 0 完成；2 断言停工（⛔ 门禁拦截卡）；3 环境缺失（OpenFOAM/WSL 不可用）
 
@@ -756,6 +764,149 @@ def _mark_solve_status(cfg, case_id, status, failures):
     RUNNING.pop(case_id, None)
 
 
+# ---------------------------------------------------------------- 建病例（目录导入 / 网页上传 共用链）
+MAX_UPLOAD_MIB = 2048  # R-11 上传契约：单份 CT 体积上限 2 GiB（2048 MiB）
+
+
+def _safe_upload_name(filename):
+    """上传文件名安全化：只取 basename（绝对路径/子路径穿越一律降级为纯文件名）。"""
+    return os.path.basename(str(filename or "").replace("\\", "/").strip())
+
+
+def _register_case(cfg, dicom_dir, prefix, case_name, label, kind, case_id_val,
+                   anatomy_inclusion=False):
+    """建病例公共链（POST /api/case 与 POST /api/upload 共用）：
+    注册表登记 → PII 闸门（run_all 同款 scan_pii）→ DICOM 头普查 → step1 气道分割。
+    返回 (flask_response, status_code)；与既有 POST /api/case 行为一致（逐条同码）。
+    """
+    reg = load_registry(cfg)
+    out_dir = os.path.join(cfg.state_dir, "cases", case_id_val)
+    rec = {
+        "case_id": case_id_val,
+        "kind": kind, "prefix": prefix, "case_name": case_name,
+        "label": label, "dicom_dir": dicom_dir, "out_dir": out_dir,
+        "status": "registered", "synthetic": False,
+        "presenter_only": False,
+        "anatomy_inclusion": bool(anatomy_inclusion),
+        "created": now_iso(), "updated": now_iso(),
+    }
+    os.makedirs(out_dir, exist_ok=True)
+    append_progress(out_dir, f"[W] server：病例登记 {label}")
+
+    # ---- PII 闸门（run_all 同款 scan_pii） ----
+    try:
+        pii = RA.scan_pii(dicom_dir)
+    except SystemExit as e:
+        pii = {"pass": False, "fail_count": 1, "files": 0,
+               "fails": [["-", "PII", str(e), "scan_pii 停工（目录无可扫描头）"]]}
+    except Exception as e:  # noqa: BLE001
+        pii = {"pass": False, "fail_count": 1, "files": 0,
+               "fails": [["-", "PII", repr(e), "PII 扫描异常"]]}
+    rec["pii"] = pii
+    append_progress(out_dir,
+                    f"[W] PII 头扫描：{'PASS' if pii['pass'] else 'FAIL'}"
+                    f" ×{pii.get('fail_count', 0)}（{pii.get('files', 0)} 头）")
+    if not pii["pass"]:
+        rec.update(status="blocked", gate="PII 头扫描（run_all 同款闸门）",
+                   gate_failures=[list(map(str, f)) for f in pii.get("fails", [])][:10],
+                   exit_code=2)
+        reg[rec["case_id"]] = rec
+        save_registry(cfg, reg)
+        append_progress(out_dir, "[W] ⛔ 门禁拦截：PII 头扫描 FAIL——停工上报")
+        return jsonify({"case_id": rec["case_id"], "status": "blocked",
+                        "gate": rec["gate"],
+                        "gate_failures": rec["gate_failures"],
+                        "message": "数据未通过质量闸门（PII 头扫描）——已生成 ⛔ 拦截卡"})
+
+    # ---- DICOM 头普查（同款 survey_dicom：层序方向断言） ----
+    try:
+        survey = RA.survey_dicom(dicom_dir)
+        rec["survey"] = {k: survey.get(k) for k in
+                         ("file_count", "rows", "columns", "pixel_spacing",
+                          "slice_gap_measured", "z_monotonic_increasing",
+                          "filename_order_matches_physical")}
+    except SystemExit as e:
+        survey = None
+        rec["survey_error"] = str(e)
+    except Exception as e:  # noqa: BLE001
+        survey = None
+        rec["survey_error"] = repr(e)
+    if rec.get("survey_error") or (survey and not survey["filename_order_matches_physical"]):
+        reason = rec.get("survey_error") or "层序方向断言 FAIL：z 序列非单调——层序混乱"
+        rec.update(status="blocked", gate="DICOM 头普查（层序方向断言）",
+                   gate_failures=[reason], exit_code=2)
+        reg[rec["case_id"]] = rec
+        save_registry(cfg, reg)
+        append_progress(out_dir, f"[W] ⛔ 门禁拦截：{reason}")
+        return jsonify({"case_id": rec["case_id"], "status": "blocked",
+                        "gate": rec["gate"],
+                        "gate_failures": rec["gate_failures"],
+                        "message": "数据未通过质量闸门（DICOM 头普查）——已生成 ⛔ 拦截卡"})
+
+    # ---- step1 气道分割（子进程，隔离 out-dir） ----
+    preview_dir = os.path.join(out_dir, "preview")
+    sx = (survey or {}).get("pixel_spacing") or [None, None]
+    patient_label = f"{prefix[1].upper() if len(prefix) > 1 else 'X'} " \
+                    f"(soft tissue window, ISO {round(sx[0], 3) if sx[0] else '?'}mm)"
+    cmd1 = [sys.executable, STEP1,
+            "--dicom-dir", dicom_dir,
+            "--out-dir", preview_dir,
+            "--case-prefix", prefix,
+            "--patient-label", patient_label]
+    append_progress(out_dir, "[W] $ " + " ".join(cmd1))
+    try:
+        proc = subprocess.run(cmd1, capture_output=True, text=True,
+                            encoding="utf-8", errors="replace", timeout=900)
+        rc1 = proc.returncode
+        tail = (proc.stdout or "")[-2000:]
+    except subprocess.TimeoutExpired:
+        rc1 = -1
+        tail = "step1 超时（>900 s，R-11 上传契约）"
+    if rc1 != 0:
+        rec.update(status="blocked", gate="step1 气道分割",
+                   gate_failures=[tail.strip()[-1500:]], exit_code=rc1)
+        reg[rec["case_id"]] = rec
+        save_registry(cfg, reg)
+        append_progress(out_dir, f"[W] ⛔ 门禁拦截：step1 失败（exit {rc1}）")
+        return jsonify({"case_id": rec["case_id"], "status": "blocked",
+                        "gate": rec["gate"],
+                        "gate_failures": rec["gate_failures"],
+                        "message": "数据未通过质量闸门（step1 分割）——已生成 ⛔ 拦截卡"})
+    rec.update(status="segmented",
+               qc_note="step1 完成：三平面 QC 已在 /api/qc/" + rec["case_id"])
+    reg[rec["case_id"]] = rec
+    save_registry(cfg, reg)
+    append_progress(out_dir, "[W] step1 完成（气道分割+QC 产物就绪）")
+    return jsonify({"case_id": rec["case_id"], "status": "segmented",
+                    "kind": kind, "prefix": prefix,
+                    "label": label,
+                    "pii": {"files": pii.get("files", 0), "pass": True},
+                    "survey": rec.get("survey"),
+                    "message": "PII 扫描 PASS + step1 完成；可 POST /api/run 启动全链"})
+
+
+def _register_path_case(cfg, dicom_dir, source_label="服务器目录导入"):
+    """按 CT 目录建病例：R-11 契约校验（≥2 个 .dcm / ≤2048 MiB）→ 分配前缀 → _register_case。
+    供 POST /api/case（source=path）与 POST /api/upload（网页直接上传）共用。
+    """
+    dcm_files = glob.glob(os.path.join(dicom_dir, "*.dcm"))
+    dcm_count = len(dcm_files)
+    if dcm_count < 2:
+        return jsonify({"error":
+                        f"CT 目录内 .dcm 文件不足 2 个（实测 {dcm_count} 个）："
+                        "请选择包含完整 DICOM 序列的目录"}), 400
+    # R-11 上传契约：大小上限 2 GiB / 超时 900 s / 失败保留证据不清理
+    total_mb = sum(os.path.getsize(p) for p in dcm_files) / 1048576.0
+    if total_mb > MAX_UPLOAD_MIB:
+        return jsonify({"error":
+                        f"CT 目录体积 {total_mb:.0f} MiB 超上限 {MAX_UPLOAD_MIB} MiB"
+                        "（R-11 上传契约）"}), 413
+    reg = load_registry(cfg)
+    prefix = allocate_prefix(reg)
+    return _register_case(cfg, dicom_dir, prefix, "v1",
+                          f"上传病例 {prefix}（{source_label}）", "upload", prefix)
+
+
 # ---------------------------------------------------------------- Flask app
 def build_app(cfg):
     app = Flask(__name__, static_folder=WEBAPP_DIR, static_url_path="/static")
@@ -892,137 +1043,77 @@ def build_app(cfg):
                                 "内置病例 CT 目录未配置：服务器启动需加 --base-dir "
                                 "指向 参赛群资料 根目录（当前未检测到 "
                                 + (cid) + " 序列）"}), 400
-            prefix, case_name = d["prefix"], d["case"]
-            label = d["label"]
-            kind = "builtin"
+            return _register_case(cfg, dicom_dir, d["prefix"], d["case"],
+                                  d["label"], "builtin", cid,
+                                  anatomy_inclusion=bool(d.get("anatomy_inclusion")))
         elif source == "path":
             dicom_dir = form.get("dicom_path", "").strip().strip('"')
             if not dicom_dir or not os.path.isdir(dicom_dir):
                 return jsonify({"error": f"CT 目录不存在或不是目录：{dicom_dir}"}), 400
-            dcm_count = len(glob.glob(os.path.join(dicom_dir, "*.dcm")))
-            if dcm_count < 2:
-                return jsonify({"error":
-                                f"CT 目录内 .dcm 文件不足 2 个（实测 {dcm_count} 个）："
-                                "请选择包含完整 DICOM 序列的目录"}), 400
-            # R-11 上传契约：大小上限 2 GiB / 超时 900 s / 失败保留证据不清理
-            total_mb = sum(os.path.getsize(p) for p in
-                           glob.glob(os.path.join(dicom_dir, "*.dcm"))) / 1048576.0
-            if total_mb > 2048:
-                return jsonify({"error":
-                                f"CT 目录体积 {total_mb:.0f} MiB 超上限 2048 MiB"
-                                "（R-11 上传契约）"}), 413
-            reg = load_registry(cfg)
-            prefix = allocate_prefix(reg)
-            case_name = "v1"
-            label = f"上传病例 {prefix}（服务器目录导入）"
-            kind = "upload"
+            return _register_path_case(cfg, dicom_dir, source_label="服务器目录导入")
         else:
             return jsonify({"error": "source 须为 builtin|path|demo"}), 400
 
-        case_id_val = prefix if kind == "upload" else cid
-        reg = load_registry(cfg)
-        out_dir = os.path.join(cfg.state_dir, "cases", case_id_val)
-        rec = {
-            "case_id": case_id_val,
-            "kind": kind, "prefix": prefix, "case_name": case_name,
-            "label": label, "dicom_dir": dicom_dir, "out_dir": out_dir,
-            "status": "registered", "synthetic": False,
-            "presenter_only": False,
-            "anatomy_inclusion": bool(d.get("anatomy_inclusion")) if kind == "builtin" else False,
-            "created": now_iso(), "updated": now_iso(),
-        }
-        os.makedirs(out_dir, exist_ok=True)
-        append_progress(out_dir, f"[W] server：病例登记 {label}")
-
-        # ---- PII 闸门（run_all 同款 scan_pii） ----
-        try:
-            pii = RA.scan_pii(dicom_dir)
-        except SystemExit as e:
-            pii = {"pass": False, "fail_count": 1, "files": 0,
-                   "fails": [["-", "PII", str(e), "scan_pii 停工（目录无可扫描头）"]]}
-        except Exception as e:  # noqa: BLE001
-            pii = {"pass": False, "fail_count": 1, "files": 0,
-                   "fails": [["-", "PII", repr(e), "PII 扫描异常"]]}
-        rec["pii"] = pii
-        append_progress(out_dir,
-                        f"[W] PII 头扫描：{'PASS' if pii['pass'] else 'FAIL'}"
-                        f" ×{pii.get('fail_count', 0)}（{pii.get('files', 0)} 头）")
-        if not pii["pass"]:
-            rec.update(status="blocked", gate="PII 头扫描（run_all 同款闸门）",
-                       gate_failures=[list(map(str, f)) for f in pii.get("fails", [])][:10],
-                       exit_code=2)
-            reg[rec["case_id"]] = rec
-            save_registry(cfg, reg)
-            append_progress(out_dir, "[W] ⛔ 门禁拦截：PII 头扫描 FAIL——停工上报")
-            return jsonify({"case_id": rec["case_id"], "status": "blocked",
-                            "gate": rec["gate"],
-                            "gate_failures": rec["gate_failures"],
-                            "message": "数据未通过质量闸门（PII 头扫描）——已生成 ⛔ 拦截卡"})
-
-        # ---- DICOM 头普查（同款 survey_dicom：层序方向断言） ----
-        try:
-            survey = RA.survey_dicom(dicom_dir)
-            rec["survey"] = {k: survey.get(k) for k in
-                             ("file_count", "rows", "columns", "pixel_spacing",
-                              "slice_gap_measured", "z_monotonic_increasing",
-                              "filename_order_matches_physical")}
-        except SystemExit as e:
-            survey = None
-            rec["survey_error"] = str(e)
-        except Exception as e:  # noqa: BLE001
-            survey = None
-            rec["survey_error"] = repr(e)
-        if rec.get("survey_error") or (survey and not survey["filename_order_matches_physical"]):
-            reason = rec.get("survey_error") or "层序方向断言 FAIL：z 序列非单调——层序混乱"
-            rec.update(status="blocked", gate="DICOM 头普查（层序方向断言）",
-                       gate_failures=[reason], exit_code=2)
-            reg[rec["case_id"]] = rec
-            save_registry(cfg, reg)
-            append_progress(out_dir, f"[W] ⛔ 门禁拦截：{reason}")
-            return jsonify({"case_id": rec["case_id"], "status": "blocked",
-                            "gate": rec["gate"],
-                            "gate_failures": rec["gate_failures"],
-                            "message": "数据未通过质量闸门（DICOM 头普查）——已生成 ⛔ 拦截卡"})
-
-        # ---- step1 气道分割（子进程，隔离 out-dir） ----
-        preview_dir = os.path.join(out_dir, "preview")
-        sx = (survey or {}).get("pixel_spacing") or [None, None]
-        patient_label = f"{prefix[1].upper() if len(prefix) > 1 else 'X'} " \
-                        f"(soft tissue window, ISO {round(sx[0], 3) if sx[0] else '?'}mm)"
-        cmd1 = [sys.executable, STEP1,
-                "--dicom-dir", dicom_dir,
-                "--out-dir", preview_dir,
-                "--case-prefix", prefix,
-                "--patient-label", patient_label]
-        append_progress(out_dir, "[W] $ " + " ".join(cmd1))
-        try:
-            proc = subprocess.run(cmd1, capture_output=True, text=True,
-                                encoding="utf-8", errors="replace", timeout=900)
-            rc1 = proc.returncode
-            tail = (proc.stdout or "")[-2000:]
-        except subprocess.TimeoutExpired:
-            rc1 = -1
-            tail = "step1 超时（>900 s，R-11 上传契约）"
-        if rc1 != 0:
-            rec.update(status="blocked", gate="step1 气道分割",
-                       gate_failures=[tail.strip()[-1500:]], exit_code=rc1)
-            reg[rec["case_id"]] = rec
-            save_registry(cfg, reg)
-            append_progress(out_dir, f"[W] ⛔ 门禁拦截：step1 失败（exit {rc1}）")
-            return jsonify({"case_id": rec["case_id"], "status": "blocked",
-                            "gate": rec["gate"],
-                            "gate_failures": rec["gate_failures"],
-                            "message": "数据未通过质量闸门（step1 分割）——已生成 ⛔ 拦截卡"})
-        rec.update(status="segmented",
-                   qc_note="step1 完成：三平面 QC 已在 /api/qc/" + rec["case_id"])
-        reg[rec["case_id"]] = rec
-        save_registry(cfg, reg)
-        append_progress(out_dir, "[W] step1 完成（气道分割+QC 产物就绪）")
-        return jsonify({"case_id": rec["case_id"], "status": "segmented",
-                        "kind": kind, "prefix": prefix,
-                        "pii": {"files": pii.get("files", 0), "pass": True},
-                        "survey": rec.get("survey"),
-                        "message": "PII 扫描 PASS + step1 完成；可 POST /api/run 启动全链"})
+    @app.route("/api/upload", methods=["POST"])
+    def api_upload():
+        """网页直接上传 CT（multipart/form-data，字段名 files，可多文件）→ 自动建病例。
+        R-03：云形态代码级禁用（503，非 UI 隐藏）；R-11：仅 .dcm / ≤2048 MiB /
+        900 s / 失败保留证据。落盘到 <state_dir>/uploads/<YYYYmmdd-HHMMSS>，
+        随后复用 source=path 建病例链（_register_path_case）。"""
+        if cfg.only_synthetic:
+            return jsonify({
+                "error": "云形态数据边界（修订1/R-03）：本形态（M2/M3）仅合成 demo 数据，"
+                         "网页上传真实 CT 已在代码级禁用（HTTP 503）"}), 503
+        files = [f for f in request.files.getlist("files") if f and f.filename]
+        if not files:
+            return jsonify({"error":
+                            "未收到文件：请以 multipart/form-data 上传字段 files"
+                            "（一个或多个 .dcm 文件）"}), 400
+        # 扩展名硬闸：只收 .dcm（不区分大小写），其余一律 400
+        for f in files:
+            if not f.filename.lower().endswith(".dcm"):
+                return jsonify({"error":
+                                "仅接受 .dcm 文件（收到："
+                                + os.path.basename(f.filename.replace("\\", "/"))
+                                + "）；请重新选择 CT 序列目录（非 .dcm 文件请先剔除）"}), 400
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        up_dir = os.path.join(cfg.state_dir, "uploads", stamp)
+        n = 1
+        while os.path.exists(up_dir):  # 同一秒内重复上传时的防撞
+            up_dir = os.path.join(cfg.state_dir, "uploads", f"{stamp}-{n}")
+            n += 1
+        os.makedirs(up_dir, exist_ok=True)
+        max_bytes = MAX_UPLOAD_MIB * 1048576
+        total = 0
+        saved = 0
+        for f in files:
+            name = _safe_upload_name(f.filename) or "unnamed.dcm"
+            dest = os.path.join(up_dir, name)
+            base, ext = os.path.splitext(name)
+            k = 2
+            while os.path.exists(dest):  # 重名去撞（仅取 basename 后可能重名）
+                dest = os.path.join(up_dir, f"{base}_{k}{ext}")
+                k += 1
+            try:
+                f.save(dest)
+            except OSError as e:  # noqa: BLE001
+                shutil.rmtree(up_dir, ignore_errors=True)
+                return jsonify({"error": f"上传写盘失败：{e!r}（本次已写文件已清理）"}), 500
+            saved += 1
+            total += os.path.getsize(dest)
+            if total > max_bytes:  # R-11：超限 413 并清理已写文件
+                shutil.rmtree(up_dir, ignore_errors=True)
+                return jsonify({"error":
+                                f"上传体积超上限 {MAX_UPLOAD_MIB} MiB（R-11 上传契约）："
+                                "已清理本次已写文件——请缩减 CT 序列后重传"}), 413
+        if saved < 2:
+            # R-11 失败保留证据：落盘目录保留在 uploads/ 供排查，不清理
+            return jsonify({"error":
+                            f".dcm 文件不足 2 个（实测 {saved} 个；已保留于 "
+                            + os.path.relpath(up_dir, HERE).replace("\\", "/")
+                            + "）：请选择包含完整 DICOM 序列的文件夹"}), 400
+        # 复用 source=path 建病例链（PII 闸门 → DICOM 头普查 → step1）
+        return _register_path_case(cfg, up_dir, source_label="网页上传")
 
     @app.route("/api/qc/<case_id>")
     def api_qc(case_id):
@@ -1350,7 +1441,12 @@ code{{background:#0d1117;padding:2px 6px;border-radius:4px;font-size:12px}}
         if cid in BUILTIN_DEFS and BUILTIN_DEFS[cid].get("viewer_block_reason"):
             return BUILTIN_DEFS[cid]["viewer_block_reason"]
         if rec.get("status") == "blocked":
-            return "门禁拦截（⛔）：" + "; ".join(rec.get("gate_failures") or [])[:300]
+            fails = rec.get("gate_failures") or []
+            # gate_failures 既有字符串列表，也有 PII 闸门的行列表（[["-","PII",...], ...]）
+            # ——统一转成可读字符串，避免 join 抛 TypeError 把整个 /api/cases 打成 500
+            return "门禁拦截（⛔）：" + "; ".join(
+                " | ".join(map(str, f)) if isinstance(f, (list, tuple)) else str(f)
+                for f in fails)[:300]
         if rec.get("status") in ("running", "segmented", "registered", "handover"):
             return "管线进行中/待解算——查看器导出（step5）尚未就绪"
         return ""

@@ -213,6 +213,19 @@ iframe.hero-frame{
   font-size:17px;font-weight:700;color:var(--teal-deep);margin:10px 0 2px;
 }
 .up-pct{font-size:13.5px;color:var(--ink-soft);margin-bottom:6px}
+/* ---------- 网页直接上传 CT ---------- */
+input.filepick{
+  display:block;width:100%;padding:14px;border:2px dashed #C9BFAE;
+  border-radius:var(--radius);background:#fff;color:var(--ink-soft);
+  font-family:inherit;font-size:14.5px;cursor:pointer;
+}
+input.filepick:hover{border-color:var(--teal)}
+.up-track{
+  height:10px;border-radius:6px;background:#F1EDE4;border:1px solid var(--line);
+  overflow:hidden;margin:10px 0 6px;
+}
+.up-bar{height:100%;width:0;background:var(--teal);border-radius:6px;transition:width .2s}
+.up-track.done .up-bar{background:var(--green)}
 /* ---------- 暖色拦截卡（🕐 不吓人） ---------- */
 .warm-card{
   border:1.5px solid var(--amber);border-radius:var(--radius);
@@ -425,6 +438,22 @@ footer .fixed-sentence{
 
 <!-- ================= 页签 3：上传分析 ================= -->
 <section class="tab" id="tab-upload">
+  <div class="card">
+    <h2>网页直接上传 CT（现场演示）</h2>
+    <div class="lead">直接从这台电脑选择 CT 文件夹（或若干 .dcm 文件）→ 自动登记病例 → 一键跑管线。无需把目录放到服务器本机。</div>
+    <label class="f" for="up-files">选择 CT 文件夹 / .dcm 文件</label>
+    <input type="file" class="filepick" id="up-files" multiple accept=".dcm" webkitdirectory directory>
+    <div class="hint" id="up-pick">尚未选择文件——点上方按钮选择包含 .dcm 序列的文件夹</div>
+    <div class="btnrow" style="margin-top:12px">
+      <button class="btn primary" id="up-go" disabled>开始上传</button>
+      <span class="hint">上传后自动建病例（隐私检查 + 气道重建），完成后可直接跑管线</span>
+    </div>
+    <div class="up-track" id="up-track" style="display:none"><div class="up-bar" id="up-bar"></div></div>
+    <div class="hint" id="up-line"></div>
+    <div id="up-result" style="margin-top:10px"></div>
+    <div class="hint">上传契约（R-11）：仅 .dcm 序列；体积上限 2048 MiB；扫描超时 900 s；失败保留证据不清理。上传病例默认仅操作员可见。</div>
+  </div>
+
   <div class="card">
     <h2>上传分析</h2>
     <div class="lead">操作员/志愿者用：登记一份脱敏 CT → 隐私检查 → 气道重建 → 一键全链分析。全程零安装。</div>
@@ -977,6 +1006,122 @@ $("nc-source").addEventListener("change", e=>{
 $("nc-drop").addEventListener("click", ()=>{ $("nc-dicom-path").focus(); });
 $("nc-go").addEventListener("click", registerCase);
 $("nc-demo").addEventListener("click", ()=>doRegister("demo"));
+
+/* ================= 网页直接上传 CT（POST /api/upload · XHR 进度条） ================= */
+const UP_MAX_BYTES = 2048 * 1024 * 1024;   /* R-11 上传契约：2048 MiB */
+let upPicked = [];
+$("up-files").addEventListener("change", e=>{
+  const all = Array.from(e.target.files || []);
+  upPicked = all.filter(f=>/\.dcm$/i.test(f.name || ""));
+  const skipped = all.length - upPicked.length;
+  const total = upPicked.reduce((s,f)=>s + (f.size || 0), 0);
+  const mb = total / 1048576;
+  const skipTxt = skipped ? "，已忽略 " + skipped + " 个非 .dcm 文件" : "";
+  if(!upPicked.length){
+    $("up-pick").innerHTML = '<span class="warn">所选内容中没有 .dcm 文件' + skipTxt + "——请选择包含 CT 序列的文件夹</span>";
+    $("up-go").disabled = true;
+    return;
+  }
+  let extra = "";
+  if(upPicked.length < 2) extra += ' <span class="warn">—.dcm 少于 2 个，无法建病例</span>';
+  if(mb > 2048) extra += ' <span class="warn">—约 ' + mb.toFixed(0) + " MiB 超过 2048 MiB 上限（R-11）</span>";
+  $("up-pick").innerHTML = "已选择 <b>" + upPicked.length + "</b> 个 .dcm（约 " + mb.toFixed(1) + " MiB）" + skipTxt + extra;
+  $("up-go").disabled = (mb > 2048) || upPicked.length < 2;
+});
+$("up-go").addEventListener("click", uploadCT);
+
+function upBar(pct){
+  $("up-track").style.display = "";
+  $("up-bar").style.width = Math.max(0, Math.min(100, pct)).toFixed(1) + "%";
+}
+
+function uploadCT(){
+  if(!upPicked.length) return;
+  const total = upPicked.reduce((s,f)=>s + (f.size || 0), 0);
+  if(total > UP_MAX_BYTES){   /* 体积预检：超限直接本地拦截，不发请求 */
+    $("up-result").innerHTML = '<div class="warn">所选文件共约 ' + (total / 1048576).toFixed(0) +
+      " MiB，超过 2048 MiB 上限（R-11 上传契约）——未上传。请缩减 CT 序列后重试。</div>";
+    return;
+  }
+  $("up-go").disabled = true;
+  $("up-result").innerHTML = "";
+  $("up-track").classList.remove("done");
+  upBar(0);
+  $("up-line").innerHTML = '<span class="spin"></span>正在上传 ' + upPicked.length + " 个文件…";
+  const fd = new FormData();
+  for(const f of upPicked) fd.append("files", f, f.name);
+  const xhr = new XMLHttpRequest();   /* 用 XHR 而非 fetch：需要 upload.onprogress 驱动进度条 */
+  xhr.open("POST", "/api/upload");
+  xhr.upload.onprogress = ev=>{
+    if(ev.lengthComputable){
+      const pct = ev.loaded / ev.total * 100;
+      $("up-line").innerHTML = '<span class="spin"></span>正在上传… ' + pct.toFixed(0) + "%";
+      upBar(pct);
+    }
+  };
+  xhr.upload.onload = ()=>{
+    upBar(100);
+    $("up-line").innerHTML = '<span class="spin"></span>上传完成，正在做隐私检查 + 重建气道（可能需 1–2 分钟，请勿关闭页面）…';
+  };
+  xhr.onerror = ()=>{
+    $("up-go").disabled = false;
+    $("up-line").innerHTML = "";
+    $("up-result").innerHTML = '<div class="warn">上传网络错误——请确认服务在线（端口 8123）后重试。</div>';
+  };
+  xhr.onload = ()=>handleUploadResponse(xhr);
+  xhr.send(fd);
+}
+
+async function handleUploadResponse(xhr){
+  let b = null;
+  try { b = JSON.parse(xhr.responseText); } catch(e){ b = null; }
+  $("up-go").disabled = false;
+  $("up-line").innerHTML = "";
+  const code = xhr.status;
+  const err = (b && b.error) || ("HTTP " + code);
+  if(code === 503){
+    $("up-result").innerHTML = '<div class="warm-card"><div class="warm-head"><span class="warm-emoji">🔒</span>' +
+      '<div><h3>云形态仅合成数据</h3><div class="reason">' + esc(err) + "</div></div></div></div>";
+    return;
+  }
+  if(code === 413){
+    $("up-result").innerHTML = '<div class="warn">体积超限（HTTP 413）：' + esc(err) + "</div>";
+    return;
+  }
+  if(code !== 200 || !b){
+    $("up-result").innerHTML = '<div class="warn">上传被拒绝（HTTP ' + code + "）：" + esc(err) + "</div>";
+    return;
+  }
+  /* 200：病例已登记（可能被 PII/层序/step1 闸门拦截 → status=blocked） */
+  upBar(100);
+  $("up-track").classList.add("done");
+  await loadCases(); fillCaseSelects();
+  const cid = b.case_id;
+  const label = b.label || ((S.cases.find(c=>c.case_id === cid) || {}).label) || cid;
+  S.selectedProgress = cid;
+  if($("pg-case")) $("pg-case").value = cid;
+  if(b.status === "blocked"){
+    $("up-result").innerHTML =
+      '<div class="ok">📝 病例已登记：' + esc(label) + "（case_id " + esc(cid) + "）——质检未通过，已生成拦截卡。</div>" +
+      warmGateCardHtml({gate: b.gate, gate_failures: b.gate_failures}) +
+      '<div class="btnrow" style="margin-top:10px">' +
+      `<button class="btn" onclick='switchTab("upload");document.getElementById("pg-case").value="${esc(cid)}";loadProgress();'>查看检查卡片 →</button></div>`;
+    return;
+  }
+  const nfiles = (b.pii && b.pii.files != null) ? b.pii.files : "—";
+  $("up-result").innerHTML =
+    '<div class="ok">✅ 病例已登记：' + esc(label) + "（case_id " + esc(cid) + "）——隐私检查 PASS（" + esc(nfiles) + " 头 CT），气道模型已重建。</div>" +
+    '<div class="btnrow" style="margin-top:10px">' +
+    `<button class="btn primary" onclick='switchTab("upload");document.getElementById("pg-case").value="${esc(cid)}";loadProgress();document.getElementById("pg-run").scrollIntoView({block:"center"});'>去跑管线 →</button>` +
+    `<button class="btn" onclick='switchTab("airway");selectCase("${esc(cid)}");'>查看气道 →</button></div>`;
+  loadProgress();
+  const q = await api("/api/qc/" + encodeURIComponent(cid));
+  if(q.ok && q.body && q.body.views && q.body.views.length){
+    renderQC(q.body, "up-qc", "up-qc-card", "up-qc-note");
+  }
+  switchTab("airway");          /* 自动切到病例详情：直接看到指标/QC，随时跑管线 */
+  await selectCase(cid);
+}
 async function registerCase(){
   const source = $("nc-source").value;
   if(source === "demo"){ doRegister("demo"); return; }

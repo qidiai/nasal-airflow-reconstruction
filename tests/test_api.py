@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""T15 API 基础测试（pytest 四类 · GLM 审计 R-10 带条件放行项）。
+"""T15 API 基础测试（pytest 五类 · GLM 审计 R-10 带条件放行项）。
 
-四类：
+五类：
   1. TestAPIContract        —— API 契约（/api/health、/api/cases、/api/qc、
                               /api/progress、/viewer、静态页）
   2. TestDataBoundary       —— 数据边界拒绝（修订1/R-03：云形态 POST /api/case
@@ -11,12 +11,15 @@
                               （run_all 同款 scan_pii 真机契约测试）
   4. TestMetricsConsistency —— 指标卡与 manifest+metrics 一致性 +
                               双口径标签断言（ΔP 定流量 vs R 等压不可互换）
+  5. TestUploadEndpoint     —— 网页直接上传 POST /api/upload（R-11：仅 .dcm /
+                              ≥2 个 / ≤2048 MiB / 云形态 503 / 失败保留证据）
 
 运行（pipeline 目录内）：
   py -X utf8 -m pytest test_api.py -v
 依赖：flask、pytest（pipeline 环境已装）；内置病例测试经 P0_CT_BASE
 定位参赛群资料（缺省回退本机交付路径；无该路径时内置用例跳过）。
 """
+import io
 import json
 import os
 import sys
@@ -372,3 +375,72 @@ class TestMetricsConsistency:
                         "flow_share_L_pct": 51.9, "flow_share_R_pct": 48.1},
              "wss": {"mean_Pa": 0.011, "p95_Pa": 0.054}}, "A", "v5"
         )[0]["metrics"]["dP_baseline_Pa"] == 18.45
+
+# ================================================================ 类 5：网页直接上传（POST /api/upload）
+class TestUploadEndpoint:
+    """R-11 上传契约的代码级回归：闸门次序、云形态 503、建病例链接入。
+
+    说明：假 DICOM 头（不可被 pydicom 解析）会在 PII 闸门被如实拦截
+    ——这不影响契约断言（端点先做扩展名/数量闸，再进建病例链）。
+    """
+
+    @staticmethod
+    def _f(name, data=b"DICM"):
+        return (io.BytesIO(data), name)
+
+    def _post(self, cli, files):
+        return cli.post("/api/upload", data={"files": files},
+                        content_type="multipart/form-data")
+
+    def test_upload_rejects_non_dcm(self, client):
+        """非 .dcm → 400（R-11：仅收 .dcm，不区分大小写）。"""
+        r = self._post(client, self._f("not_a_dicom.txt", b"hello"))
+        assert r.status_code == 400
+        assert ".dcm" in r.get_json()["error"]
+
+    def test_upload_rejects_single_dcm(self, client):
+        """.dcm 少于 2 个 → 400（与 source=path 的 dcm_count≥2 口径一致）。"""
+        r = self._post(client, self._f("only_one.dcm"))
+        assert r.status_code == 400
+        assert "不足 2 个" in r.get_json()["error"]
+
+    def test_upload_requires_files_field(self, client):
+        """字段名必须是 files（multipart）——缺失即 400。"""
+        r = client.post("/api/upload", data={"other": self._f("a.dcm")},
+                        content_type="multipart/form-data")
+        assert r.status_code == 400
+
+    def test_upload_cloud_503(self, cloud_client):
+        """R-03：云形态网页上传代码级禁用（503，非 UI 隐藏）。"""
+        r = self._post(cloud_client, self._f("a.dcm"))
+        assert r.status_code == 503
+        assert "代码级禁用" in r.get_json()["error"]
+
+    def test_upload_two_dcm_enters_case_chain(self, client):
+        """2 个 .dcm 达下限 → 进入建病例链（PII 闸门触发；假头被如实拦截）。"""
+        r = self._post(client, [self._f("x1.dcm"), self._f("x2.dcm")])
+        assert r.status_code == 200
+        j = r.get_json()
+        assert j["case_id"].startswith("pX")
+        assert j["status"] in ("blocked", "segmented")
+
+    def test_upload_api_case_path_branch_unchanged(self, client):
+        """重构回归：POST /api/case source=path 仍走同一建病例链（≥2 口径保留）。"""
+        r = client.post("/api/case", data={"source": "path", "dicom_path": ""})
+        assert r.status_code == 400
+        assert "不存在" in r.get_json()["error"]
+
+
+    def test_upload_name_sanitization(self):
+        """文件名安全化：只取 basename——绝对路径/子路径穿越被降级，绝不落盘到目录外。"""
+        assert SRV._safe_upload_name("sub/dir/x.dcm") == "x.dcm"
+        assert SRV._safe_upload_name("..\\..\\evil.dcm") == "evil.dcm"
+        assert SRV._safe_upload_name("/etc/passwd.dcm") == "passwd.dcm"
+        assert SRV._safe_upload_name("C:\\ct\\y.dcm") == "y.dcm"
+
+    def test_upload_accepts_relative_path_filename(self, client):
+        """带子目录的相对路径文件名（浏览器 webkitdirectory 送来的常见形态）
+        → 不 500，降级为 basename 后正常建病例。"""
+        r = self._post(client, [self._f("sub/a.dcm"), self._f("sub/b.dcm")])
+        assert r.status_code == 200
+        assert r.get_json()["case_id"].startswith("pX")
