@@ -135,6 +135,7 @@ MODEL_FILES = {
     "pA": "airway_pA.glb",
     "pB": "airway_pB.glb",
     "pN": "airway_pN_simplified.glb",
+    "pN2": "airway_pN2_simplified.glb",
 }
 
 
@@ -188,11 +189,12 @@ def case_results_available(cfg, case_id):
 #   气道体积（cm³）        ：run_all 清单 run_all_manifest-<cid>-v1.json
 #                            （stages.S2_step1.airway_volume_cm3；回退 step1 指标）
 # 三例路径白名单硬编码（cid 不外泄为路径）；缺失/解析失败该例标记 ready=False，绝不抛异常。
-COMPARE_ORDER = ("pA", "pB", "pN")
+COMPARE_ORDER = ("pA", "pB", "pN", "pN2")
 COMPARE_LABELS = {
     "pA": "患者A（空鼻症）",
     "pB": "患者B（赛方 CT）",
     "pN": "正常对照（官方提供）",
+    "pN2": "正常对照 2（官方提供）",
 }
 COMPARE_NOTES = {
     "口径": "同管线同参数（voxel-z 2.0）口径对比；pN 网格较粗（53,747 单元）"
@@ -214,6 +216,11 @@ def _compare_volume_cm3(cid):
         (os.path.join(HERE, "out", "step1", f"metrics_{cid}_v2.json"),
          ("airway_volume_cm3",)),
     ]
+    if cid == "pN2":
+        # pN2 结果目录名（P0-result-pN2-v1）与其 run_all 清单名（pN-v2）不同构：
+        # 例2 的分割/清单以 pN 前缀 + case v2 命名，故显式前置清单位
+        cands.insert(0, (os.path.join(HERE, "out", "run_all_manifest-pN-v2.json"),
+                         ("stages", "S2_step1", "airway_volume_cm3")))
     for path, keys in cands:
         if not os.path.isfile(path):
             continue
@@ -327,7 +334,7 @@ BUILTIN_DEFS = {
                      "看板7-T14b报告.md"],
     },
     "pN": {
-        "label": "正常对照（官方提供）",
+        "label": "正常对照（官方提供·颞骨骨折待 HRCT 排除）",
         "prefix": "pN", "case": "v1",
         "dicom_rel": ["副鼻窦27例_合规版", "例1_重排"],
         "dicom_label": "N (soft tissue window, ISO 0.488mm)",
@@ -341,6 +348,20 @@ BUILTIN_DEFS = {
                      "pipeline/out/结果/P0-result-pN-v1/后处理/metrics.json",
                      "webapp/models/airway_pN_simplified.glb",
                      "webapp/models/flowlines_pN.json"],
+    },
+    "pN2": {
+        "label": "正常对照 2（官方提供·影像判读健康）",
+        "prefix": "pN", "case": "v2",
+        "dicom_rel": ["副鼻窦27例_合规版", "例2_重排"],
+        "dicom_label": "N2 (soft tissue window, ISO 0.488mm)",
+        "badge": "✅", "badge_text": "演示展示在案",
+        "preset_status": "done",
+        "note": "赛方“参赛群资料”提供的正常无症状对照 CT（副鼻窦 27 例·合规版·例2，逐头匿名化核验 PASS）；影像判读健康（鼻甲逗号状典型 / 颞骨无骨折线 / 纸样板完整），判读置信度高于例1（例1 颞骨疑骨折线）；与 pA/pB/pN 同管线同参数口径（voxel-z 2.0）。授权口径同赛方（演示展示在案）。",
+        "evidence": ["pipeline/out/run_all_manifest-pN-v2.json",
+                     "pipeline/out/step2/case_stats-pN-v2.json",
+                     "pipeline/out/结果/P0-result-pN2-v1/后处理/metrics.json",
+                     "webapp/models/airway_pN2_simplified.glb",
+                     "webapp/models/flowlines_pN2.json"],
     },
 }
 
@@ -469,7 +490,7 @@ def get_case_record(cfg, case_id):
 
 def allocate_prefix(reg):
     """上传病例前缀分配：pX, pX2, pX3...（避开内置 pA/pB/pC）。"""
-    used = set(reg.keys()) | {"pA", "pB", "pC", "pN", "demo"}
+    used = set(reg.keys()) | {"pA", "pB", "pC", "pN", "pN2", "demo"}
     if "pX" not in used:
         return "pX"
     n = 2
@@ -2085,7 +2106,7 @@ def build_app(cfg):
     def api_cases():
         reg = load_registry(cfg)
         cards = []
-        for cid in ("pA", "pB", "pC", "pN"):
+        for cid in ("pA", "pB", "pC", "pN", "pN2"):
             rec = get_case_record(cfg, cid)
             d = BUILTIN_DEFS[cid]
             dicom_ok = bool(rec["dicom_dir"]) and os.path.isdir(rec["dicom_dir"])
@@ -2697,14 +2718,14 @@ def build_app(cfg):
                 return jsonify(metrics_from_case_stats(
                     "pC", sp, "解剖结构验证/case_stats-pC-v4.json（只读复用副本）"))
             return jsonify({"error": "pC case_stats 副本缺失（部署件未执行）"}), 500
-        if case_id == "pN":
-            # 正常对照：本例真实后处理 metrics.json（只读复用，同 pB 单例口径）
-            mp = case_results_metrics_path("pN")
+        if case_id in ("pN", "pN2"):
+            # 正常对照（pN 例1 / pN2 例2）：本例真实后处理 metrics.json（只读复用，同 pB 单例口径）
+            mp = case_results_metrics_path(case_id)
             if mp:
                 return jsonify(metrics_from_postcfd_json(
-                    "pN", mp,
-                    "out/结果/P0-result-pN-v1/后处理/metrics.json（本例真实结果，只读复用）"))
-            return jsonify({"error": "pN metrics 缺失（结果档案不在位）"}), 500
+                    case_id, mp,
+                    f"out/结果/P0-result-{case_id}-v1/后处理/metrics.json（本例真实结果，只读复用）"))
+            return jsonify({"error": f"{case_id} metrics 缺失（结果档案不在位）"}), 500
         # 上传病例：优先 step5 导出 meta，其次后处理契约
         out_dir = rec.get("out_dir") or ""
         vd = os.path.join(out_dir, "step5", "viewer_data.js")
@@ -2859,7 +2880,7 @@ code{{background:#0d1117;padding:2px 6px;border-radius:4px;font-size:12px}}
                             "split_L_pct": round(float(t.get("flow_share_L_pct", 0)), 1),
                             "split_R_pct": round(float(t.get("flow_share_R_pct", 0)), 1),
                             "口径": "定流量口径（Run-A dP/Q）"}
-            if cid in ("pA", "pB", "pN"):
+            if cid in ("pA", "pB", "pN", "pN2"):
                 # 部署副本缺失时回退本例真实结果 out/结果/.../后处理/metrics.json
                 mp = case_results_metrics_path(cid)
                 if mp:

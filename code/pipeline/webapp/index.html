@@ -411,15 +411,15 @@ footer .fixed-sentence{
   .cmp-wait{color:var(--amber-deep)}
   </style>
   <div class="card" id="compare-card" style="display:none">
-    <h2>三例并排对比 · 患者 vs 正常对照</h2>
-    <div class="lead">同一套管线、同一参数口径，把三例放进一张表：谁更“空”、谁更“堵”、
+    <h2>四例并排对比 · 患者 vs 正常对照</h2>
+    <div class="lead">同一套管线、同一参数口径，把四例放进一张表：谁更“空”、谁更“堵”、
       谁更接近正常——一眼看明白。</div>
     <div class="btnrow">
-      <button class="btn primary" id="compare-toggle" type="button">展开三例对比 ▾</button>
+      <button class="btn primary" id="compare-toggle" type="button">展开四例对比 ▾</button>
     </div>
     <div id="compare-body" style="display:none">
       <div class="btnrow" style="margin:12px 0 2px">
-        <button class="btn primary" id="compare-open-pn" type="button">👁 正常对照气流（官方提供）—— 与本例气流对比</button>
+        <button class="btn primary" id="compare-open-pn" type="button">👁 正常对照气流（官方提供·判读健康）—— 与本例气流对比</button>
       </div>
       <div class="cmp-insights" id="compare-insights"></div>
       <div id="compare-table"></div>
@@ -819,6 +819,7 @@ const MODEL_META = {
   pA:{label:"患者A", orig:"91.8 万面", simp:"12 万面"},
   pB:{label:"患者B", orig:"88.2 万面", simp:"12 万面", steps:"1,500"},
   pN:{label:"正常对照", orig:"34.8 万面", simp:"12 万面", steps:"322"},
+  pN2:{label:"正常对照 2", orig:"45.0 万面", simp:"12 万面", steps:"1,500"},
 };
 let HERO = null;
 
@@ -1134,7 +1135,7 @@ function renderModelHero(cid, c, flowView){   /* flowView=true：气流动画视
         : esc(meta.label) + " 真实 CT 气道重建（" + meta.orig + " → " + meta.simp + "）；CFD 流线 = step5 真实稳态解，速度着色（viridis，0–P98 m/s），与 GLB 同源坐标对齐") + '">' +
         (flowView
           ? esc(meta.label) + " 真实气道 + CFD 流线（" + (meta.steps || "—") + " 步收敛解）" +
-            (cid === "pN" ? "" : "；正常对照见「正常对照（官方提供）」病例")
+            ((cid === "pN" || cid === "pN2") ? "" : "；正常对照见「正常对照 2（官方提供）」病例")
           : esc(meta.label) + " · 真实 CT 气道 + 真实 CFD 流线（同源坐标对齐）；示意粒子可勾选关闭") + "</div>" +
       '<div class="hero3d-hint">拖拽旋转 · 滚轮缩放 · 自动缓慢旋转</div>' +
       '<div class="hero3d-load" id="hero3d-load"><span class="spin"></span>正在加载三维模型…</div>' +
@@ -1801,12 +1802,13 @@ function renderFigures(c, cid){
 }
 
 /* ================= 三例对比（患者 vs 正常对照，路演核心演示） ================= */
-const COMPARE_CIDS = ["pA", "pB", "pN"];
+const COMPARE_CIDS = ["pA", "pB", "pN", "pN2"];
 /* 三色三例：pA 医疗蓝 / pB 青绿 / pN 琥珀（纯 CSS 条形，无图表库） */
 const COMPARE_META = {
   pA: {name:"患者 A", color:"#3E7CB1"},
   pB: {name:"患者 B", color:"#2A9D8F"},
-  pN: {name:"正常对照", color:"#E0A24B"}
+  pN: {name:"正常对照", color:"#E0A24B"},
+  pN2: {name:"正常对照 2", color:"#7E5FA3"}
 };
 /* 行 = 指标；human = 患者语言注解（太弱了大脑感觉不到在呼吸——空鼻症核心） */
 const COMPARE_ROWS = [
@@ -1860,13 +1862,13 @@ async function renderCompare(c, cid){
     toggle.addEventListener("click", function(){
       const open = body.style.display === "none";
       body.style.display = open ? "" : "none";
-      toggle.textContent = open ? "收起三例对比 ▴" : "展开三例对比 ▾";
+      toggle.textContent = open ? "收起四例对比 ▴" : "展开四例对比 ▾";
     });
   }
   const pnBtn = $("compare-open-pn");   /* 一键看"正常无症状的气流"（pN） */
   if(pnBtn && !pnBtn.dataset.bound){
     pnBtn.dataset.bound = "1";
-    pnBtn.addEventListener("click", function(){ gotoCaseHero("pN"); });
+    pnBtn.addEventListener("click", function(){ gotoCaseHero("pN2"); });
   }
   if(CMP_CACHE === null){
     const r = await api("/api/compare");
