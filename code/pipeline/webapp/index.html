@@ -189,6 +189,15 @@ iframe.hero-frame{
 .hero3d-layers label.off{color:#5f7a90}
 .hero3d-layers label.off .dot{opacity:.35}
 .hero3d-layers .dot{width:8px;height:8px;border-radius:50%;flex:none}
+/* ---------- Hero 呼吸循环指示条（真实气流粒子层；demo viewer #breath-phase 同源样式） ---------- */
+.hero3d-breath{position:absolute;left:14px;bottom:9px;z-index:5;display:none;align-items:center;gap:8px;
+  background:rgba(13,25,40,.74);border:1px solid #3d6f8f66;border-radius:999px;padding:3px 11px;
+  font-size:11.5px;color:#c9ecd6;backdrop-filter:blur(4px)}
+.hero3d-breath.on{display:flex}
+.hero3d-breath .bb-label{min-width:28px;text-align:center;letter-spacing:1px}
+.hero3d-breath .bb-bar{width:110px;height:4px;background:#232c36;border-radius:2px;overflow:hidden;display:block}
+.hero3d-breath .bb-fill{display:block;height:100%;width:0;background:linear-gradient(90deg,#3fae6a,#8fe6b0)}
+.hero3d-breath .bb-hint{color:#8299ad}
 /* ---------- Hero 视图切换标签（🏥 3D 模型 / 💨 气流动画，互斥） ---------- */
 .hero-viewtoggle{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:2px 0 10px}
 /* ---------- 量表（数字有情绪） ---------- */
@@ -829,6 +838,8 @@ function destroyHeroModel(){
   try{ if(HERO.controls && HERO.controls.dispose) HERO.controls.dispose(); }catch(e){}
   try{ if(HERO.flowGeo && HERO.flowGeo.dispose) HERO.flowGeo.dispose(); }catch(e){}
   try{ if(HERO.cfd && HERO.cfd.geo && HERO.cfd.geo.dispose) HERO.cfd.geo.dispose(); }catch(e){}
+  try{ if(HERO.breath && HERO.breath.geo && HERO.breath.geo.dispose) HERO.breath.geo.dispose(); }catch(e){}
+  try{ if(HERO.breath && HERO.breath.mat && HERO.breath.mat.dispose) HERO.breath.mat.dispose(); }catch(e){}
   try{ if(HERO.wireMat && HERO.wireMat.dispose) HERO.wireMat.dispose(); }catch(e){}
   try{ if(HERO.renderer && HERO.renderer.forceContextLoss) HERO.renderer.forceContextLoss(); }catch(e){}
   try{ if(HERO.renderer && HERO.renderer.dispose) HERO.renderer.dispose(); }catch(e){}
@@ -1037,6 +1048,166 @@ function setHeroModelGhost(on){
   m.depthWrite = !on;
   m.needsUpdate = true;
 }
+/* ================= 呼吸循环粒子动画层（真实 CFD 流线驱动；路演灵魂画面） =================
+   机制来源：webapp/demo/viewer.html「呼吸模式」（F6，2143-2229 行）现成实现——每条流线 4 粒子
+   （BREATH_PER_LINE）/ 弧长累积折线插值（posAtU）/ 按 u 采样真实速度（speedAtU）/
+   速度着色 viridis（refreshBreathColors）/ 呼吸相位条 DOM（#breath-phase、#breath-fill）。
+   hero 版差异（按本次任务规格）：
+     ① 相位归一 0-1（呼吸周期 T=4s）：0-0.45 吸入（粒子沿点序正向：外界→鼻腔→鼻咽）、
+        0.45-0.55 峰值窗口（|v| 最大、透明度拉满；窗口内速度平滑过零 = 气流换向点）、
+        0.55-1.0 呼出（反向推进）；
+     ② 推进速率逐粒子 ∝ 该处真实 CFD 速度（s 按本线峰值归一 0-1，0.30+0.70·s 调制）；
+     ③ 零漂：∫v dφ = 0（正弦上升 + 余弦平台净面积 0 + 反向正弦），粒子逐周期往复不累积漂移；
+        位置钳制 [base, base+0.24]，永不跨流线端点回绕（避免端点位置跳变假象）。 */
+const HERO_BREATH_PER_LINE = 4;       /* 每条流线粒子数（与 demo BREATH_PER_LINE 一致） */
+const HERO_BREATH_PERIOD = 4;         /* 呼吸周期 4s（与 demo breathPeriod 一致） */
+const HERO_BREATH_K = 0.18;           /* 推进增益：u/秒（×速度因子 ×相位剖面） */
+const HERO_BREATH_HEAD = 0.24;        /* 末端留白：base 最大 0.75 + 0.24 = 0.99 < 1（不回绕） */
+const HERO_BREATH_CAP = " ｜ 真实 CFD 流线 + 呼吸循环粒子模拟（吸气→呼气往复；粒子速度按真实流场调制）";
+
+/* 速度剖面（单位：u/相位；正=吸气正向，负=呼气反向）
+   0-0.45 正弦上升 0→1；0.45-0.55 余弦平台 1→-1（窗口内过零=换向）；0.55-1 反向正弦 −1→0。
+   逐周期净面积 = 0.45·2/π + 0 − 0.45·2/π = 0（零漂）；|v| 峰值 1 出现在平台两端 0.45/0.55。 */
+function heroBreathVel(ph){
+  if(ph < 0.45) return Math.sin(Math.PI * 0.5 * ph / 0.45);
+  if(ph < 0.55) return Math.cos(Math.PI * (ph - 0.45) / 0.1);
+  return -Math.sin(Math.PI * 0.5 * (1 - (ph - 0.55) / 0.45));
+}
+/* 弧长参数 u（0-1）线性插值取点（demo posAtU 同构） */
+function heroPosAtU(rec, u, out){
+  const cum = rec.cum, d = Math.max(0, Math.min(1, u)) * rec.total;
+  let lo = 0, hi = cum.length - 1, mid;
+  while(lo < hi - 1){ mid = (lo + hi) >> 1; if(cum[mid] <= d){ lo = mid; } else { hi = mid; } }
+  const seg = (cum[hi] - cum[lo]) || 1e-9, f = (d - cum[lo]) / seg;
+  const i3 = lo * 3, j3 = hi * 3, p = rec.p;
+  out[0] = p[i3]     + (p[j3]     - p[i3])     * f;
+  out[1] = p[i3 + 1] + (p[j3 + 1] - p[i3 + 1]) * f;
+  out[2] = p[i3 + 2] + (p[j3 + 2] - p[i3 + 2]) * f;
+}
+/* 按 u 采样该处真实 CFD 速度（demo speedAtU 同构） */
+function heroSpeedAtU(rec, u){
+  const n = rec.sp.length;
+  if(!n) return 0;
+  return rec.sp[Math.min(n - 1, Math.max(0, Math.round(Math.max(0, Math.min(1, u)) * (n - 1))))] || 0;
+}
+/* 由 CFD 流线 JSON 构建粒子层：每条流线 4 粒子，baseU = j/4 均匀分布（同 demo breathBaseU） */
+function buildHeroBreath(scene, lines, center, vmax){
+  const recs = [], base = [], head = [], u = [], spins = [];
+  for(let li = 0; li < lines.length; li++){
+    const L = lines[li];
+    if(!L || !L.p) continue;
+    const p = L.p, s = L.s || [], m = s.length;
+    if(m < 2) continue;
+    const nested = Array.isArray(p[0]);
+    const pxAt = function(k){ return nested ? p[k][0] : p[k * 3]; };
+    const pyAt = function(k){ return nested ? p[k][1] : p[k * 3 + 1]; };
+    const pzAt = function(k){ return nested ? p[k][2] : p[k * 3 + 2]; };
+    const flat = new Float32Array(m * 3), cum = new Float32Array(m);
+    let acc = 0;
+    for(let k = 0; k < m; k++){
+      const x = pxAt(k) - center.x, y = pyAt(k) - center.y, z = pzAt(k) - center.z;
+      flat[k * 3] = x; flat[k * 3 + 1] = y; flat[k * 3 + 2] = z;
+      if(k > 0){
+        const dx = x - flat[(k - 1) * 3], dy = y - flat[(k - 1) * 3 + 1], dz = z - flat[(k - 1) * 3 + 2];
+        acc += Math.sqrt(dx * dx + dy * dy + dz * dz);
+      }
+      cum[k] = acc;
+    }
+    if(acc <= 1e-9) continue;                 /* 退化流线（零弧长）丢弃 */
+    let spMax = 0;
+    for(let k = 0; k < m; k++){ const v = Math.abs(Number(s[k]) || 0); if(v > spMax) spMax = v; }
+    recs.push({p:flat, cum:cum, total:acc, sp:s, spMax:spMax});
+  }
+  const N = HERO_BREATH_PER_LINE, nP = recs.length * N;
+  if(!nP) return null;
+  const posArr = new Float32Array(nP * 3), colArr = new Float32Array(nP * 3), tmp = new Float32Array(3);
+  for(let L = 0; L < recs.length; L++){
+    const rec = recs[L];
+    for(let j = 0; j < N; j++){
+      const pi = L * N + j, b = j / N;
+      base.push(b);
+      head.push(Math.min(1 - 1e-3, b + HERO_BREATH_HEAD));   /* 末端钳制：绝不回绕 */
+      u.push(b);
+      spins.push(rec.spMax > 0 ? Math.max(0.05, 1 - Math.abs(heroSpeedAtU(rec, b)) / rec.spMax) : 1);
+      heroPosAtU(rec, b, tmp);                                /* 首帧即正确位（无原点暂态） */
+      posArr[pi * 3] = tmp[0]; posArr[pi * 3 + 1] = tmp[1]; posArr[pi * 3 + 2] = tmp[2];
+      const c = cfdViridis(Math.abs(heroSpeedAtU(rec, b)) / (vmax || 1));
+      colArr[pi * 3] = c[0]; colArr[pi * 3 + 1] = c[1]; colArr[pi * 3 + 2] = c[2];
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(posArr, 3));
+  geo.setAttribute("color", new THREE.BufferAttribute(colArr, 3));
+  const mat = new THREE.PointsMaterial({size:4.2, sizeAttenuation:false, vertexColors:true,
+    transparent:true, opacity:0.9, depthWrite:false, blending:THREE.AdditiveBlending});
+  const pts = new THREE.Points(geo, mat);
+  pts.frustumCulled = false;                  /* 逐帧位置变化，禁用视锥剔除 */
+  pts.renderOrder = 5;                        /* 画在 CFD 流线（renderOrder 3）之上 */
+  scene.add(pts);
+  return {pts:pts, geo:geo, mat:mat, recs:recs, base:base, head:head, u:u, spins:spins,
+          nLines:recs.length, nParticles:nP, perLine:N, vmax:vmax, tmp:tmp,
+          t:0, phase:0, dir:1, vel:0, opacity:0.9, frames:0, advU:0};
+}
+/* 气流层开关：开 -> 粒子回起点重跑本轮呼吸；关 -> updateHeroBreath 逐帧隐藏（相位条同步隐藏） */
+function resetHeroBreath(restart){
+  const bf = HERO && HERO.breath;
+  if(!bf) return;
+  if(restart !== false) bf.t = 0;
+  for(let pi = 0; pi < bf.u.length; pi++) bf.u[pi] = bf.base[pi];
+}
+/* 每帧更新：粒子沿流线按真实速度推进（吸气正向 / 呼气反向）+ 速度着色 + 相位条 + 透明度节律 */
+function updateHeroBreath(dt){
+  const bf = HERO && HERO.breath;
+  if(!bf) return;
+  const el = $("hero-ly-cfd");
+  const on = el ? !!el.checked : true;       /* 图层面板「真实气流（CFD 流线）」开关联动 */
+  bf.t = (bf.t + dt) % HERO_BREATH_PERIOD;
+  const ph = bf.t / HERO_BREATH_PERIOD;
+  const v = heroBreathVel(ph);
+  const op = 0.30 + 0.70 * (0.5 + 0.5 * Math.sin((ph - 0.25) * Math.PI * 2));  /* 峰值窗口(0.5)拉满 */
+  const pa = bf.geo.attributes.position.array, ca = bf.geo.attributes.color.array;
+  const tmp = bf.tmp, N = HERO_BREATH_PER_LINE, vmax = bf.vmax || 1;
+  for(let L = 0; L < bf.recs.length; L++){
+    const rec = bf.recs[L], off = L * N;
+    for(let j = 0; j < N; j++){
+      const pi = off + j, u0 = bf.u[pi];
+      const sn = rec.spMax > 0 ? Math.min(1, Math.abs(heroSpeedAtU(rec, u0)) / rec.spMax) : 0;
+      let nu = u0 + v * HERO_BREATH_K * dt * (0.30 + 0.70 * sn);   /* 速率 ∝ 该处真实速度 */
+      if(nu > bf.head[pi]) nu = bf.head[pi];
+      if(nu < bf.base[pi]) nu = bf.base[pi];
+      bf.u[pi] = nu;
+      heroPosAtU(rec, nu, tmp);
+      const b3 = pi * 3;
+      pa[b3] = tmp[0]; pa[b3 + 1] = tmp[1]; pa[b3 + 2] = tmp[2];
+      const c = cfdViridis(Math.abs(heroSpeedAtU(rec, nu)) / vmax);   /* 颜色=该处速度（viridis） */
+      const tw = 0.60 + 0.40 * op;                                    /* 呼吸辉光 */
+      ca[b3] = c[0] * tw; ca[b3 + 1] = c[1] * tw; ca[b3 + 2] = c[2] * tw;
+    }
+  }
+  bf.geo.attributes.position.needsUpdate = true;
+  bf.geo.attributes.color.needsUpdate = true;
+  bf.mat.opacity = op;
+  bf.pts.visible = on;
+  bf.phase = ph; bf.vel = v; bf.opacity = op; bf.frames++;
+  bf.dir = v > 0.02 ? 1 : (v < -0.02 ? -1 : 0);
+  bf.advU = bf.u[0] - bf.base[0];             /* 探针：首粒子当前推进量（帧差分佐证） */
+  const bar = $("hero3d-breath");
+  if(bar){
+    if(on){
+      bar.classList.add("on");
+      const lb = $("hero-breath-label");
+      const txt = bf.dir > 0 ? "吸入" : (bf.dir < 0 ? "呼出" : "换气");
+      if(lb && lb.textContent !== txt) lb.textContent = txt;
+      const fl = $("hero-breath-fill");
+      if(fl) fl.style.width = (100 * (ph < 0.5 ? ph / 0.5 : (1 - ph) / 0.5)).toFixed(1) + "%";
+      bar.dataset.phase = ph.toFixed(3);
+      bar.dataset.dir = String(bf.dir);
+      bar.dataset.frames = String(bf.frames);
+    } else {
+      bar.classList.remove("on");
+    }
+  }
+}
 function loadCfdFlow(cid, scene, center){
   const h0 = HERO;                       /* 竞态守卫：加载完成前切换病例则丢弃 */
   const fail = function(msg){
@@ -1085,6 +1256,7 @@ function loadCfdFlow(cid, scene, center){
       HERO.cfd = {seg:seg, geo:geo, mat:mat, modelMat:null,
                   nLines:D.lines.length, nPts:(D.n_points || 0), vmax:vmax};
       HERO.layers.cfd = seg;
+      HERO.breath = buildHeroBreath(scene, D.lines, center, vmax);   /* 呼吸循环粒子层（null=无可流线） */
       const tl = $("hero-ly-cfd-t");           /* 图层面板文案带本例流线条数 */
       if(tl) tl.textContent = "真实气流（CFD 流线）" + D.lines.length + " 条";
       const el = $("hero-ly-cfd");
@@ -1095,12 +1267,16 @@ function loadCfdFlow(cid, scene, center){
           seg.visible = el.checked;
           setHeroModelGhost(el.checked);
           if(el.parentNode) el.parentNode.classList.toggle("off", !el.checked);
+          resetHeroBreath(el.checked);   /* 开启气流层：粒子回起点重跑本轮呼吸 */
         });
         if(el.parentNode) el.parentNode.classList.toggle("off", !el.checked);
       }
       setHeroModelGhost(seg.visible);
       console.info("[hero] CFD 流线层：" + D.lines.length + " 条 / " + (D.n_points || 0) +
                    " 点 / 色标 0-" + vmax + " m/s（P98，速度着色）");
+      if(HERO.breath) console.info("[hero] 呼吸循环粒子层：" + HERO.breath.nLines + " 条流线 / " +
+                   HERO.breath.nParticles + " 粒子（每条 " + HERO.breath.perLine + "）/ 周期 " +
+                   HERO_BREATH_PERIOD + "s（0-0.45 吸气正向 → 0.55-1 呼气反向）");
     })
     .catch(function(e){ fail(e && e.message ? e.message : String(e)); });
 }
@@ -1132,11 +1308,15 @@ function renderModelHero(cid, c, flowView){   /* flowView=true：气流动画视
       '</div>' +
       '<div class="hero3d-cap" title="' + (flowView
         ? esc(meta.label) + " 真实气道 + CFD 流线（" + (meta.steps || "—") + " 步收敛解；速度着色 viridis 0–P98 m/s，与 GLB 同源坐标对齐）"
-        : esc(meta.label) + " 真实 CT 气道重建（" + meta.orig + " → " + meta.simp + "）；CFD 流线 = step5 真实稳态解，速度着色（viridis，0–P98 m/s），与 GLB 同源坐标对齐") + '">' +
+        : esc(meta.label) + " 真实 CT 气道重建（" + meta.orig + " → " + meta.simp + "）；CFD 流线 = step5 真实稳态解，速度着色（viridis，0–P98 m/s），与 GLB 同源坐标对齐") + esc(HERO_BREATH_CAP) + '">' +
         (flowView
           ? esc(meta.label) + " 真实气道 + CFD 流线（" + (meta.steps || "—") + " 步收敛解）" +
             ((cid === "pN" || cid === "pN2") ? "" : "；正常对照见「正常对照 2（官方提供）」病例")
-          : esc(meta.label) + " · 真实 CT 气道 + 真实 CFD 流线（同源坐标对齐）；示意粒子可勾选关闭") + "</div>" +
+          : esc(meta.label) + " · 真实 CT 气道 + 真实 CFD 流线（同源坐标对齐）；示意粒子可勾选关闭") + esc(HERO_BREATH_CAP) + "</div>" +
+      '<div class="hero3d-breath" id="hero3d-breath" data-phase="0" data-dir="1">' +
+        '<span class="bb-label" id="hero-breath-label">吸入</span>' +
+        '<span class="bb-bar"><span class="bb-fill" id="hero-breath-fill"></span></span>' +
+        '<span class="bb-hint">4s 呼吸周期 · 吸气↔呼气</span></div>' +
       '<div class="hero3d-hint">拖拽旋转 · 滚轮缩放 · 自动缓慢旋转</div>' +
       '<div class="hero3d-load" id="hero3d-load"><span class="spin"></span>正在加载三维模型…</div>' +
     "</div>";
@@ -1253,11 +1433,16 @@ function renderModelHero(cid, c, flowView){   /* flowView=true：气流动画视
     controls.target.set(0, 0, 0);
     controls.update();
     const ld = $("hero3d-load"); if(ld) ld.parentNode.removeChild(ld);
+    let btLast = 0;                     /* 呼吸粒子推进用帧间隔（秒），限幅防后台跳变 */
     (function loop(){
       if(!HERO) return;
       HERO.raf = requestAnimationFrame(loop);
+      const now = performance.now();
+      const dt = btLast ? Math.min(0.1, (now - btLast) / 1000) : 0.016;
+      btLast = now;
       controls.update();
-      updateHeroFlow(performance.now());
+      updateHeroFlow(now);
+      updateHeroBreath(dt);           /* 呼吸循环粒子（层关闭时内部隐藏） */
       renderer.render(scene, camera);
     })();
   }, undefined, function(err){
