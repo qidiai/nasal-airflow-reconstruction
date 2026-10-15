@@ -1499,7 +1499,7 @@ function setHeroView(cid, c, view, force){
       /* pA：per-case 完整查看器不变；title 注明方案对比的占位壳层口径（与本例气流分清） */
       const src = "/static/cases/" + encodeURIComponent(cid) + "/viewer_single.html";
       hero.innerHTML = '<iframe class="hero-frame" src="' + src +
-        '" title="气道三维查看器（拖拽旋转 / 呼吸粒子 / 流线 / 探针读数）；方案对比页内为 1/2/3mm 虚拟占位壳层（患者自体方案，非正常对照）"></iframe>';
+        '" title="气道三维查看器（拖拽旋转 / 呼吸粒子 / 流线 / 探针读数）；' + (cid === "pA" ? "方案对比页内为 1/2/3mm 虚拟占位壳层（患者自体方案，非正常对照）" : "真实 CFD 结果查看器（本例数据）") + '"></iframe>';
     } else if(c.model_available){
       /* 无 per-case 查看器、但有真实 GLB + CFD 流线（pB/pN）：
          气流动画 = 3D 真实气道模型 + CFD 流线（内联 three.js 渲染，不开 demo iframe） */
