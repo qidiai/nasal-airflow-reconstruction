@@ -842,6 +842,7 @@ const MODEL_META = {
   pN2:{label:"正常对照 2", orig:"45.0 万面", simp:"12 万面", steps:"1,500"},
 };
 let HERO = null;
+let HERO_SEQ = 0;   /* 渲染代数：并发切换病例时作废陈旧渲染（双击竞态→WebGL context 丢失风暴，2026-10-16 修复） */
 
 function destroyHeroModel(){
   if(!HERO) return;
@@ -1413,7 +1414,9 @@ function renderModelHero(cid, c, flowView){   /* flowView=true：气流动画视
   controls.enablePan = false;
   controls.minDistance = 1;
 
-  HERO = {renderer:renderer, scene:scene, camera:camera, controls:controls, raf:0, onResize:null};
+  HERO = {renderer:renderer, scene:scene, camera:camera, controls:controls, raf:0, onResize:null,
+          seq:++HERO_SEQ};
+  const mySeq = HERO.seq;   /* 本代标记：GLTF 回调/RAF 循环只服务本代（陈旧代立即退出） */
 
   function resize(){
     const w = wrap.clientWidth || 640, h = wrap.clientHeight || 380;
@@ -1427,7 +1430,7 @@ function renderModelHero(cid, c, flowView){   /* flowView=true：气流动画视
 
   const loader = new THREE.GLTFLoader();
   loader.load("/models/" + encodeURIComponent(cid), function(gltf){
-    if(!HERO) return;
+    if(!HERO || HERO.seq !== mySeq) return;   /* 陈旧渲染代：直接丢弃（防双击竞态） */
     const root = gltf.scene || (gltf.scenes && gltf.scenes[0]);
     root.updateMatrixWorld(true);
     const box = new THREE.Box3().setFromObject(root);
@@ -1496,7 +1499,7 @@ function renderModelHero(cid, c, flowView){   /* flowView=true：气流动画视
     const ld = $("hero3d-load"); if(ld) ld.parentNode.removeChild(ld);
     let btLast = 0;                     /* 呼吸粒子推进用帧间隔（秒），限幅防后台跳变 */
     (function loop(){
-      if(!HERO) return;
+      if(!HERO || HERO.seq !== mySeq) return;   /* 陈旧渲染代：立即终止（防 context 丢失错误风暴） */
       HERO.raf = requestAnimationFrame(loop);
       const now = performance.now();
       const dt = btLast ? Math.min(0.1, (now - btLast) / 1000) : 0.016;
@@ -1506,6 +1509,7 @@ function renderModelHero(cid, c, flowView){   /* flowView=true：气流动画视
       renderer.render(scene, camera);
     })();
   }, undefined, function(err){
+    if(!HERO || HERO.seq !== mySeq) return;   /* 陈旧渲染代：不触碰新代 DOM */
     const ld = $("hero3d-load");
     if(ld) ld.innerHTML = "三维模型加载失败：" + esc(err && err.message ? err.message : err);
     ["hero-ly-cfd","hero-ly-model","hero-ly-flow","hero-ly-wire","hero-ly-slice"].forEach(function(id){
@@ -1572,8 +1576,10 @@ async function loadCases(){
     const b = document.createElement("button");
     b.className = "pill" + (c.presenter_only && !S.presenter ? " gated" : "");
     b.dataset.cid = c.case_id;
+    const _st = String(c.badge_text || c.status || "");
+    const _needSt = _st && !String(c.label || "").includes(_st);   /* label 已含该词则不重复追加（观感修复 2026-10-16） */
     b.innerHTML = esc(c.badge) + " " + esc(c.label) +
-      '<span class="st">' + esc(c.badge_text || c.status) + "</span>";
+      (_needSt ? '<span class="st">' + esc(_st) + "</span>" : "");
     b.addEventListener("click", ()=>selectCase(c.case_id));
     wrap.appendChild(b);
     /* 删除按钮：仅上传病例（内置/合成病例不渲染）——blocked 的更显眼（用户痛点） */
