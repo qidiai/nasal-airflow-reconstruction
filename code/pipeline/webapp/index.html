@@ -189,6 +189,17 @@ iframe.hero-frame{
 .hero3d-layers label.off{color:#5f7a90}
 .hero3d-layers label.off .dot{opacity:.35}
 .hero3d-layers .dot{width:8px;height:8px;border-radius:50%;flex:none}
+/* 切片层子控件（切面/物理量按钮组 + 色标图例） */
+.hero3d-layers .hl-sub{margin:4px 0 2px 21px;display:flex;flex-direction:column;gap:3px}
+.hero3d-layers .hl-sub[hidden]{display:none}
+.hero3d-layers .hl-row{display:flex;gap:4px}
+.hero3d-layers .hl-btn{font-size:11px;color:#bcd7ea;background:rgba(42,157,143,.12);
+  border:1px solid #3d6f8f55;border-radius:6px;padding:2px 9px;cursor:pointer;line-height:1.6}
+.hero3d-layers .hl-btn:hover{color:#fff;border-color:#2A9D8F}
+.hero3d-layers .hl-btn.on{color:#04222b;background:#2A9D8F;border-color:#2A9D8F;font-weight:600}
+.hero3d-layers .hl-legend{font-size:10.5px;color:#9fb6c8;line-height:1.55;max-width:210px}
+.hero3d-layers .hl-legend .bar{display:block;height:8px;border-radius:4px;margin:3px 0 2px;
+  border:1px solid #3d6f8f55}
 /* ---------- Hero 呼吸循环指示条（真实气流粒子层；demo viewer #breath-phase 同源样式） ---------- */
 .hero3d-breath{position:absolute;left:14px;bottom:9px;z-index:5;display:none;align-items:center;gap:8px;
   background:rgba(13,25,40,.74);border:1px solid #3d6f8f66;border-radius:999px;padding:3px 11px;
@@ -840,6 +851,9 @@ function destroyHeroModel(){
   try{ if(HERO.breath && HERO.breath.geo && HERO.breath.geo.dispose) HERO.breath.geo.dispose(); }catch(e){}
   try{ if(HERO.breath && HERO.breath.mat && HERO.breath.mat.dispose) HERO.breath.mat.dispose(); }catch(e){}
   try{ if(HERO.wireMat && HERO.wireMat.dispose) HERO.wireMat.dispose(); }catch(e){}
+  try{ if(HERO.slice && HERO.slice.mat && HERO.slice.mat.dispose) HERO.slice.mat.dispose(); }catch(e){}
+  try{ if(HERO.slice && HERO.slice.group) HERO.slice.group.traverse(function(o){
+        if(o.isMesh && o.geometry && o.geometry.dispose) o.geometry.dispose(); }); }catch(e){}
   try{ if(HERO.renderer && HERO.renderer.forceContextLoss) HERO.renderer.forceContextLoss(); }catch(e){}
   try{ if(HERO.renderer && HERO.renderer.dispose) HERO.renderer.dispose(); }catch(e){}
   try{ if(HERO.onResize) window.removeEventListener("resize", HERO.onResize); }catch(e){}
@@ -897,6 +911,10 @@ function cfdViridis(t){
 function setHeroModelGhost(on){
   const cfd = HERO && HERO.cfd, root = HERO && HERO.layers && HERO.layers.model;
   if(!cfd || !root) return;
+  /* ghost 态由两层共同决定：CFD 流线可见 或 切片层勾选（切片在气道壳内，不透明壳会完全遮住） */
+  const elC = $("hero-ly-cfd"), elS = $("hero-ly-slice");
+  if(elC || elS){ on = (elC ? !!elC.checked : false) ||
+                       (elS ? (!!elS.checked && !!HERO.slice) : false); }
   if(!cfd.modelMat){
     root.traverse(function(o){ if(o.isMesh && o.material){ cfd.modelMat = o.material; } });
   }
@@ -1207,6 +1225,108 @@ function loadCfdFlow(cid, scene, center){
     .catch(function(e){ fail(e && e.message ? e.message : String(e)); });
 }
 
+/* ================= 第五图层：真实 CFD 切片（速度/压力 × 矢状/轴位/冠状） =================
+   数据 /static/models/slices_<cid>.glb + slices_meta_<cid>.json（webapp/tools/make_slices_glb.py
+   生成）：单文件 6 mesh（slice_{sag,ax,cor}_{U,p}），顶点色已烘焙——U=viridis 0–P98(m/s)、
+   p=RdYlBu_r P2–P98(Pa)；坐标与气道 GLB 同帧（perm[2,1,0]×1000+域平移，bbox 含入>=0.8 导出端断言）。
+   交互：勾选惰性加载；默认矢状+速度；面板按钮组切面/切场；色标图例按 meta 动态（内联 CSS 渐变条）。
+   降级：无切片数据（pN/pN2 无 VTK / 云形态 403）→ 勾选禁用+「数据待回传」，底部标注同步诚实化。 */
+const SLICE_CMAP_CSS = {
+  U: ["#440154","#482878","#3e4a89","#31688e","#26828e","#1f9e89","#35b779","#6ece58","#b5de2b","#fde725"],
+  p: ["#313695","#4575b4","#74add1","#abd9e9","#e0f3f8","#ffffbf","#fee090","#fdae61","#f46d43","#d73027","#a50026"]
+};
+function sliceLegendHTML(mesh){
+  const stops = (SLICE_CMAP_CSS[mesh.field] || SLICE_CMAP_CSS.U).join(",");
+  const val = mesh.field === "U"
+    ? "速度 0-" + mesh.vmax + " m/s（viridis · P98 截断）"
+    : "压力 " + mesh.vmin + "-" + mesh.vmax + " Pa（RdYlBu_r · 蓝=低压 红=高压）";
+  return '<span class="bar" style="background:linear-gradient(to right,' + stops + ')"></span>' +
+         '<span class="lt">' + esc(val) + " · " + esc(mesh.plane_cn) + "切面</span>";
+}
+function setHeroSliceView(plane, field){
+  const S = HERO && HERO.slice;
+  if(!S) return;
+  S.plane = plane; S.field = field;
+  const want = "slice_" + plane + "_" + field;
+  for(const k in S.meshes){ S.meshes[k].visible = (k === want); }
+  document.querySelectorAll("#hero-slice-plane .hl-btn").forEach(function(b){
+    b.classList.toggle("on", b.dataset.plane === plane); });
+  document.querySelectorAll("#hero-slice-field .hl-btn").forEach(function(b){
+    b.classList.toggle("on", b.dataset.field === field); });
+  const m = S.meta && S.meta.meshes && S.meta.meshes[want];
+  const lg = $("hero-slice-legend");
+  if(lg) lg.innerHTML = m ? sliceLegendHTML(m) : "";
+}
+function loadHeroSlices(cid, scene, center){
+  const h0 = HERO;                       /* 竞态守卫：加载完成前切换病例则丢弃 */
+  const fail = function(msg){
+    if(HERO !== h0) return;
+    console.warn("[hero] CFD 切片层不可用：" + msg);
+    const el = $("hero-ly-slice"), lb = el && el.parentNode;
+    if(el){ el.disabled = true; el.checked = false; }
+    if(lb){ lb.classList.add("off"); lb.title = "CFD 切片数据不可用（" + msg + "）"; }
+    const t = $("hero-ly-slice-t");
+    if(t) t.textContent = "切片（数据待回传）";
+    const ctl = $("hero-slice-ctl"); if(ctl) ctl.hidden = true;
+    const cap = document.querySelector(".hero3d-cap");   /* 标注诚实化：无切片数据不得宣称 */
+    if(cap) cap.textContent = cap.textContent
+      .replace(/真实 ?CFD 切片（稳态解）\+ ?/, "CFD 切片数据待本例回传；")
+      .replace(/CFD 切片（稳态解）\+ ?/, "");
+  };
+  if(typeof THREE === "undefined" || !THREE.GLTFLoader){ fail("GLTFLoader 缺失"); return; }
+  fetch("/static/models/slices_meta_" + encodeURIComponent(cid) + ".json")
+    .then(function(r){ if(!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+    .then(function(M){
+      if(HERO !== h0) return;
+      const loader = new THREE.GLTFLoader();
+      loader.load("/static/models/slices_" + encodeURIComponent(cid) + ".glb", function(gltf){
+        if(HERO !== h0) return;
+        const grp = gltf.scene || (gltf.scenes && gltf.scenes[0]);
+        grp.position.set(-center.x, -center.y, -center.z);   /* 与气道 GLB 同款居中 */
+        const mat = new THREE.MeshBasicMaterial({vertexColors:true, side:THREE.DoubleSide,
+          transparent:true, opacity:0.85, depthWrite:false});
+        const meshes = {}; let nM = 0;
+        grp.traverse(function(o){
+          if(o.isMesh){
+            if(o.name) meshes[o.name] = o;
+            o.material = mat; o.renderOrder = 2; o.visible = false; nM++;
+          }
+        });
+        if(nM !== 6){ fail("mesh 数 " + nM + " != 6"); return; }
+        scene.add(grp);
+        HERO.slice = {group:grp, mat:mat, meshes:meshes, meta:M, plane:"sag", field:"U"};
+        const el = $("hero-ly-slice");
+        el.disabled = false;
+        el.addEventListener("change", function(){
+          grp.visible = el.checked;
+          const ctl = $("hero-slice-ctl"); if(ctl) ctl.hidden = !el.checked;
+          if(el.checked) setHeroSliceView(HERO.slice.plane, HERO.slice.field);
+          setHeroModelGhost();                 /* 切片在气道壳内：勾选需联动半透明壳 */
+          if(el.parentNode) el.parentNode.classList.toggle("off", !el.checked);
+        });
+        ["hero-slice-plane","hero-slice-field"].forEach(function(rowId){
+          const row = $(rowId); if(!row) return;
+          row.addEventListener("click", function(ev){
+            const b = ev.target && ev.target.closest ? ev.target.closest(".hl-btn") : null;
+            if(!b || !el.checked) return;
+            setHeroSliceView(b.dataset.plane || HERO.slice.plane,
+                             b.dataset.field || HERO.slice.field);
+          });
+        });
+        setHeroSliceView("sag", "U");          /* 默认矢状+速度（图例就绪） */
+        grp.visible = el.checked;
+        const ctl = $("hero-slice-ctl"); if(ctl) ctl.hidden = !el.checked;
+        if(el.parentNode) el.parentNode.classList.toggle("off", !el.checked);
+        const m0 = M.meshes["slice_sag_U"], m1 = M.meshes["slice_sag_p"];
+        console.info("[hero] CFD 切片层：6 mesh（矢状/轴位/冠状 × 速度/压力）就绪；色标 速度 0-" +
+          (m0 && m0.vmax) + " m/s / 压力 " + (m1 && m1.vmin) + "-" + (m1 && m1.vmax) + " Pa；勾选显示");
+      }, undefined, function(err){
+        fail("GLB 加载失败 " + (err && err.message ? err.message : err));
+      });
+    })
+    .catch(function(e){ fail(e && e.message ? e.message : String(e)); });
+}
+
 function renderModelHero(cid, c, flowView){   /* flowView=true：气流动画视图（renderHeroModelFlow 复用变体） */
   const hero = $("hero-box");
   destroyHeroModel();
@@ -1229,16 +1349,29 @@ function renderModelHero(cid, c, flowView){   /* flowView=true：气流动画视
         '<label title="呼吸循环粒子：沿真实 CFD 流线全行程进出咽喉（吸气 0→1 → 驻留 → 呼气 1→0），速度按真实流场调制。不勾 = 看流线整体呼吸脉动（宏观）">' +
           '<input type="checkbox" id="hero-ly-flow" checked>' +
           '<span class="dot" style="background:#f4a261"></span>气流粒子（呼吸循环）</label>' +
+        '<label title="真实 CFD 切片（稳态解）：矢状/轴位/冠状三解剖面，速度（viridis）/压力（RdYlBu_r）顶点色着色，半透明双面渲染不遮流线">' +
+          '<input type="checkbox" id="hero-ly-slice">' +
+          '<span class="dot" style="background:#e76f51"></span>' +
+          '<span id="hero-ly-slice-t">切片（速度/压力）</span></label>' +
+        '<div class="hl-sub" id="hero-slice-ctl" hidden>' +
+          '<div class="hl-row" id="hero-slice-plane">' +
+            '<button class="hl-btn on" data-plane="sag" title="左右轴切面（平行鼻中隔）">矢状</button>' +
+            '<button class="hl-btn" data-plane="ax" title="垂直轴切面（水平截面）">轴位</button>' +
+            '<button class="hl-btn" data-plane="cor" title="前后轴切面（垂直鼻中隔）">冠状</button></div>' +
+          '<div class="hl-row" id="hero-slice-field">' +
+            '<button class="hl-btn on" data-field="U">速度</button>' +
+            '<button class="hl-btn" data-field="p">压力</button></div>' +
+          '<div class="hl-legend" id="hero-slice-legend"></div></div>' +
         '<label><input type="checkbox" id="hero-ly-wire">' +
           '<span class="dot" style="background:#bfe6ff"></span>线框/网格</label>' +
       '</div>' +
       '<div class="hero3d-cap" title="' + (flowView
-        ? esc(meta.label) + " 真实气道 + CFD 流线（" + (meta.steps || "—") + " 步收敛解；速度着色 viridis 0–P98 m/s，与 GLB 同源坐标对齐）"
-        : esc(meta.label) + " 真实 CT 气道重建（" + meta.orig + " → " + meta.simp + "）；CFD 流线 = step5 真实稳态解，速度着色（viridis，0–P98 m/s），与 GLB 同源坐标对齐") + esc(HERO_BREATH_CAP) + '">' +
+        ? esc(meta.label) + " 真实气道 + CFD 切片（稳态解）+ CFD 流线（" + (meta.steps || "—") + " 步收敛解；流线速度着色 viridis 0–P98 m/s，切片压力 RdYlBu_r，与 GLB 同源坐标对齐）"
+        : esc(meta.label) + " 真实 CT 气道重建（" + meta.orig + " → " + meta.simp + "）；CFD 切片 = 稳态解三解剖面（速度 viridis / 压力 RdYlBu_r），CFD 流线 = 速度着色（viridis，0–P98 m/s），均与 GLB 同源坐标对齐") + esc(HERO_BREATH_CAP) + '">' +
         (flowView
-          ? esc(meta.label) + " 真实气道 + CFD 流线（" + (meta.steps || "—") + " 步收敛解）" +
+          ? esc(meta.label) + " 真实气道 + CFD 切片（稳态解）+ CFD 流线（" + (meta.steps || "—") + " 步收敛解）——三层信息同场景；切片为稳态 CFD 解，呼吸相位调制见流线粒子" +
             ((cid === "pN" || cid === "pN2") ? "" : "；正常对照见「正常对照 2（官方提供）」病例")
-          : esc(meta.label) + " · 真实 CT 气道 + 真实 CFD 流线（同源坐标对齐）；「气流粒子」层 = 呼吸循环粒子，不勾时流线整体呼吸脉动") + esc(HERO_BREATH_CAP) + "</div>" +
+          : esc(meta.label) + " · 真实气道 + 真实 CFD 切片（稳态解）+ 呼吸循环粒子（瞬态模拟）+ 真实 CFD 流线（同源坐标对齐）——三层信息同场景；切片为稳态 CFD 解，呼吸相位调制见流线粒子") + esc(HERO_BREATH_CAP) + "</div>" +
       '<div class="hero3d-breath" id="hero3d-breath" data-phase="0" data-dir="1">' +
         '<span class="bb-label" id="hero-breath-label">吸入</span>' +
         '<span class="bb-bar"><span class="bb-fill" id="hero-breath-fill"></span></span>' +
@@ -1253,7 +1386,7 @@ function renderModelHero(cid, c, flowView){   /* flowView=true：气流动画视
     renderer = new THREE.WebGLRenderer({canvas:canvas, antialias:true, alpha:true});
   }catch(e){
     $("hero3d-load").innerHTML = "WebGL 不可用（" + esc(e.message) + "）";
-    ["hero-ly-cfd","hero-ly-model","hero-ly-flow","hero-ly-wire"].forEach(function(id){
+    ["hero-ly-cfd","hero-ly-model","hero-ly-flow","hero-ly-wire","hero-ly-slice"].forEach(function(id){
       const el = $(id);
       if(el){ el.disabled = true; el.checked = false;
         if(el.parentNode) el.parentNode.classList.add("off"); }
@@ -1351,6 +1484,7 @@ function renderModelHero(cid, c, flowView){   /* flowView=true：气流动画视
     /* 「气流粒子」层不再绑定表面示意层——由 loadCfdFlow 绑定呼吸循环粒子
        （两层透析：勾=微观粒子个体呼吸；不勾=宏观流线整体脉动，见 updateHeroBreath） */
     loadCfdFlow(cid, scene, center);   /* 第四层：真实 CFD 流线（异步加载，独立勾选，默认开） */
+    loadHeroSlices(cid, scene, center);   /* 第五层：真实 CFD 切片（速度/压力，惰性加载，默认关） */
     camera.position.set(radius*1.5, -radius*2.3, radius*1.0);
     camera.near = radius*0.01; camera.far = radius*40;
     camera.updateProjectionMatrix();
@@ -1371,7 +1505,7 @@ function renderModelHero(cid, c, flowView){   /* flowView=true：气流动画视
   }, undefined, function(err){
     const ld = $("hero3d-load");
     if(ld) ld.innerHTML = "三维模型加载失败：" + esc(err && err.message ? err.message : err);
-    ["hero-ly-cfd","hero-ly-model","hero-ly-flow","hero-ly-wire"].forEach(function(id){
+    ["hero-ly-cfd","hero-ly-model","hero-ly-flow","hero-ly-wire","hero-ly-slice"].forEach(function(id){
       const el = $(id);
       if(el){ el.disabled = true; el.checked = false;
         if(el.parentNode) el.parentNode.classList.add("off"); }

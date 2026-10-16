@@ -1,0 +1,136 @@
+﻿commit abc41738f6500dcd738189b6524540ae9c8b0b4b
+Author: fengzii <289700172@qq.com>
+Date:   Fri Oct 16 06:02:17 2026 +0800
+
+    fix(hero): pB 姘旀祦鍔ㄧ敾=鑷綋 GLB+42 鏉?CFD 娴佺嚎锛坒low 鍒嗘敮涓夊垎鏀崌绾э級+ 鏂规瀵规瘮鍙ｅ緞鍒嗘竻
+    
+    - flow 鍒嗘敮锛歷iewer_available鈫抳iewer_single / model_available鈫抮enderHeroModelFlow锛坧B/pN 鍐呰仈娓叉煋鑷綋娴佺嚎锛屼笉鍐嶈烦鍗犱綅鎴栧悎鎴?demo锛?鍏滃簳 demo 鍙傛暟鑱斿姩
+    - pB锛?2 鏉℃祦绾?1117 鐐圭嫭绔嬪璐﹂噰绾筹紙閫熷害 0-5.19 m/s 涓?VTK cell 鏁版嵁鑷唇銆佸寘鍥寸洅鍚叆 1.0000锛?    - pN 琛屼负淇锛氭皵娴佸姩鐢?鑷綋 41 鏉″畼鏂规祦绾匡紙鏃ц涓鸿烦 demo 鏄剧ず'100% 鍚堟垚'鑷浉鐭涚浘锛?    - 鍙ｅ緞锛歱A title 娉ㄦ槑'1/2/3mm 澹冲眰=鎮ｈ€呰嚜浣撳崰浣嶆柟妗堥潪姝ｅ父瀵圭収'锛涘姣斿崱鎸夐挳'姝ｅ父瀵圭収姘旀祦锛堝畼鏂规彁渚涳級'
+    - 楠岃瘉锛歅laywright 22 鏂█鍏?PASS锛坣Faces 閽夋/鍖呭洿鐩?tol1mm/甯у樊鍒?25%/0 pageerror锛夛紱pytest 瀵硅处 0 鏂板澶辫触锛?F 涓烘棦鏈夋爣棰樻柇瑷€锛?S 涓虹幆澧冩潯浠?skip锛?    - 鐜锛氭竻 MCP playwright 閿佸畾鐨勬畫鐣?msedge 鏍戯紙PID 14020 鍓嶄細璇濋仐鐣欙級
+
+diff --git a/code/pipeline/webapp/index.html b/code/pipeline/webapp/index.html
+index c5e94ed..b3ca92b 100644
+--- a/code/pipeline/webapp/index.html
++++ b/code/pipeline/webapp/index.html
+@@ -419,7 +419,7 @@ footer .fixed-sentence{
+     </div>
+     <div id="compare-body" style="display:none">
+       <div class="btnrow" style="margin:12px 0 2px">
+-        <button class="btn primary" id="compare-open-pn" type="button">馃憗 鏌ョ湅姝ｅ父瀵圭収鐨勬皵娴?/button>
++        <button class="btn primary" id="compare-open-pn" type="button">馃憗 姝ｅ父瀵圭収姘旀祦锛堝畼鏂规彁渚涳級鈥斺€?涓庢湰渚嬫皵娴佸姣?/button>
+       </div>
+       <div class="cmp-insights" id="compare-insights"></div>
+       <div id="compare-table"></div>
+@@ -817,8 +817,8 @@ function seriesNoteHtml(b){
+ /* ================= Hero 鐪熷疄榧昏厰 3D 妯″瀷锛堜换鍔?锛宼hree.js 鏈湴 vendor锛?================= */
+ const MODEL_META = {
+   pA:{label:"鎮ｈ€匒", orig:"91.8 涓囬潰", simp:"12 涓囬潰"},
+-  pB:{label:"鎮ｈ€匓", orig:"88.2 涓囬潰", simp:"12 涓囬潰"},
+-  pN:{label:"姝ｅ父瀵圭収", orig:"34.8 涓囬潰", simp:"12 涓囬潰"},
++  pB:{label:"鎮ｈ€匓", orig:"88.2 涓囬潰", simp:"12 涓囬潰", steps:"1,500"},
++  pN:{label:"姝ｅ父瀵圭収", orig:"34.8 涓囬潰", simp:"12 涓囬潰", steps:"322"},
+ };
+ let HERO = null;
+ 
+@@ -1104,7 +1104,7 @@ function loadCfdFlow(cid, scene, center){
+     .catch(function(e){ fail(e && e.message ? e.message : String(e)); });
+ }
+ 
+-function renderModelHero(cid, c){
++function renderModelHero(cid, c, flowView){   /* flowView=true锛氭皵娴佸姩鐢昏鍥撅紙renderHeroModelFlow 澶嶇敤鍙樹綋锛?*/
+   const hero = $("hero-box");
+   destroyHeroModel();
+   if(typeof THREE === "undefined"){ renderHeroPlaceholder(c, cid); return; }
+@@ -1124,15 +1124,18 @@ function renderModelHero(cid, c){
+         '<label><input type="checkbox" id="hero-ly-model" checked>' +
+           '<span class="dot" style="background:#69d8c8"></span>姘旈亾妯″瀷</label>' +
+         '<label title="绀烘剰鍔ㄧ敾锛堥潪鐪熷疄瑙ｏ級鈥斺€旂湡瀹炴祦绾胯涓婃柟 CFD 娴佺嚎灞?>' +
+-          '<input type="checkbox" id="hero-ly-flow">' +
++          '<input type="checkbox" id="hero-ly-flow"' + (flowView ? " checked" : "") + '>' +
+           '<span class="dot" style="background:#f4a261"></span>姘旀祦绮掑瓙锛堢ず鎰忥級</label>' +
+         '<label><input type="checkbox" id="hero-ly-wire">' +
+           '<span class="dot" style="background:#bfe6ff"></span>绾挎/缃戞牸</label>' +
+       '</div>' +
+-      '<div class="hero3d-cap" title="' + esc(meta.label) + " 鐪熷疄 CT 姘旈亾閲嶅缓锛? +
+-        meta.orig + " 鈫?" + meta.simp + "锛夛紱CFD 娴佺嚎 = step5 鐪熷疄绋虫€佽В锛岄€熷害鐫€鑹诧紙viridis锛?鈥揚98 m/s锛夛紝涓?GLB 鍚屾簮鍧愭爣瀵归綈\">" +
+-        esc(meta.label) +
+-        " 路 鐪熷疄 CT 姘旈亾 + 鐪熷疄 CFD 娴佺嚎锛堝悓婧愬潗鏍囧榻愶級锛涚ず鎰忕矑瀛愬彲鍕鹃€夊叧闂?/div>" +
++      '<div class="hero3d-cap" title="' + (flowView
++        ? esc(meta.label) + " 鐪熷疄姘旈亾 + CFD 娴佺嚎锛? + (meta.steps || "鈥?) + " 姝ユ敹鏁涜В锛涢€熷害鐫€鑹?viridis 0鈥揚98 m/s锛屼笌 GLB 鍚屾簮鍧愭爣瀵归綈锛?
++        : esc(meta.label) + " 鐪熷疄 CT 姘旈亾閲嶅缓锛? + meta.orig + " 鈫?" + meta.simp + "锛夛紱CFD 娴佺嚎 = step5 鐪熷疄绋虫€佽В锛岄€熷害鐫€鑹诧紙viridis锛?鈥揚98 m/s锛夛紝涓?GLB 鍚屾簮鍧愭爣瀵归綈") + '">' +
++        (flowView
++          ? esc(meta.label) + " 鐪熷疄姘旈亾 + CFD 娴佺嚎锛? + (meta.steps || "鈥?) + " 姝ユ敹鏁涜В锛? +
++            (cid === "pN" ? "" : "锛涙甯稿鐓ц銆屾甯稿鐓э紙瀹樻柟鎻愪緵锛夈€嶇梾渚?)
++          : esc(meta.label) + " 路 鐪熷疄 CT 姘旈亾 + 鐪熷疄 CFD 娴佺嚎锛堝悓婧愬潗鏍囧榻愶級锛涚ず鎰忕矑瀛愬彲鍕鹃€夊叧闂?) + "</div>" +
+       '<div class="hero3d-hint">鎷栨嫿鏃嬭浆 路 婊氳疆缂╂斁 路 鑷姩缂撴參鏃嬭浆</div>' +
+       '<div class="hero3d-load" id="hero3d-load"><span class="spin"></span>姝ｅ湪鍔犺浇涓夌淮妯″瀷鈥?/div>' +
+     "</div>";
+@@ -1209,6 +1212,17 @@ function renderModelHero(cid, c){
+       }
+     });
+     scene.add(root);
++    /* nFaces 鏁板€兼柇瑷€閿氱偣锛圥laywright 璇绘帶鍒跺彴鏃ュ織锛夛細绱㈠紩涓夎褰㈡暟 = GLB 瀹為檯闈㈡暟 */
++    let _nFaces = 0, _nVerts = 0;
++    root.traverse(function(o){
++      if(o.isMesh && o.geometry && o.geometry.attributes.position){
++        _nVerts += o.geometry.attributes.position.count;
++        _nFaces += o.geometry.index ? o.geometry.index.count / 3
++                                    : o.geometry.attributes.position.count / 3;
++      }
++    });
++    console.info("[hero] GLB " + meta.label + " 娓叉煋灏辩华 nFaces=" + _nFaces +
++                 " nVerts=" + _nVerts + (flowView ? "锛堟皵娴佸姩鐢昏鍥撅細3D 妯″瀷 + CFD 娴佺嚎锛? : ""));
+     /* ---------- 鍥惧眰鏋勫缓锛氱嚎妗嗗壇鏈紙榛樿鍏筹級+ 姘旀祦绮掑瓙锛堥粯璁ゅ紑锛? 鍕鹃€夌粦瀹?---------- */
+     root.updateMatrixWorld(true);
+     const wireMat = new THREE.MeshBasicMaterial({wireframe:true, color:0xbfe6ff,
+@@ -1229,7 +1243,7 @@ function renderModelHero(cid, c){
+     HERO.flow = flow;
+     HERO.layers = {model:root, flow:(flow ? flow.pts : null), wire:wireGroup};
+     bindHeroChk("hero-ly-model", HERO.layers.model, true);
+-    bindHeroChk("hero-ly-flow", HERO.layers.flow, false);  /* 鏈変簡鐪熷疄 CFD 娴佺嚎锛岀ず鎰忕矑瀛愰粯璁ゅ叧 */
++    bindHeroChk("hero-ly-flow", HERO.layers.flow, !!flowView);  /* 妯″瀷瑙嗗浘榛樿鍏筹紱姘旀祦鍔ㄧ敾瑙嗗浘榛樿寮€锛堢矑瀛?鐪熷疄娴佺嚎鍙屽憟鐜帮級 */
+     bindHeroChk("hero-ly-wire", HERO.layers.wire, false);
+     loadCfdFlow(cid, scene, center);   /* 绗洓灞傦細鐪熷疄 CFD 娴佺嚎锛堝紓姝ュ姞杞斤紝鐙珛鍕鹃€夛紝榛樿寮€锛?*/
+     camera.position.set(radius*1.5, -radius*2.3, radius*1.0);
+@@ -1464,6 +1478,13 @@ function renderHeroWithToggle(cid, c){
+   setHeroView(cid, c, "model", true);
+ }
+ 
++/* 姘旀祦鍔ㄧ敾瑙嗗浘锛堟棤 per-case 鏌ョ湅鍣ㄣ€佷絾鏈夌湡瀹?GLB+CFD 娴佺嚎鐨勭梾渚嬶紝褰撳墠 pB/pN锛夛細
++   renderModelHero 澶嶇敤鍙樹綋鈥斺€?D 鐪熷疄姘旈亾 + CFD 娴佺嚎 + 绀烘剰绮掑瓙榛樿鍏ㄥ紑锛?+   鏍囬鎸夌梾渚嬫敹鏁涙鏁版爣娉紙MODEL_META.steps锛歱B=1,500 姝?/ pN=322 姝ワ級銆?*/
++function renderHeroModelFlow(cid, c){
++  renderModelHero(cid, c, true);
++}
++
+ function setHeroView(cid, c, view, force){
+   const hero = $("hero-box");
+   if(!force && hero.dataset.view === view) return;   /* 鍚岃鍥惧箓绛夛細闃茶閲嶅缓/WebGL 閲嶅鍒濆鍖?*/
+@@ -1473,14 +1494,20 @@ function setHeroView(cid, c, view, force){
+   if(bf) bf.classList.toggle("active", view === "flow");
+   if(view === "flow"){
+     destroyHeroModel();   /* 鍒囪蛋鏃堕攢姣?three 鍦烘櫙骞?forceContextLoss 閲婃斁 WebGL 涓婁笅鏂?*/
+-    const src = c.viewer_available
+-      ? "/static/cases/" + encodeURIComponent(cid) + "/viewer_single.html"
+-      : "/static/demo/viewer.html?breath=1&ct=0";
+-    hero.innerHTML = '<iframe class="hero-frame" src="' + src +
+-      '" title="' + (c.viewer_available
+-        ? "姘旈亾涓夌淮鏌ョ湅鍣紙鎷栨嫿鏃嬭浆 / 鍛煎惛绮掑瓙 / 娴佺嚎 / 鎺㈤拡璇绘暟锛?
+-        : "姘旀祦鍔ㄧ敾 路 鍚堟垚 demo 鏌ョ湅鍣紙鍛煎惛绮掑瓙 / 娴佺嚎 / 鍥惧眰鍕鹃€夛紝100% 鍚堟垚绀轰緥锛?) +
+-      '"></iframe>';
++    if(c.viewer_available){
++      /* pA锛歱er-case 瀹屾暣鏌ョ湅鍣ㄤ笉鍙橈紱title 娉ㄦ槑鏂规瀵规瘮鐨勫崰浣嶅３灞傚彛寰勶紙涓庢湰渚嬫皵娴佸垎娓咃級 */
++      const src = "/static/cases/" + encodeURIComponent(cid) + "/viewer_single.html";
++      hero.innerHTML = '<iframe class="hero-frame" src="' + src +
++        '" title="姘旈亾涓夌淮鏌ョ湅鍣紙鎷栨嫿鏃嬭浆 / 鍛煎惛绮掑瓙 / 娴佺嚎 / 鎺㈤拡璇绘暟锛夛紱鏂规瀵规瘮椤靛唴涓?1/2/3mm 铏氭嫙鍗犱綅澹冲眰锛堟偅鑰呰嚜浣撴柟妗堬紝闈炴甯稿鐓э級"></iframe>';
++    } else if(c.model_available){
++      /* 鏃?per-case 鏌ョ湅鍣ㄣ€佷絾鏈夌湡瀹?GLB + CFD 娴佺嚎锛坧B/pN锛夛細
++         姘旀祦鍔ㄧ敾 = 3D 鐪熷疄姘旈亾妯″瀷 + CFD 娴佺嚎锛堝唴鑱?three.js 娓叉煋锛屼笉寮€ demo iframe锛?*/
++      renderHeroModelFlow(cid, c);
++    } else {
++      const src = "/static/demo/viewer.html?breath=1&ct=0";
++      hero.innerHTML = '<iframe class="hero-frame" src="' + src +
++        '" title="姘旀祦鍔ㄧ敾 路 鍚堟垚 demo 鏌ョ湅鍣紙鍛煎惛绮掑瓙 / 娴佺嚎 / 鍥惧眰鍕鹃€夛紝100% 鍚堟垚绀轰緥锛?></iframe>';
++    }
+   } else {
+     renderModelHero(cid, c);   /* 鍐呴儴鍏?destroyHeroModel 鍐嶉噸寤?three 鍦烘櫙锛涘浘灞傚嬀閫夐潰鏉块殢 3D 瑙嗗浘閲嶅缓 */
+   }
