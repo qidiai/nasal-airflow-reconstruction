@@ -403,7 +403,7 @@ footer .fixed-sentence{
     </div>
   </div>
 
-  <!-- ================= 三例对比（患者 vs 正常对照，路演核心演示） ================= -->
+  <!-- ================= 两例对比（患者 A vs 患者 B + 文献参考带，路演核心演示） ================= -->
   <style>
   .cmp-insights{display:flex;flex-direction:column;gap:8px;margin:12px 0}
   .cmp-insight{background:var(--teal-soft);border:1px solid #2A9D8F33;border-radius:10px;
@@ -428,18 +428,20 @@ footer .fixed-sentence{
   .cmp-bar-val{flex:0 0 84px;font-size:12px;color:var(--ink-soft);white-space:nowrap;
     text-align:right}
   .cmp-note{font-size:12.5px;color:var(--ink-soft);margin:8px 0 0}
+  .cmp-refband{font-size:12.5px;color:var(--ink-soft);background:#F4F1EA;
+    border:1px dashed var(--line);border-radius:8px;padding:7px 10px;margin:10px 0 2px}
   .cmp-wait{color:var(--amber-deep)}
   </style>
   <div class="card" id="compare-card" style="display:none">
-    <h2>四例并排对比 · 患者 vs 正常对照</h2>
-    <div class="lead">同一套管线、同一参数口径，把四例放进一张表：谁更“空”、谁更“堵”、
-      谁更接近正常——一眼看明白。</div>
+    <h2>两例并排对比 · 患者 A vs 患者 B</h2>
+    <div class="lead">同一套管线、同一参数口径，把两例放进一张表：谁更“空”、谁更“堵”、
+      谁落在文献正常范围——一眼看明白。</div>
     <div class="btnrow">
-      <button class="btn primary" id="compare-toggle" type="button">展开四例对比 ▾</button>
+      <button class="btn primary" id="compare-toggle" type="button">展开两例对比 ▾</button>
     </div>
     <div id="compare-body" style="display:none">
       <div class="btnrow" style="margin:12px 0 2px">
-        <button class="btn primary" id="compare-open-pn" type="button">👁 正常对照气流（官方提供·判读健康）—— 与本例气流对比</button>
+        <button class="btn primary" id="compare-open-pn" type="button">👁 查看患者 B 气流（鼻阻力落文献正常范围）—— 与本例气流对比</button>
       </div>
       <div class="cmp-insights" id="compare-insights"></div>
       <div id="compare-table"></div>
@@ -838,8 +840,6 @@ function seriesNoteHtml(b){
 const MODEL_META = {
   pA:{label:"患者A", orig:"91.8 万面", simp:"12 万面"},
   pB:{label:"患者B", orig:"88.2 万面", simp:"12 万面", steps:"1,500"},
-  pN:{label:"正常对照", orig:"34.8 万面", simp:"12 万面", steps:"322"},
-  pN2:{label:"正常对照 2", orig:"45.0 万面", simp:"12 万面", steps:"1,500"},
 };
 let HERO = null;
 let HERO_SEQ = 0;   /* 渲染代数：并发切换病例时作废陈旧渲染（双击竞态→WebGL context 丢失风暴，2026-10-16 修复） */
@@ -1374,7 +1374,7 @@ function renderModelHero(cid, c, flowView){   /* flowView=true：气流动画视
         : esc(meta.label) + " 真实 CT 气道重建（" + meta.orig + " → " + meta.simp + "）；CFD 切片 = 稳态解三解剖面（速度 viridis / 压力 RdYlBu_r），CFD 流线 = 速度着色（viridis，0–P98 m/s），均与 GLB 同源坐标对齐") + esc(HERO_BREATH_CAP) + '">' +
         (flowView
           ? esc(meta.label) + " 真实气道 + CFD 切片（稳态解）+ CFD 流线（" + (meta.steps || "—") + " 步收敛解）——三层信息同场景；切片为稳态 CFD 解，呼吸相位调制见流线粒子" +
-            ((cid === "pN" || cid === "pN2") ? "" : "；正常对照见「正常对照 2（官方提供）」病例")
+            ""
           : esc(meta.label) + " · 真实气道 + 真实 CFD 切片（稳态解）+ 呼吸循环粒子（瞬态模拟）+ 真实 CFD 流线（同源坐标对齐）——三层信息同场景；切片为稳态 CFD 解，呼吸相位调制见流线粒子") + esc(HERO_BREATH_CAP) + "</div>" +
       '<div class="hero3d-breath" id="hero3d-breath" data-phase="0" data-dir="1">' +
         '<span class="bb-label" id="hero-breath-label">吸入</span>' +
@@ -1668,7 +1668,7 @@ async function selectCase(cid){
   }
   renderResults(c, cid);
   renderFigures(c, cid);
-  renderCompare(c, cid);   /* 三例对比入口卡：仅 pA/pB/pN 显示 */
+  renderCompare(c, cid);   /* 两例对比入口卡：仅 pA/pB 显示 */
 
   // Hero 视图切换：3D 模型（three.js+图层勾选）/ 气流动画（查看器 iframe）互斥标签。
   // 默认视图：3D 模型（用户指令 2026-10-15 晚）；气流动画为可切换的第二视图。
@@ -1730,9 +1730,9 @@ function renderHeroWithToggle(cid, c){
   setHeroView(cid, c, "model", true);
 }
 
-/* 气流动画视图（无 per-case 查看器、但有真实 GLB+CFD 流线的病例，当前 pB/pN）：
+/* 气流动画视图（无 per-case 查看器、但有真实 GLB+CFD 流线的病例，当前 pB）：
    renderModelHero 复用变体——3D 真实气道 + CFD 流线 + 示意粒子默认全开，
-   标题按病例收敛步数标注（MODEL_META.steps：pB=1,500 步 / pN=322 步）。 */
+   标题按病例收敛步数标注（MODEL_META.steps：pB=1,500 步）。 */
 function renderHeroModelFlow(cid, c){
   renderModelHero(cid, c, true);
 }
@@ -1752,7 +1752,7 @@ function setHeroView(cid, c, view, force){
       hero.innerHTML = '<iframe class="hero-frame" src="' + src +
         '" title="气道三维查看器（拖拽旋转 / 呼吸粒子 / 流线 / 探针读数）；' + (cid === "pA" ? "方案对比页内为 1/2/3mm 虚拟占位壳层（患者自体方案，非正常对照）" : "真实 CFD 结果查看器（本例数据）") + '"></iframe>';
     } else if(c.model_available){
-      /* 无 per-case 查看器、但有真实 GLB + CFD 流线（pB/pN）：
+      /* 无 per-case 查看器、但有真实 GLB + CFD 流线（pB）：
          气流动画 = 3D 真实气道模型 + CFD 流线（内联 three.js 渲染，不开 demo iframe） */
       renderHeroModelFlow(cid, c);
     } else {
@@ -2052,14 +2052,15 @@ function renderFigures(c, cid){
     "数据来源：本例 CFD 后处理结果（P0-result-" + cid + "-v1）；层流下界估计，不确定度±20–50%。";
 }
 
-/* ================= 三例对比（患者 vs 正常对照，路演核心演示） ================= */
-const COMPARE_CIDS = ["pA", "pB", "pN", "pN2"];
-/* 三色三例：pA 医疗蓝 / pB 青绿 / pN 琥珀（纯 CSS 条形，无图表库） */
+/* ================= 两例对比（患者 A vs 患者 B + 文献参考带，路演核心演示） ================= */
+const COMPARE_CIDS = ["pA", "pB"];
+/* 两色两例：pA 医疗蓝 / pB 青绿（纯 CSS 条形，无图表库）；
+   pN/pN2 正常对照 2026-10-16 下架（鼻阻力经文献对比未达标准，数据文件保留），
+   正常对照改用文献正常范围参考带（/api/compare ref_band）。 */
 const COMPARE_META = {
   pA: {name:"患者 A", color:"#3E7CB1"},
-  pB: {name:"患者 B", color:"#2A9D8F"},
-  pN: {name:"正常对照", color:"#E0A24B"},
-  pN2: {name:"正常对照 2", color:"#7E5FA3"}
+  pB: {name:"患者 B", color:"#2A9D8F"}
+};
 };
 /* 行 = 指标；human = 患者语言注解（太弱了大脑感觉不到在呼吸——空鼻症核心） */
 const COMPARE_ROWS = [
@@ -2080,9 +2081,9 @@ const COMPARE_ROWS = [
   {key:"volume_cm3",        label:"气道体积",       unit:"cm³",     digits:1,
    human:"鼻腔“空”的程度——越大越空（鼻甲缺失的量化）"}
 ];
-let CMP_CACHE = null;   /* /api/compare 响应缓存（三例数据与选中病例无关） */
+let CMP_CACHE = null;   /* /api/compare 响应缓存（两例数据与选中病例无关） */
 
-/* 跳到某病例详情页并滚动到 hero（对比卡"查看正常对照的气流"按钮用） */
+/* 跳到某病例详情页并滚动到 hero（对比卡“查看患者 B 的气流”按钮用） */
 function gotoCaseHero(cid){
   selectCase(cid);
   const hero = $("hero-box");
@@ -2113,13 +2114,13 @@ async function renderCompare(c, cid){
     toggle.addEventListener("click", function(){
       const open = body.style.display === "none";
       body.style.display = open ? "" : "none";
-      toggle.textContent = open ? "收起四例对比 ▴" : "展开四例对比 ▾";
+      toggle.textContent = open ? "收起两例对比 ▴" : "展开两例对比 ▾";
     });
   }
-  const pnBtn = $("compare-open-pn");   /* 一键看"正常无症状的气流"（pN） */
+  const pnBtn = $("compare-open-pn");   /* 一键看“患者 B 的气流”（pB：鼻阻力落文献正常范围） */
   if(pnBtn && !pnBtn.dataset.bound){
     pnBtn.dataset.bound = "1";
-    pnBtn.addEventListener("click", function(){ gotoCaseHero("pN2"); });
+    pnBtn.addEventListener("click", function(){ gotoCaseHero("pB"); });
   }
   if(CMP_CACHE === null){
     const r = await api("/api/compare");
@@ -2135,7 +2136,7 @@ function renderCompareBody(res){
   const barEl = $("compare-bars"), noteEl = $("compare-note");
   if(!res.ok){
     const msg = (res.body && res.body.error) ||
-      ("三例对比暂不可用（HTTP " + res.status + "）");
+      ("两例对比暂不可用（HTTP " + res.status + "）");
     insEl.innerHTML = '<div class="cmp-insight"><span class="ico">ℹ️</span>' +
       esc(msg) + "</div>";
     tabEl.innerHTML = ""; barEl.innerHTML = ""; noteEl.textContent = "";
@@ -2149,34 +2150,42 @@ function renderCompareBody(res){
   (d.cases || []).forEach(c => { labelOf[c.cid] = c.label; });
 
   /* ---- 洞察行（顶部三条，从 /api/compare 实时算，不硬编码） ---- */
-  const vA = cmpVal(d,"pA","volume_cm3"), vB = cmpVal(d,"pB","volume_cm3"),
-        vN = cmpVal(d,"pN","volume_cm3");
-  const wA = cmpVal(d,"pA","wss_mean_Pa"), wN2 = cmpVal(d,"pN","wss_mean_Pa");
+  const vA = cmpVal(d,"pA","volume_cm3"), vB = cmpVal(d,"pB","volume_cm3");
+  const wA = cmpVal(d,"pA","wss_mean_Pa"), wB = cmpVal(d,"pB","wss_mean_Pa");
+  const rA = cmpVal(d,"pA","resistance_Pa_per_Ls"),
+        rB = cmpVal(d,"pB","resistance_Pa_per_Ls");
   const ins = [];
-  if(vA != null && vB != null && vN){
-    const rA = Math.floor((vA / vN - 1) * 100);
-    const rB = Math.floor((vB / vN - 1) * 100);
-    ins.push("气道体积：两例空鼻症（ENS）患者比正常对照宽 " + rA + "% / " + rB +
-             "%（鼻甲缺失的“空鼻”量化）");
+  /* 鼻阻力 vs 文献正常范围：ref_band 单位 Pa·s/cm³；表格 R 单位 Pa/(L/s)，×1000 换算 */
+  const rbLo = (d.ref_band && d.ref_band.lo_Pa_s_cm3 != null) ? d.ref_band.lo_Pa_s_cm3 * 1000 : 150;
+  const rbHi = (d.ref_band && d.ref_band.hi_Pa_s_cm3 != null) ? d.ref_band.hi_Pa_s_cm3 * 1000 : 500;
+  if(rA != null && rB != null){
+    const posA = (rA < rbLo) ? "低于下限——空鼻症“低阻”特征的量化"
+      : (rA <= rbHi ? "在范围内" : "高于上限");
+    const posB = (rB >= rbLo && rB <= rbHi) ? "落在范围内 ✓"
+      : (rB < rbLo ? "低于下限" : "高于上限");
+    ins.push("鼻阻力：患者 A " + (rA / 1000).toFixed(3) + " Pa·s/cm³（" + posA +
+             "）；患者 B " + (rB / 1000).toFixed(3) + " Pa·s/cm³（" + posB + "）");
   } else {
-    ins.push("气道体积：<span class=\"cmp-wait\">数据待就绪</span>");
+    ins.push("鼻阻力：<span class=\"cmp-wait\">数据待就绪</span>");
   }
-  if(wA != null && wN2){
-    const pctA = Math.floor(wA / wN2 * 100);
-    ins.push("黏膜“抚摸感”（内壁摩擦感 WSS）：患者 A 只有正常对照的 " + pctA +
+  if(wA != null && wB){
+    const pctA = Math.floor(wA / wB * 100);
+    ins.push("黏膜“抚摸感”（内壁摩擦感 WSS）：患者 A 只有患者 B 的 " + pctA +
              "%——气流还在走，但“感觉”变弱了");
   } else {
     ins.push("黏膜“抚摸感”（内壁摩擦感 WSS）：<span class=\"cmp-wait\">数据待就绪</span>");
   }
-  if(vA != null && vB != null && vN && wA != null && wN2){
-    ins.push("三例呈现三种形态：宽-低阻-低感 / 窄-高阻 / 正常居中——同管线量出的个体差异");
+  if(vA != null && vB != null && wA != null && wB){
+    ins.push("两例呈现两种形态：宽-低阻-低感 / 窄-高阻——同管线量出的个体差异；正常对照以文献范围参照");
   } else {
-    ins.push("三例形态：<span class=\"cmp-wait\">数据待就绪</span>");
+    ins.push("两例形态：<span class=\"cmp-wait\">数据待就绪</span>");
   }
   insEl.innerHTML = ins.map((t,i) =>
     '<div class="cmp-insight"><span class="ico">' + (i+1) + ".</span>" + t + "</div>").join("");
 
-  /* ---- 对比表：行=指标（含人话注解），列=pA/pB/pN ---- */
+  /* ---- 对比表：行=指标（含人话注解），列=pA/pB；顶部文献正常范围参考带 ---- */
+  const rbHtml = (d.ref_band && d.ref_band.label)
+    ? '<div class="cmp-refband">' + esc(d.ref_band.label) + "</div>" : "";
   let head = '<table class="cmp-table"><thead><tr><th>指标（人话注解）</th>';
   for(const cid of cols){
     const meta = COMPARE_META[cid] || {name:cid, color:"#888"};
@@ -2196,9 +2205,9 @@ function renderCompareBody(res){
     }
     rows += "</tr>";
   }
-  tabEl.innerHTML = head + rows + "</tbody></table>";
+  tabEl.innerHTML = rbHtml + head + rows + "</tbody></table>";
 
-  /* ---- 条形对比：每指标一组，三色三例，最大值归一化 ---- */
+  /* ---- 条形对比：每指标一组，两色两例，最大值归一化 ---- */
   let bars = "";
   for(const row of COMPARE_ROWS){
     const vals = cols.map(cid => cmpVal(d, cid, row.key));
