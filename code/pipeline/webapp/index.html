@@ -13,13 +13,17 @@
    零外部依赖：单文件内联 CSS/JS，图标用 emoji + 内联 SVG
 ============================================================ */
 :root{
-  --teal:#2A9D8F; --teal-deep:#1F7A6E; --teal-soft:#E3F1EF;
-  --coral:#E76F51; --coral-soft:#FBEAE4;
-  --bg:#FAFAF7; --panel:#FDFCF9; --ink:#2B2D32; --ink-soft:#62666E;
-  --green:#2DC653; --green-soft:#E3F6E9;
-  --amber:#F4A261; --amber-deep:#C97A24; --amber-soft:#FCF1E3;
-  --line:#E9E4DA;
-  --shadow:0 2px 12px rgba(43,45,50,.07),0 1px 3px rgba(43,45,50,.05);
+  /* T50 dark workbench tokens; legacy aliases intentionally preserved below. */
+  --bg-0:#0b1016; --bg-1:#111923; --bg-2:#17232e; --line-new:#2a3a49;
+  --text-0:#e8f1f7; --text-2:#8fa7b8; --mint:#67d5bd;
+  --bg:var(--bg-0); --panel:var(--bg-1); --card:var(--bg-2); --line:var(--line-new);
+  --text:var(--text-0); --dim:var(--text-2); --accent:var(--mint);
+  --teal:#67d5bd; --teal-deep:#37b89f; --teal-soft:#173a3b;
+  --coral:#f08468; --coral-soft:#3a2526;
+  --ink:var(--text-0); --ink-soft:var(--text-2);
+  --green:#63d99a; --green-soft:#183529;
+  --amber:#e8b56a; --amber-deep:#d79a47; --amber-soft:#3c3021;
+  --shadow:0 2px 16px rgba(0,0,0,.24),0 1px 3px rgba(0,0,0,.2);
   --radius:12px;
 }
 *{box-sizing:border-box}
@@ -61,11 +65,23 @@ nav button{
 nav button.active{color:var(--teal-deep);border-bottom-color:var(--teal);font-weight:600}
 nav button:hover{color:var(--ink)}
 /* ---------- 主区 ---------- */
-main{padding:14px 14px 28px;max-width:1180px;margin:0 auto}
-section.tab{display:none}
-section.tab.active{display:block;animation:fade .25s ease}
+main{padding:14px 14px 28px;max-width:1440px;margin:0 auto}
+#tab-airway > .card:first-child{border-color:#2d4857;background:linear-gradient(145deg,#111923,#0e171f)}
+#tab-airway > .card:first-child h2{font-size:24px;color:var(--text)}
+#tab-airway > .card:first-child .lead{font-size:15px}
+.info-rail{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:12px 0 0}
+.info-rail .rail-item{padding:10px 12px;background:#13232b;border:1px solid #28515a;border-radius:10px}
+.info-rail .rail-k{display:block;color:var(--text-2);font-size:12px}.info-rail .rail-v{display:block;color:var(--mint);font-size:18px;font-weight:700;font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
+.ia-group{margin-top:12px;border:1px solid var(--line);border-radius:10px;background:#111a23;overflow:hidden}.ia-group summary{padding:10px 12px;color:var(--text);font-size:15px}.ia-group > div{padding:0 12px 12px;max-height:5000px;overflow:hidden;transition:max-height 200ms ease}.ia-group:not([open]) > div{max-height:0;padding-top:0;padding-bottom:0}
+.presenter-enhanced{font-size:calc(16px * 1.2)}
+.presenter-enhanced header{background:linear-gradient(135deg,#101f29,#172d35)}
+.presenter-enhanced #tab-airway > .card:first-child{box-shadow:0 0 0 2px #67d5bd88,0 12px 38px #0006}
+.presenter-enhanced .hero3d-badge{color:#d9fff5}
+.presenter-enhanced .ia-group{display:none}
+.presenter-enhanced #presenter-toggle{background:var(--teal-soft);color:var(--mint);border-color:var(--mint)}
+
 @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
-.card{
+main section.tab:not(.active){display:none}
   background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
   padding:16px;margin-bottom:14px;box-shadow:var(--shadow);
 }
@@ -377,6 +393,7 @@ footer .fixed-sentence{
   <span class="sub">把"喘不上气"变成看得见的数据 · 患者视角</span>
   <span id="badge-mode" class="badge">形态检测中…</span>
   <span id="badge-presenter" class="badge presenter" style="display:none">定向演示模式</span>
+  <button type="button" id="presenter-toggle" class="badge presenter" aria-pressed="false" title="打开独立演示页">演示模式 · 打开演示页</button>
   <span id="badge-synthetic" class="badge m2" style="display:none">仅合成数据形态</span>
 </header>
 <nav id="tabs">
@@ -394,15 +411,33 @@ footer .fixed-sentence{
     <div class="lead">基于您的 CT 三维重建 —— 大气道模型在下方"呼吸"（拖拽旋转 / 呼吸粒子 / 流线 / 探针读数）。</div>
     <div class="pills" id="airway-pills"><span class="muted">病例加载中…</span></div>
     <div class="hint" id="cases-status" style="margin:-6px 0 8px"></div>
+    <div class="info-rail" id="case-summary-rail" aria-label="病例摘要">
+      <div class="rail-item"><span class="rail-k">当前病例</span><span class="rail-v" id="rail-case">加载中</span></div>
+      <div class="rail-item"><span class="rail-k">压降 ΔP</span><span class="rail-v" id="rail-dp">—</span></div>
+      <div class="rail-item"><span class="rail-k">最窄截面</span><span class="rail-v" id="rail-min">—</span></div>
+      <div class="rail-item"><span class="rail-k">解算状态</span><span class="rail-v" id="rail-status">—</span></div>
+    </div>
     <div class="hero-viewtoggle" id="hero-viewtoggle" style="display:none">
       <button type="button" class="pill vt" id="vt-model" style="display:none">🏥 3D 模型</button>
       <button type="button" class="pill vt" id="vt-flow" style="display:none">💨 气流动画</button>
+      <button type="button" class="pill vt" id="vt-plus" style="display:none">🧩 17 功能查看器</button>
+    </div>
+    <div class="hero-viewtoggle" id="demo-pills">
+      <span class="muted" style="font-size:13px;align-self:center">官方四例演示：</span>
+      <button type="button" class="pill vt demo-pill" data-demo="demoA">demoA</button>
+      <button type="button" class="pill vt demo-pill" data-demo="demoB">demoB</button>
+      <button type="button" class="pill vt demo-pill" data-demo="pN-Lat">pN-Lat<span style="font-size:11px;color:#c0392b;border:1px solid #c0392b;border-radius:999px;padding:0 6px;margin-left:5px">未收敛</span></button>
+      <button type="button" class="pill vt demo-pill" data-demo="pN-Med">pN-Med</button>
+<div id="findings-block" style="margin:10px 14px 0 14px;padding:10px 14px;background:#0d1116cc;border:1px solid var(--line);border-radius:8px;color:#d8e0e8;font-size:13px;line-height:1.75"><!-- JS 动态填充 --></div>
+
     </div>
     <div class="hero" id="hero-box">
       <div class="hero-loading"><span class="spin"></span>正在加载气道模型…</div>
     </div>
   </div>
 
+  <details class="ia-group" open>
+    <summary>病例对比与量化结果</summary><div>
   <!-- ================= 两例对比（患者 A vs 患者 B + 文献参考带，路演核心演示） ================= -->
   <style>
   .cmp-insights{display:flex;flex-direction:column;gap:8px;margin:12px 0}
@@ -478,6 +513,7 @@ footer .fixed-sentence{
     <div class="qc3" id="figures-grid"></div>
     <div class="hint" id="figures-note"></div>
   </div>
+  </div></details>
 </section>
 
 <!-- ================= 页签 2：了解 ENS ================= -->
@@ -590,12 +626,8 @@ footer .fixed-sentence{
       <option value="demo">合成 demo（一键体验 · 无需 CT）</option>
     </select>
     <div id="nc-builtin">
-      <label class="f">内置病例</label>
-      <select class="f" id="nc-case-id">
-        <option value="pA">患者A · 基线（演示展示在案）</option>
-        <option value="pB">患者B · 对照（演示展示在案）</option>
-        <option value="pC">患者C · 拦截修复实证</option>
-      </select>
+      <label class="f" style="display:none">内置病例</label>
+      <!-- T44: 旧病例下拉收编——官方四例 pill 为唯一选择器 -->
     </div>
     <div id="nc-path" style="display:none">
       <label class="f">CT 目录路径</label>
@@ -611,7 +643,7 @@ footer .fixed-sentence{
     </div>
     <div class="btnrow" style="margin-top:14px">
       <button class="btn primary" id="nc-go">登记并开始分析</button>
-      <button class="btn" id="nc-demo">合成 demo 一键体验</button>
+      <button class="btn" id="nc-demo" style="display:none">合成 demo 一键体验</button>
     </div>
     <div id="nc-result" style="margin-top:12px"></div>
   </div>
@@ -1576,10 +1608,11 @@ async function loadCases(){
     const b = document.createElement("button");
     b.className = "pill" + (c.presenter_only && !S.presenter ? " gated" : "");
     b.dataset.cid = c.case_id;
-    const _st = String(c.badge_text || c.status || "");
-    const _needSt = _st && !String(c.label || "").includes(_st);   /* label 已含该词则不重复追加（观感修复 2026-10-16） */
-    b.innerHTML = esc(c.badge) + " " + esc(c.label) +
-      (_needSt ? '<span class="st">' + esc(_st) + "</span>" : "");
+    const _status = c.status === "blocked" ? "⛔ 受限" : (c.case_id === "pC" ? "⛔ 受限" : (c.badge_text || c.status || ""));
+    const _needSt = _status && !String(c.label || "").includes(_status);   /* label 已含该词则不重复追加（观感修复 2026-10-16） */
+    const _badge = c.status === "blocked" ? "⛔" : (c.case_id === "pC" ? "⛔" : c.badge);
+    b.innerHTML = esc(_badge) + " " + esc(c.label) +
+      (_needSt ? '<span class="st">' + esc(_status) + "</span>" : "");
     b.addEventListener("click", ()=>selectCase(c.case_id));
     wrap.appendChild(b);
     /* 删除按钮：仅上传病例（内置/合成病例不渲染）——blocked 的更显眼（用户痛点） */
@@ -1628,6 +1661,25 @@ async function deleteCase(c){
   }
 }
 
+/* T50d: the single case registry. Demo findings values are migrated verbatim below. */
+var CASE_REGISTRY = {
+  pA:{name:"患者A · 基线（演示展示在案）",dp:"18.45 Pa",r:"R 66.2（Run-B）",vol:"90.0 cm³",min:"244.2 mm²@273层",status:"✅ 收敛",src:"viewer_plus.html?case=pA",source:"api"},
+  pB:{name:"患者B · 对照（演示展示在案）",dp:"45.63 Pa",r:"R 107.0（Run-B）",vol:"103.0 cm³",min:"257.8 mm²@326层",status:"✅ 收敛",src:"viewer_plus.html?case=pB",source:"api"},
+  demoA:{name:"demoA（患者a 变体 · 鼻中隔+鼻甲消融）",src:"viewer_plus.html?case=demoA",source:"static"},
+  demoB:{name:"demoB（患者b 变体 · 鼻甲消融）",src:"viewer_plus.html?case=demoB",source:"static"},
+  "pN-Lat":{name:"pN-Lat（鼻甲外移 · 演示 CT 变体）",src:"viewer_plus.html?case=pN-Lat",source:"static",status:"⚠ 未收敛"},
+  "pN-Med":{name:"pN-Med（鼻甲内移 · 演示 CT 变体）",src:"viewer_plus.html?case=pN-Med",source:"static"}
+};
+function registryCase(cid){ return CASE_REGISTRY[cid] || {}; }
+function setHeroFrame(src,title){
+  var hero=$("hero-box"), frame=hero && hero.querySelector("iframe.hero-frame");
+  if(!hero) return null;
+  if(!frame){ frame=document.createElement("iframe"); frame.className="hero-frame"; frame.setAttribute("loading","eager"); hero.appendChild(frame); }
+  frame.title=title || "病例查看器";
+  if(frame.src !== new URL(src, window.location.href).href) frame.src=src;
+  return frame;
+}
+
 /* ================= 查看气道（Hero + 量表 + QC） ================= */
 async function selectCase(cid){
   destroyHeroModel();
@@ -1637,22 +1689,36 @@ async function selectCase(cid){
   });
   const c = S.cases.find(x=>x.case_id === cid) || {};
   const hero = $("hero-box");
-  hero.innerHTML = '<div class="hero-loading"><span class="spin"></span>正在加载气道模型…</div>';
+  const blocked = c.status === "blocked";
+  if(blocked){
+    renderHeroPlaceholder({status:"blocked", label:c.label || cid});
+  }
+  var existingFrame = hero && hero.querySelector("iframe.hero-frame");
+  if(!blocked && !existingFrame) setHeroFrame("/static/plus/" + (registryCase(cid).src || "viewer_plus.html?case=" + encodeURIComponent(cid)), "病例查看器");
   const vtBar = $("hero-viewtoggle");
   if(vtBar) vtBar.style.display = "none";
   if(hero.dataset.view) delete hero.dataset.view;
 
-  // 指标（先于查看器——数字更快到位）
-  const m = await api(`/api/metrics/${encodeURIComponent(cid)}`);
-  if(m.ok && m.body){
-    renderGauges(m.body, c);
-    updateEnsLive(cid, m.body);
-  } else if(m.status === 403){
-    renderGaugesDenied(c);
-    updateEnsLive(cid, null);
+  // 指标（先于查看器——数字更快到位）；官方演示病例直接使用内置 FINDINGS，避免无意义的 API 404。
+  const demoFinding = CASE_REGISTRY[cid] && CASE_REGISTRY[cid].source === "static";
+  if(demoFinding){
+    updateCaseSummaryRail(cid, c, null);
+    renderFindings(cid);
   } else {
-    renderGaugesPending(cid, m);
-    updateEnsLive(cid, null);
+    const m = await api(`/api/metrics/${encodeURIComponent(cid)}`);
+    if(m.ok && m.body){
+      updateCaseSummaryRail(cid, c, m.body);
+      renderGauges(m.body, c);
+      updateEnsLive(cid, m.body);
+    } else if(m.status === 403){
+      updateCaseSummaryRail(cid, c, null);
+      renderGaugesDenied(c);
+      updateEnsLive(cid, null);
+    } else {
+      updateCaseSummaryRail(cid, c, null);
+      renderGaugesPending(cid, m);
+      updateEnsLive(cid, null);
+    }
   }
 
   // QC 三平面
@@ -1698,6 +1764,25 @@ function renderHeroPlaceholder(c, cid){
     "</div>";
 }
 
+function updateCaseSummaryRail(cid, c, metrics){
+  const d = registryCase(cid);
+  const put = (id, value) => { const el = $(id); if(el) el.textContent = value || "—"; };
+  if(!cid){ put("rail-case", "选择病例查看"); put("rail-dp", "—"); put("rail-min", "—"); put("rail-status", "—"); return; }
+  const isDemo = !!(registryCase(cid).source === "static");
+  put("rail-case", d.name || c.label || cid);
+  if(isDemo){
+    put("rail-dp", d.dp || "—");
+    put("rail-min", d.min || "—");
+    put("rail-status", d.conv && d.conv.indexOf("未收敛") >= 0 ? "⚠ 未收敛" : (d.conv || "—"));
+    const status = $("rail-status"); if(status) status.style.color = cid === "pN-Lat" ? "#ff6b6b" : "";
+    return;
+  }
+  put("rail-dp", metrics && (metrics.delta_p || metrics.dp) ? String(metrics.delta_p || metrics.dp) + " Pa" : "—");
+  put("rail-min", metrics && metrics.min_area ? String(metrics.min_area) + " mm²" : "—");
+  put("rail-status", metrics ? (c.status === "blocked" ? "已拦截" : "已收敛") : "—");
+  const status = $("rail-status"); if(status) status.style.color = "";
+}
+
 /* ---------- Hero 视图切换（🏥 3D 模型 / 💨 气流动画，互斥标签） ----------
    model_available  → "🏥 3D 模型"：renderModelHero（three.js 场景 + 图层勾选面板）；
    viewer_available → "💨 气流动画"：iframe /viewer/<cid>（per-case 查看器优先）；
@@ -1708,16 +1793,25 @@ function renderHeroPlaceholder(c, cid){
 function renderHeroWithToggle(cid, c){
   const hasModel = !!c.model_available;
   const hasViewer = !!c.viewer_available;
+  const hasPlus = (cid === "pA" || cid === "pB");   /* 17 功能查看器：仅 pA/pB 有静态资产 */
   const bar = $("hero-viewtoggle");
-  const bm = $("vt-model"), bf = $("vt-flow");
+  const bm = $("vt-model"), bf = $("vt-flow"), bp = $("vt-plus");
   const hero = $("hero-box");
   if(!bar || !bm || !bf){ renderHeroPlaceholder(c, cid); return; }
+  if(!c || c.status === "blocked" || c.case_id === "pC"){
+    bar.style.display = "none";
+    [bm,bf,bp].forEach(function(b){ if(b){ b.style.display="none"; b.classList.remove("active"); }});
+    if(hero) { hero.dataset.view = "blocked"; renderHeroPlaceholder(c, cid); }
+    return;
+  }
   if(!hasModel && !hasViewer){
     bar.style.display = "none";
     bm.style.display = "none";
     bf.style.display = "none";
+    if(bp) bp.style.display = "none";
     bm.classList.remove("active");
     bf.classList.remove("active");
+    if(bp) bp.classList.remove("active");
     if(hero.dataset.view) delete hero.dataset.view;   /* 复位视图态，防跨病例残留 */
     renderHeroPlaceholder(c, cid);
     return;
@@ -1726,6 +1820,7 @@ function renderHeroWithToggle(cid, c){
   /* 气流动画标签恒可显示：有 per-case 查看器用 /viewer/<cid>，
      否则回退合成 demo 查看器（"否则 demo viewer"）。 */
   bf.style.display = "";
+  if(bp) bp.style.display = hasPlus ? "" : "none";
   bar.style.display = "";
   setHeroView(cid, c, "model", true);
 }
@@ -1741,24 +1836,28 @@ function setHeroView(cid, c, view, force){
   const hero = $("hero-box");
   if(!force && hero.dataset.view === view) return;   /* 同视图幂等：防误重建/WebGL 重复初始化 */
   hero.dataset.view = view;
-  const bm = $("vt-model"), bf = $("vt-flow");
+  const bm = $("vt-model"), bf = $("vt-flow"), bp = $("vt-plus");
   if(bm) bm.classList.toggle("active", view === "model");
   if(bf) bf.classList.toggle("active", view === "flow");
-  if(view === "flow"){
+  if(bp) bp.classList.toggle("active", view === "plus");
+  if(view === "plus"){
+    destroyHeroModel();   /* 切走时销毁 three 场景并 forceContextLoss 释放 WebGL 上下文 */
+    const PLUS_MAP = {pA:"viewer_plus.html?case=pA",pB:"viewer_plus.html?case=pB",demoA:"viewer_plus.html?case=demoA",demoB:"viewer_plus.html?case=demoB", "pN-Lat":"viewer_plus.html?case=pN-Lat", "pN-Med":"viewer_plus.html?case=pN-Med"};
+    const src = "/static/plus/" + (PLUS_MAP[cid] || "viewer_plus.html?case=" + encodeURIComponent(cid));
+    setHeroFrame(src, "17 功能查看器（" + cid + "）");
+  } else if(view === "flow"){
     destroyHeroModel();   /* 切走时销毁 three 场景并 forceContextLoss 释放 WebGL 上下文 */
     if(c.viewer_available){
       /* pA：per-case 完整查看器不变；title 注明方案对比的占位壳层口径（与本例气流分清） */
       const src = "/static/cases/" + encodeURIComponent(cid) + "/viewer_single.html";
-      hero.innerHTML = '<iframe class="hero-frame" src="' + src +
-        '" title="气道三维查看器（拖拽旋转 / 呼吸粒子 / 流线 / 探针读数）；' + (cid === "pA" ? "方案对比页内为 1/2/3mm 虚拟占位壳层（患者自体方案，非正常对照）" : "真实 CFD 结果查看器（本例数据）") + '"></iframe>';
+    setHeroFrame(src, "气道三维查看器（" + cid + "）");
     } else if(c.model_available){
       /* 无 per-case 查看器、但有真实 GLB + CFD 流线（pB）：
          气流动画 = 3D 真实气道模型 + CFD 流线（内联 three.js 渲染，不开 demo iframe） */
       renderHeroModelFlow(cid, c);
     } else {
       const src = "/static/demo/viewer.html?breath=1&ct=0";
-      hero.innerHTML = '<iframe class="hero-frame" src="' + src +
-        '" title="气流动画 · 合成 demo 查看器（呼吸粒子 / 流线 / 图层勾选，100% 合成示例）"></iframe>';
+      setHeroFrame(src, "气流动画 · 合成 demo 查看器");
     }
   } else {
     renderModelHero(cid, c);   /* 内部先 destroyHeroModel 再重建 three 场景；图层勾选面板随 3D 视图重建 */
@@ -1767,7 +1866,7 @@ function setHeroView(cid, c, view, force){
 
 /* 视图切换标签点击（一次性绑定；病例上下文取自 S.selected / S.cases） */
 (function bindHeroViewToggle(){
-  const bm = $("vt-model"), bf = $("vt-flow");
+  const bm = $("vt-model"), bf = $("vt-flow"), bp = $("vt-plus");
   if(!bm || !bf) return;
   bm.addEventListener("click", function(){
     if(S.selected == null) return;
@@ -1779,7 +1878,55 @@ function setHeroView(cid, c, view, force){
     const c = S.cases.find(x=>x.case_id === S.selected) || {};
     setHeroView(S.selected, c, "flow");
   });
+  if(bp) bp.addEventListener("click", function(){
+    if(S.selected == null) return;
+    const c = S.cases.find(x=>x.case_id === S.selected) || {};
+    setHeroView(S.selected, c, "plus");
+  });
 })();
+/* ---------- 官方四例演示入口（T37）：直接切 iframe，不依赖病例注册表 ---------- */
+(function bindDemoPills(){
+  const bar = $("demo-pills");
+  const hero = $("hero-box");
+  if(!bar || !hero) return;
+  const pills = bar.querySelectorAll(".demo-pill");
+  function clearDemoActive(){
+    pills.forEach(function(b){ b.classList.remove("active"); });
+  }
+  function clearVtActive(){
+    ["vt-model","vt-flow","vt-plus"].forEach(function(id){ const b = $(id); if(b) b.classList.remove("active"); });
+  }
+  pills.forEach(function(btn){
+    btn.addEventListener("click", function(){
+      const d = btn.getAttribute("data-demo");
+      renderFindings(d);
+      updateCaseSummaryRail(d, {label:d}, null);
+      if(typeof destroyHeroModel === "function"){ destroyHeroModel(); }
+      if(hero) hero.innerHTML = "";
+      const demo = registryCase(d);
+      const blockedCase = (d === "pB" || d === "pC");
+      if(blockedCase){
+        renderHeroPlaceholder({status:"blocked", label:d}, d);
+      } else if(demo.src){
+        setHeroFrame("/static/plus/" + demo.src, "官方四例演示 " + d + " 17 功能查看器");
+      }
+      hero.dataset.view = blockedCase ? "blocked" : "demo";
+      if(d !== "pA" && d !== "pB"){
+        var stale = hero.querySelector(".hero3d");
+        if(stale) stale.remove();
+      }
+      clearVtActive();
+      clearDemoActive();
+      btn.classList.add("active");
+    });
+  });
+  /* 点击 vt 三键时清掉四例高亮（避免残留） */
+  ["vt-model","vt-flow","vt-plus"].forEach(function(id){
+    const b = $(id);
+    if(b) b.addEventListener("click", clearDemoActive);
+  });
+})();
+
 
 /* ---------- 量表渲染 ---------- */
 function gaugeHtml(opt){
@@ -1906,12 +2053,12 @@ function renderGauges(m, c){
         <span class="gauge-value" style="font-size:17px">${has ? "虚拟扩张 1/2/3 毫米" : "待本例占位算例"}</span></div>
       ${has
         ? `<div class="split-legend" style="margin-top:8px">
-            若鼻腔稍微宽敞一点（虚拟扩张，非治疗建议），压降预计变为：
+            若植入占位体使通道变窄 1/2/3 毫米（占位档，非治疗建议），压降预计变为：
             <b>${esc(im.dP_1mm_Pa)}</b> / <b>${esc(im.dP_2mm_Pa)}</b> / <b>${esc(im.dP_3mm_Pa)}</b> Pa
             <div class="hint">${esc(im.note || "")}</div></div>`
         : `<div class="hint" style="margin-top:8px">${esc(im.note || "本例占位算例尚未完成——情景推演待数据补齐。")}</div>`}
       <details><summary>什么是这个指标？</summary>
-        <div class="m-tech">在"气道稍微扩张一点"的虚拟工况下重新计算的压降（1/2/3 毫米三档）。
+        <div class="m-tech">在"植入占位体使通道变窄 1/2/3 毫米"的虚拟工况下重新计算的压降（1/2/3 毫米三档）。
         这是设计推演数字，帮助理解"阻力从哪来"——<b>不是</b>治疗建议，植入体设计不供人体使用。</div>
       </details>
     </div>`);
@@ -2004,6 +2151,11 @@ function renderResults(c, cid){
   cid = cid || (c && c.case_id) || "";
   const card = $("results-card");
   card.style.display = "";
+  if(c && (c.status === "blocked" || c.case_id === "pC")){
+    $("results-links").innerHTML = '<div class="warm-card"><div class="warm-head"><span class="warm-emoji">⛔</span><div><h3>结果查看已拦截</h3><div class="reason">本例状态为受限，17 功能查看器入口不可用。</div></div></div></div>';
+    $("results-note").textContent = "质量闸门未通过：不展示空白查看器或不可信结果。";
+    return;
+  }
   if(!(c && c.results_available)){          /* 结果未就绪：弱化提示，不整卡隐藏 */
     $("results-links").innerHTML = "";
     $("results-note").innerHTML =
@@ -2685,5 +2837,137 @@ if($("ct-consent-mask")){
 /* ================= 启动 ================= */
 boot();
 </script>
+
+<style>
+#btn-page-fs{position:fixed;right:14px;bottom:14px;z-index:99999;width:42px;height:42px;border:1px solid #3fae6a;border-radius:8px;background:#0d1116ee;color:#7fd4c1;font-size:18px;cursor:pointer;box-shadow:0 2px 12px #000a}
+#btn-page-fs:hover{background:#16202b;color:#fff}
+.hero-takeover{position:fixed !important;inset:0 !important;z-index:99998 !important;width:100vw !important;height:100vh !important;margin:0 !important;padding:0 !important;background:#000 !important;display:flex !important}
+.hero-takeover .hero-frame{width:100vw !important;height:100vh !important;border:0 !important}
+body.hero-takeover-on{overflow:hidden}
+</style>
+
+<button id="btn-page-fs" type="button" title="全屏演示（ESC 退出）" style="width:auto;padding:0 12px;font-size:15px">⛶ 全屏</button>
+<script>
+/* T44 按病例动态分析结论 */
+(function(){
+  var rich = {
+  "demoA": {name:"demoA（患者a 变体 · 鼻中隔+鼻甲消融）", dp:"18.45 Pa @15 L/min（Run-A 定流量）", vol:"90.0 cm³", min:"244.2 mm²@273 层（鼻瓣区）", split:"51.9 : 48.1（近平衡）", conv:"1500 步平台（残差 1.1e-2，ΔP 口径已审计）", extra:"与患者A 主序列 ΔP 跨扫描复现一致（18.45=18.45）——同一患者两份扫描、同一管线"},
+  "demoB": {name:"demoB（患者b 变体 · 鼻甲消融）", dp:"12.48 Pa @15 L/min（Run-A）", vol:"116.34 cm³（四例最大）", min:"260.6 mm²@326 层", split:"51.8 : 48.2（平衡）", conv:"197 步收敛（log 明示）", extra:"体积最大而压降低——宽阔气道；与 ENS『过度通畅』形态学方向一致"},
+  "pN-Lat": {name:"pN-Lat（鼻甲外移 · 演示 CT 变体）", dp:"⚠ 116.28 Pa 不可用（未收敛）", vol:"102.12 cm³", min:"242.5 mm²@83 层", split:"35.9 : 64.1", conv:"⛔ 1500 步未收敛——出口截面过小诱发流动分离，稳态层流框架不适用", extra:"工具如实标注『结果不可用』，不编数——质量闸门的正面案例"},
+  "pN-Med": {name:"pN-Med（鼻甲内移 · 演示 CT 变体）", dp:"8.30 Pa @15 L/min（四例最低=最通畅）", vol:"104.67 cm³", min:"294.1 mm²@123 层", split:"40.8 : 59.2", conv:"182 步收敛（log 明示）", extra:"通畅基线例——与 demoB 的 12.48 构成『通畅→狭窄』对照两端"}
+  };
+  Object.keys(rich).forEach(function(k){ CASE_REGISTRY[k] = Object.assign({}, CASE_REGISTRY[k], rich[k]); });
+})();
+  function renderFindings(cid){
+  const d = CASE_REGISTRY[cid] || {};
+  var el = document.getElementById('findings-block');
+  if (!el) return;
+  el.innerHTML = '<b style="color:#7fd4c1">分析结论 · ' + d.name + '</b>（仿真估计 · 非临床测量）' +
+    '<ul style="margin:6px 0 0 16px;padding:0">' +
+    '<li><b>压降</b>：' + d.dp + '</li>' +
+    '<li><b>气道体积 / 最窄截面</b>：' + d.vol + ' / ' + d.min + '</li>' +
+    '<li><b>左右分流</b>：' + d.split + '</li>' +
+    '<li><b>解算状态</b>：' + d.conv + '</li>' +
+    '<li><b>症状与问题解读</b>：' + d.extra + '</li></ul>' +
+    '<div style="margin-top:6px;color:#8a97a5;font-size:11px">横向结论：四例体积均处 27 例无症状人群分布上半区——ENS 气道不是窄了而是异常地宽；体积通畅 ≠ 气流顺畅。口径：仿真估计 · 非临床测量 · 非医疗器械 · 不确定度 ±20-50%</div>';
+  el.style.borderColor = (cid === 'pN-Lat') ? '#c0392b' : '';
+}
+
+/* T44 页面级全屏（CSS 接管 · 右下角按钮 · ESC 退出） */
+(function pageFs(){
+  function bind(){
+    var btn = document.getElementById('btn-page-fs');
+    if (!btn) return;
+    function heroEl(){
+      var f = document.querySelector('.hero-frame');
+      if (!f) return null;
+      return f.closest('.hero') || f.parentElement;
+    }
+    function setIcon(on){
+      btn.textContent = on ? '⤡' : '⛶';
+      btn.title = on ? '退出全屏（ESC）' : '全屏演示（ESC 退出）';
+    }
+    function setOn(on){
+      var el = heroEl();
+      if (!el) return;
+      el.classList.toggle('hero-takeover', on);
+      document.body.classList.toggle('hero-takeover-on', on);
+      setIcon(on);
+    }
+    btn.addEventListener('click', function(ev){
+      ev.preventDefault();
+      var el = heroEl();
+      if (!el) return;
+      setOn(!el.classList.contains('hero-takeover'));
+    });
+    document.addEventListener('keydown', function(ev){
+      if (ev.key !== 'Escape') return;
+      var el = heroEl();
+      if (el && el.classList.contains('hero-takeover')) {
+        ev.preventDefault();
+        setOn(false);
+      }
+    });
+    /* T46：接收 iframe 内查看器的全屏请求（点查看器里的 ⛶ 也全屏整个 hero） */
+    window.addEventListener('message', function(ev){
+      var d = ev.data;
+      if (!d || d.type !== 'vp-fullscreen') return;
+      var el = heroEl();
+      if (!el) return;
+      el.classList.toggle('hero-takeover', !!d.on);
+      document.body.classList.toggle('hero-takeover-on', !!d.on);
+      setIcon(!!d.on);
+    });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bind);
+  } else {
+    bind();
+  }
+})();
+/* 绑定四例 pill → 动态结论 + 默认 demoA */
+(function bindFindings(){
+  function bind(){
+    var pills = document.querySelectorAll('.demo-pill');
+    for (var i = 0; i < pills.length; i++) {
+      (function(btn){
+        btn.addEventListener('click', function(){ renderFindings(btn.dataset.demo); });
+      })(pills[i]);
+    }
+    renderFindings('demoA');
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bind);
+  } else {
+    bind();
+  }
+})();
+</script>
+  <script>
+  /* T50: presenter is the source of truth; demo mode only enhances the workbench DOM. */
+  (function demoPresenterEnhancement(){
+    function enable(){
+      if (!window.S || !S.presenter) return;
+      document.body.classList.add('presenter-enhanced');
+      document.querySelectorAll('.demo-pill').forEach(function(btn){ btn.classList.add('presenter-demo'); });
+      try { var frame=document.querySelector('.hero-frame'); if(frame) frame.contentWindow.postMessage({type:'presenter-demo',on:true},'*'); } catch(e) {}
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', enable); else enable();
+  })();
+  /* T50b: presenter is a local presentation toggle; P is its keyboard shortcut. */
+  (function bindPresenterToggle(){
+    function setPresenter(on){
+      document.body.classList.toggle('presenter-enhanced', !!on);
+      var btn=document.getElementById('presenter-toggle');
+      if(btn){ btn.setAttribute('aria-pressed', on ? 'true' : 'false'); btn.textContent=on ? '演示模式 ✓' : '演示模式 P'; }
+      var badge=document.getElementById('badge-presenter'); if(badge) badge.style.display=on ? '' : 'none';
+    }
+    function bind(){
+    var btn=document.getElementById('presenter-toggle');
+    if(btn) btn.addEventListener('click', function(){ window.location.href = '/static/demo.html'; });
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',bind); else bind();
+  })();
+  </script>
 </body>
 </html>

@@ -2000,7 +2000,7 @@ def build_app(cfg):
         from flask import request as _rq, current_app as _ca
         p = _rq.path or ""
         sc = (_ca.config.get("SERVER_CONFIG") if _ca else None)
-        if sc is not None and getattr(sc, "only_synthetic", False) and (p.startswith("/static/cases/") or p.startswith("/static/models/")):
+        if sc is not None and getattr(sc, "only_synthetic", False) and (p.startswith("/static/cases/") or p.startswith("/static/models/") or p.startswith("/static/plus/")):
             return jsonify({"error": "云形态不提供患者衍生数据文件"}), 403
         return None
 

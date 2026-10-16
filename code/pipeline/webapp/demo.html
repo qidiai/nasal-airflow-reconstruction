@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>官方四例演示 · 鼻腔气流</title>
+<style>
+:root{color-scheme:dark;--bg:#0b1016;--panel:#111923;--line:#2a3a49;--text:#e8f1f7;--dim:#8fa7b8;--mint:#67d5bd;--red:#ff6b6b}
+*{box-sizing:border-box}html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}body{display:flex;flex-direction:column;overflow:hidden}
+.toolbar{flex:0 0 auto;display:flex;align-items:center;gap:12px;padding:12px 16px;background:linear-gradient(135deg,#101f29,#172d35);border-bottom:1px solid var(--line);box-shadow:0 2px 16px #0008;z-index:2}.brand{font-size:17px;font-weight:700;white-space:nowrap}.controls{display:flex;gap:8px;flex-wrap:wrap}.case-btn{position:relative;min-width:104px;padding:9px 16px;border:1px solid var(--line);border-radius:10px;background:#111923;color:var(--text);font:600 15px inherit;cursor:pointer}.case-btn:hover,.case-btn.active{border-color:var(--mint);background:#173a3b;color:var(--mint);box-shadow:0 0 0 1px #67d5bd55}.case-btn .flag{position:absolute;right:-7px;top:-9px;padding:1px 6px;border-radius:999px;background:#7d202b;color:#fff;border:1px solid #ff6b6b;font-size:11px;line-height:1.4}.case-card{margin-left:auto;min-width:330px;padding:8px 12px;border:1px solid var(--line);border-radius:9px;color:var(--dim);font-size:13px;line-height:1.35}.case-card strong{color:var(--text);font-weight:600}.viewer{flex:1;min-height:0;width:100%;border:0;background:#070b12}
+@media(max-width:900px){.toolbar{align-items:flex-start;flex-wrap:wrap}.brand{width:100%}.case-card{order:3;width:100%;margin-left:0;min-width:0}}
+</style>
+</head>
+<body>
+<header class="toolbar">
+  <div class="brand">官方四例演示 · 鼻腔气流</div>
+  <div class="controls" role="group" aria-label="选择演示病例">
+    <button class="case-btn active" data-case="demoA">demoA</button>
+    <button class="case-btn" data-case="demoB">demoB</button>
+    <button class="case-btn" data-case="pN-Lat">pN-Lat <span class="flag">⚠ 未收敛</span></button>
+    <button class="case-btn" data-case="pN-Med">pN-Med</button>
+  </div>
+  <div class="case-card" id="case-card" aria-live="polite"></div>
+</header>
+<iframe class="viewer" id="viewer" title="官方四例鼻腔气流查看器" src="plus/viewer_plus.html?case=demoA"></iframe>
+<script>
+const CASES={
+ demoA:{label:'demoA（患者a 变体·鼻中隔+鼻甲消融）',text:'ΔP 18.45 Pa｜1500 步平台'},
+ demoB:{label:'demoB（患者b 变体·鼻甲消融）',text:'ΔP 12.48 Pa｜197 步收敛'},
+ 'pN-Lat':{label:'pN-Lat（鼻甲外移·演示 CT 变体）',text:'⚠ 未收敛 · 结果不可用'},
+ 'pN-Med':{label:'pN-Med（鼻甲内移·演示 CT 变体）',text:'ΔP 8.30 Pa｜182 步收敛'}
+};
+const frame=document.getElementById('viewer'), card=document.getElementById('case-card'), buttons=[...document.querySelectorAll('.case-btn')];
+function selectCase(id){const d=CASES[id]; if(!d)return; const src='plus/viewer_plus.html?case='+encodeURIComponent(id); if(frame.getAttribute('src')!==src)frame.src=src; buttons.forEach(b=>b.classList.toggle('active',b.dataset.case===id)); card.innerHTML='<strong>'+d.label+'</strong>｜'+d.text;}
+buttons.forEach(b=>b.addEventListener('click',()=>selectCase(b.dataset.case))); selectCase('demoA');
+</script>
+</body>
+</html>
