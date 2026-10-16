@@ -11,9 +11,12 @@
 含入断言 >=0.8（对齐 align_frames/pN 流线同款经验）。
 输出 webapp/models/slices_<cid>.glb + slices_meta_<cid>.json（色标范围/物理指纹，前端图例用）。
 
-用法：venv python make_slices_glb.py [pA pB]
+用法：venv python make_slices_glb.py [pA pB] [--src-root DIR] [--out-root DIR]
+（默认路径脚本相对：src=code/pipeline/out/结果，out=code/pipeline/webapp/models）
 """
+import argparse
 import json
+import os
 import sys
 import numpy as np
 import pyvista as pv
@@ -21,28 +24,28 @@ import trimesh
 import matplotlib
 from matplotlib import colormaps as _cmaps
 
-BASE = r"F:\比赛项目\罕见无界黑客松\开源仓库\code\pipeline\out\结果"
-MODELS = r"F:\比赛项目\罕见无界黑客松\开源仓库\code\pipeline\webapp\models"
+# ---- 路径参数化（脚本相对默认值，可用 CLI 覆盖；对齐仓库 sanitize 脚本先例）----
+_HERE = os.path.dirname(os.path.abspath(__file__))           # webapp/tools
+_WEBAPP = os.path.dirname(_HERE)                             # webapp
+_PIPELINE = os.path.dirname(_WEBAPP)                         # code/pipeline
+SRC_ROOT_DEFAULT = os.path.join(_PIPELINE, "out", "结果")    # step5 结果根（internal.vtu + boundary 所在）
+OUT_ROOT_DEFAULT = os.path.join(_WEBAPP, "models")           # GLB/meta 输出（webapp/models）
 
 CASES = {
-    "pA": {
-        "vtu": BASE + r"\P0-result-pA-v1\VTK\P0-case-pA-v1_1500\internal.vtu",
-        "bnd": BASE + r"\P0-result-pA-v1\VTK\P0-case-pA-v1_1500\boundary",
-        "glb": MODELS + r"\airway_pA.glb",
-        "label": "患者A",
-    },
-    "pB": {
-        "vtu": BASE + r"\P0-result-pB-v1\VTK\P0-case-pB-v1_1500\internal.vtu",
-        "bnd": BASE + r"\P0-result-pB-v1\VTK\P0-case-pB-v1_1500\boundary",
-        "glb": MODELS + r"\airway_pB.glb",
-        "label": "患者B",
-    },
+    "pA": {"dir": "P0-result-pA-v1", "stem": "P0-case-pA-v1_1500",
+           "glb": "airway_pA.glb", "label": "患者A"},
+    "pB": {"dir": "P0-result-pB-v1", "stem": "P0-case-pB-v1_1500",
+           "glb": "airway_pB.glb", "label": "患者B"},
 }
 PERM = [2, 1, 0]            # GLB(x,y,z) = VTU(z,y,x) x1000
 MM = 1000.0
 FLOW_AXIS_EXPECT = 1        # 实测经验：VTU y=流向（入口鼻孔 -> 出口鼻咽）
 SAG_N, AX_N, COR_N = [1, 0, 0], [0, 0, 1], [0, 1, 0]
 WIN_MM, STEP_MM = 10.0, 2.0  # 切面 origin 微调窗口（中线锚点 +-10mm 步进 2mm 取最大面积）
+FLOW_BINS = 8               # 沿流向分箱数（物理指纹；M1 逐段非增判据要求 >=6 段）
+P_REBOUND_TOL_PA = 0.5      # 逐段压降容许的回升噪声带（Pa，可调常量）
+P_MAX_REBOUNDS = 1          # 容许回升的段数上限（单段，可调常量）
+P_PEAK_RATIO = 1.15         # 加速峰/入口 p95 最小比值（可调常量）
 
 
 def cmap256(name):
@@ -102,28 +105,84 @@ def compact(V, F, C):
     return V[used], remap[tri], C[used], int(good.sum() - len(tri))
 
 
-def make_case(cid):
+def judge_sag_physics(rows):
+    """矢状面流向物理判据（M1 强化：逐段压降非增 + 峰位判定/语义改名）。纯函数，便于单测。
+
+    rows：沿流向 FLOW_BINS 段分箱列表（None=空箱）。返回判据结果 dict：
+      ok / reason：是否通过 / 失败原因（仅 ok=False 时非空）
+      n_valid / entry_p / exit_p：有效段数 / 入口段均压 / 出口段均压
+      monotonic_violations：所有回升段（含噪声带内，判据透明化，进 meta）
+      hard_violations：回升 > P_REBOUND_TOL_PA 的段（触发失败）
+      peak_bin / peak_ratio / peak_region / peak_label / peak_u_p95 / entry_u_p95：速度峰(p95)判据
+    规则：① 逐段均压单调不增，容许 <= P_MAX_REBOUNDS 段回升且每次 <= P_REBOUND_TOL_PA（噪声带）；
+          ② 峰位在前半=鼻阀加速峰、后半=出口侧加速峰（语义改名，不因位置硬拦，仅要求存在
+             显著加速峰 峰/入口 >= P_PEAK_RATIO）。阈值均为顶部可调常量。
+    """
+    ok = [(i, b) for i, b in enumerate(rows) if b]
+    if len(ok) < 6:
+        return {"ok": False, "reason": "矢状面有效分箱不足（%d < 6），无法做逐段压降判据" % len(ok)}
+    mon, hard = [], []
+    for a in range(len(ok) - 1):
+        (ia, ba), (ib, bb) = ok[a], ok[a + 1]
+        d = bb["p_mean"] - ba["p_mean"]
+        if d > 0.0:
+            mon.append({"from_bin": ia, "to_bin": ib, "delta": round(d, 2)})
+        if d > P_REBOUND_TOL_PA:
+            hard.append({"from_bin": ia, "to_bin": ib, "delta": round(d, 2)})
+    if hard:
+        return {"ok": False, "reason": "矢状面压力非沿流向非增（回升 > %.1f Pa 的段：%s）" % (
+            P_REBOUND_TOL_PA, hard), "monotonic_violations": mon, "hard_violations": hard}
+    if len(mon) > P_MAX_REBOUNDS:
+        return {"ok": False, "reason": "矢状面压力回升段数 %d > 允许 %d（噪声带 %.1f Pa）：%s" % (
+            len(mon), P_MAX_REBOUNDS, P_REBOUND_TOL_PA, mon),
+            "monotonic_violations": mon, "hard_violations": hard}
+    if not (ok[0][1]["p_mean"] > ok[-1][1]["p_mean"] + 2.0):
+        return {"ok": False, "reason": "矢状面整体压降不足（%.1f -> %.1f Pa）" % (
+            ok[0][1]["p_mean"], ok[-1][1]["p_mean"]),
+            "monotonic_violations": mon, "hard_violations": hard}
+    peak_i, peak_b = max(ok, key=lambda tb: tb[1]["U_p95"])
+    entry_p95 = ok[0][1]["U_p95"]
+    ratio = float(peak_b["U_p95"] / max(entry_p95, 1e-9))
+    front = peak_i <= FLOW_BINS // 2
+    if ratio < P_PEAK_RATIO:
+        return {"ok": False, "reason": "矢状面未见显著加速峰（峰/入口 %.2f < %.2f，峰在 bin %d）" % (
+            ratio, P_PEAK_RATIO, peak_i), "peak_bin": int(peak_i), "peak_ratio": round(ratio, 3),
+            "monotonic_violations": mon, "hard_violations": hard}
+    return {"ok": True, "reason": "", "n_valid": len(ok),
+            "monotonic_violations": mon, "hard_violations": hard,
+            "entry_p": ok[0][1]["p_mean"], "exit_p": ok[-1][1]["p_mean"],
+            "peak_bin": int(peak_i), "peak_ratio": round(ratio, 3),
+            "peak_u_p95": float(peak_b["U_p95"]), "entry_u_p95": float(entry_p95),
+            "peak_region": "鼻阀/狭窄区（流向前半）" if front else "出口侧鼻咽段（流向后半）",
+            "peak_label": "鼻阀加速峰" if front else "出口侧加速峰（鼻咽段）"}
+
+
+
+def make_case(cid, src_root, out_root):
     cfg = CASES[cid]
+    vtu = os.path.join(src_root, cfg["dir"], "VTK", cfg["stem"], "internal.vtu")
+    bnd = os.path.join(src_root, cfg["dir"], "VTK", cfg["stem"], "boundary")
+    glb_src = os.path.join(out_root, cfg["glb"])
     print("== %s（%s）==" % (cid, cfg["label"]))
-    m = pv.read(cfg["vtu"])
+    m = pv.read(vtu)
     U = np.asarray(m.point_data["U"])[:, :3]
     mag = np.linalg.norm(U, axis=1)
     p = np.asarray(m.point_data["p"]).ravel()
     pts_of = np.asarray(m.points) * MM            # mm, OF/VTU 帧
 
     # ---- 轴向实测（不盲信任务书）：入口/出口补片质心 ----
-    cin = 0.5 * (patch_centroid(cfg["bnd"] + r"\inletL.vtp") +
-                 patch_centroid(cfg["bnd"] + r"\inletR.vtp")) * MM
-    cout = patch_centroid(cfg["bnd"] + r"\outlet.vtp") * MM
+    cin = 0.5 * (patch_centroid(bnd + r"\inletL.vtp") +
+                 patch_centroid(bnd + r"\inletR.vtp")) * MM
+    cout = patch_centroid(bnd + r"\outlet.vtp") * MM
     flow_axis = int(np.argmax(np.abs(cout - cin)))
-    lr = patch_centroid(cfg["bnd"] + r"\inletL.vtp") - patch_centroid(cfg["bnd"] + r"\inletR.vtp")
+    lr = patch_centroid(bnd + r"\inletL.vtp") - patch_centroid(bnd + r"\inletR.vtp")
     lr_axis = int(np.argmax(np.abs(lr * MM)))
     assert flow_axis == FLOW_AXIS_EXPECT, "流向轴实测 %d != 预期 %d" % (flow_axis, FLOW_AXIS_EXPECT)
     assert lr_axis == 0, "左右分离轴实测 %d != 0（x）" % lr_axis
     print("  轴向实测：流向=y 左右=x 垂直=z（inlet->outlet dy=%.1fmm）" % (cout[1] - cin[1]))
 
     # ---- GLB 帧自校准：perm + bbox 平移 + 含入断言 ----
-    g = trimesh.load(cfg["glb"], process=False)
+    g = trimesh.load(glb_src, process=False)
     if isinstance(g, trimesh.Scene):
         g = trimesh.util.concatenate([gm for gm in g.geometry.values()])
     gv = np.asarray(g.vertices)
@@ -161,30 +220,33 @@ def make_case(cid):
         area_mm2 = float(0.5 * np.linalg.norm(np.cross(e1, e2), axis=1).sum())
         slices[pn] = (slp, F3, smag, sp, area_mm2)
         print("  %s面 origin_%s=%.1fmm 面积=%.0fmm2 三角=%d" % (pn, "xyz"[ax_i], c * MM, area_mm2, sl.n_cells))
-        # 物理指纹：沿流向 y 分 8 段（cor 面法向=y，全程同 y，跳过）
+        # 物理指纹：沿流向 y 分 FLOW_BINS 段（cor 面法向=y，全程同 y，跳过）
         if pn != "cor":
             ylo, yhi = slp[:, 1].min(), slp[:, 1].max()
             rows = []
-            for b in range(8):
-                s = (slp[:, 1] >= ylo + (yhi - ylo) * b / 8) & (slp[:, 1] < ylo + (yhi - ylo) * (b + 1) / 8)
+            for b in range(FLOW_BINS):
+                s = (slp[:, 1] >= ylo + (yhi - ylo) * b / FLOW_BINS) & (slp[:, 1] < ylo + (yhi - ylo) * (b + 1) / FLOW_BINS)
                 if s.sum() < 5:
                     rows.append(None); continue
-                rows.append({"n": int(s.sum()), "U_mean": float(smag[s].mean()),
+                rows.append({"n": int(s.sum()), "bin": b, "U_mean": float(smag[s].mean()),
                              "U_p95": float(np.percentile(smag[s], 95)), "p_mean": float(sp[s].mean())})
             fp[pn] = {"bins": rows}
-            print("    流向指纹(y 8 段) U_mean: %s" % " ".join("%.2f" % r["U_mean"] if r else "—" for r in rows))
+            print("    流向指纹(y %d 段) U_mean: %s" % (FLOW_BINS, " ".join("%.2f" % r["U_mean"] if r else "—" for r in rows)))
             print("                    p_mean : %s" % " ".join("%.1f" % r["p_mean"] if r else "—" for r in rows))
 
-    # ---- 物理合理性断言（入口均匀低压降沿程递减/鼻阀加速）----
-    fs = fp["sag"]["bins"]
-    ok = [b for b in fs if b]
-    assert ok[0]["p_mean"] > ok[-1]["p_mean"] + 2.0, "矢状面压力未沿流向递减（%.1f -> %.1f）" % (
-        ok[0]["p_mean"], ok[-1]["p_mean"])
-    peak = max(b["U_p95"] for b in ok)
-    assert peak > ok[0]["U_p95"] * 1.15, "矢状面未见鼻阀/狭窄加速峰（入口 p95 %.2f vs 峰 %.2f）" % (
-        ok[0]["U_p95"], peak)
-    print("  物理断言通过：压降 %.1f->%.1f Pa，速度峰 p95 %.2f（入口 %.2f）" % (
-        ok[0]["p_mean"], ok[-1]["p_mean"], peak, ok[0]["U_p95"]))
+    # ---- 物理合理性断言（M1 强化：逐段压降非增 + 峰位判定/语义改名；判据见 judge_sag_physics）----
+    jr = judge_sag_physics(fp["sag"]["bins"])
+    assert jr["ok"], jr["reason"]
+    mon_violations = jr["monotonic_violations"]
+    peak_i = jr["peak_bin"]
+    fp["sag"]["peak_bin"] = jr["peak_bin"]
+    fp["sag"]["peak_ratio"] = jr["peak_ratio"]
+    fp["sag"]["peak_region"] = jr["peak_region"]
+    fp["sag"]["monotonic_violations"] = jr["monotonic_violations"]
+    print("  物理断言通过：逐段压降非增（%d 段，超阈回升 %d 段；整体 %.1f->%.1f Pa）；"
+          "加速峰=%s p95 %.2f（入口 %.2f，峰/入口 %.2f，峰 bin %d）" % (
+          jr["n_valid"], len(jr["hard_violations"]), jr["entry_p"], jr["exit_p"],
+          jr["peak_label"], jr["peak_u_p95"], jr["entry_u_p95"], jr["peak_ratio"], jr["peak_bin"]))
 
     # ---- 色标归一化 + 顶点色 ----
     allu = np.concatenate([s[2] for s in slices.values()])
@@ -222,7 +284,7 @@ def make_case(cid):
                 "cmap": cm_name, "n_faces": int(len(F2)), "area_mm2": round(float(area), 1),
             }
             print("  %s: %d 三角（去退化 %d）" % (name, len(F2), ndeg))
-    out_glb = MODELS + r"\slices_%s.glb" % cid
+    out_glb = os.path.join(out_root, "slices_%s.glb" % cid)
     scene.export(out_glb)
     meta = {
         "cid": cid, "label": cfg["label"],
@@ -232,8 +294,10 @@ def make_case(cid):
         "colormaps": {"U": hex10("viridis"), "p": hex10("RdYlBu_r")},
         "meshes": meshes_meta,
         "physics_check": fp,
+        "peak_bin": int(peak_i),              # M1 判据透明化：速度峰(p95)所在流向分箱
+        "monotonic_violations": mon_violations,  # M1 判据透明化：压降回升段（含噪声带内）
     }
-    with open(MODELS + r"\slices_meta_%s.json" % cid, "w", encoding="utf-8") as f:
+    with open(os.path.join(out_root, "slices_meta_%s.json" % cid), "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False, indent=1)
 
     # ---- 导出验证：GLB JSON chunk 的 mesh 命名 + COLOR_0 存在 ----
@@ -247,8 +311,22 @@ def make_case(cid):
     print("  导出 %s（%.1f MB）mesh=%s COLOR_0=OK" % (out_glb.split("\\")[-1], len(blob) / 1e6, names))
 
 
-if __name__ == "__main__":
-    ids = sys.argv[1:] or ["pA", "pB"]
+def main(argv=None):
+    ap = argparse.ArgumentParser(description="生成 hero 真实 CFD 切片 GLB + meta（数据端；M1 物理断言强化）")
+    ap.add_argument("cases", nargs="*", default=None,
+                    help="病例 ID（可选 %s；默认全部）" % "/".join(CASES))
+    ap.add_argument("--src-root", default=SRC_ROOT_DEFAULT,
+                    help="step5 结果根（含 P0-result-*/VTK/...）；默认脚本相对 code/pipeline/out/结果")
+    ap.add_argument("--out-root", default=OUT_ROOT_DEFAULT,
+                    help="GLB/meta 输出目录；默认脚本相对 code/pipeline/webapp/models")
+    args = ap.parse_args(argv)
+    ids = args.cases or ["pA", "pB"]
     for cid in ids:
-        make_case(cid)
+        if cid not in CASES:
+            raise SystemExit("未知病例 ID：%s（可选 %s）" % (cid, "/".join(CASES)))
+        make_case(cid, args.src_root, args.out_root)
     print("ALL DONE")
+
+
+if __name__ == "__main__":
+    main()

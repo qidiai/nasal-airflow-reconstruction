@@ -932,7 +932,8 @@ function setHeroModelGhost(on){
    v2 设计修正（用户实测：旧版 u 钳制在 [base, base+0.24]，粒子快到咽喉就停——
    「气没有完整的进入咽喉，快到咽喉的时候停止了，然后就呼出去了」）：
      ① 全流线行程：吸入（相位 0→0.45）u 从 0 → 1 完整走完流线全程（u=1=流线终点=咽喉端）；
-        峰值窗（0.45→0.55）u=1 短暂驻留（透明度峰值）；呼出（0.55→1.0）u 从 1 → 0
+        峰值窗（0.45→0.55）u=1 短暂驻留 = 透明度峰值 + 吸入↔呼出换向边界
+        （此处「峰值」指透明度/驻留，非流速 |v|；窗内推进速率≈0）；呼出（0.55→1.0）u 从 1 → 0
         从咽喉完整退回鼻孔。移除 base 起点钳制与 ≤0.99 端点截断。
      ② 零漂 =「相位取模 × 全行程映射」：u 是相位的纯周期函数（同相位必同 u），
         零累积漂移由构造保证，不靠钳制。
@@ -941,7 +942,8 @@ function setHeroModelGhost(on){
      ④ 两层透析（用户明确：两层不合并）：「气流粒子」层勾=微观（粒子个体进出咽喉+相位调制）；
         不勾=宏观（粒子隐藏，流线本体呼吸脉动+相位条继续）。
      ⑤ 逐粒子相位错峰：粒子 j 相位偏移 = (j/4)·0.45 —— 同一时刻各粒子覆盖流线不同位置
-       （粒子列车），呼吸方向全局一致。 */
+        （粒子列车）。方向一致性限于错峰跨度内：全局相位尾段（ph∈[0.6625,1)）列车首粒子已
+        转入下一轮吸入、尾粒子仍在呼出，首尾同刻反向（无跳变，视觉仍连续）。 */
 const HERO_BREATH_PER_LINE = 4;       /* 每条流线粒子数（与 demo BREATH_PER_LINE 一致） */
 const HERO_BREATH_PERIOD = 4;         /* 呼吸周期 4s（与 demo breathPeriod 一致） */
 const HERO_BREATH_CAP = " ｜ 呼吸循环粒子模拟（全行程：吸气进咽喉→驻留→呼气退回鼻孔；勾「气流粒子」看粒子个体呼吸，不勾看流线整体脉动）";
@@ -1229,7 +1231,8 @@ function loadCfdFlow(cid, scene, center){
    数据 /static/models/slices_<cid>.glb + slices_meta_<cid>.json（webapp/tools/make_slices_glb.py
    生成）：单文件 6 mesh（slice_{sag,ax,cor}_{U,p}），顶点色已烘焙——U=viridis 0–P98(m/s)、
    p=RdYlBu_r P2–P98(Pa)；坐标与气道 GLB 同帧（perm[2,1,0]×1000+域平移，bbox 含入>=0.8 导出端断言）。
-   交互：勾选惰性加载；默认矢状+速度；面板按钮组切面/切场；色标图例按 meta 动态（内联 CSS 渐变条）。
+   交互：渲染病例即预加载 meta+GLB（~655KB，非惰性——勾选只切显隐）；默认矢状+速度；
+   面板按钮组切面/切场；色标图例按 meta 动态（内联 CSS 渐变条）。
    降级：无切片数据（pN/pN2 无 VTK / 云形态 403）→ 勾选禁用+「数据待回传」，底部标注同步诚实化。 */
 const SLICE_CMAP_CSS = {
   U: ["#440154","#482878","#3e4a89","#31688e","#26828e","#1f9e89","#35b779","#6ece58","#b5de2b","#fde725"],
@@ -1484,7 +1487,7 @@ function renderModelHero(cid, c, flowView){   /* flowView=true：气流动画视
     /* 「气流粒子」层不再绑定表面示意层——由 loadCfdFlow 绑定呼吸循环粒子
        （两层透析：勾=微观粒子个体呼吸；不勾=宏观流线整体脉动，见 updateHeroBreath） */
     loadCfdFlow(cid, scene, center);   /* 第四层：真实 CFD 流线（异步加载，独立勾选，默认开） */
-    loadHeroSlices(cid, scene, center);   /* 第五层：真实 CFD 切片（速度/压力，惰性加载，默认关） */
+    loadHeroSlices(cid, scene, center);   /* 第五层：真实 CFD 切片（速度/压力；渲染即预加载 GLB，勾选切显隐，默认关） */
     camera.position.set(radius*1.5, -radius*2.3, radius*1.0);
     camera.near = radius*0.01; camera.far = radius*40;
     camera.updateProjectionMatrix();
