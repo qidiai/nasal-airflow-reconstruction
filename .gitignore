@@ -60,3 +60,12 @@ Thumbs.db
 **/webapp/models/**
 **/webapp/models/airway_pA.glb
 **/webapp/models/airway_pB.glb
+
+# ---- 构建产物与临时物（2026-10-18 夜班检查点追加）----
+code/solver/target/
+code/pipeline/.playwright-mcp/
+code/pipeline/.solver_stage/
+code/pipeline/_m2_patch_*.py
+code/pipeline/_m2tools/
+code/pipeline/T52_work/
+code/pipeline/T50*.png

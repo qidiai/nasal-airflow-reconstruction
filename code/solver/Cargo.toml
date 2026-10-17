@@ -1,0 +1,24 @@
+[package]
+name = "flowscope-solver"
+version = "0.1.0"
+edition = "2021"
+description = "FlowScope 自研 FVM 求解器（Rust 清洁室实现，逐字段复刻 numerical-contract.md v1.0 钉住的 OpenFOAM v2406 simpleFoam 配置）"
+license = "MIT"
+
+# 独立 cargo 项目：显式声明空 [workspace] 表，绝不被上层任何 workspace 吸收
+# （任务书铁律：solver/ 不进任何现有 workspace）
+[workspace]
+
+[lib]
+name = "flowscope_solver"
+path = "src/lib.rs"
+
+[[bin]]
+name = "flowscope"
+path = "src/main.rs"
+
+[dependencies]
+# 零第三方依赖：纯标准库，清洁室可审计
+
+[profile.release]
+opt-level = 3

@@ -22,7 +22,7 @@
   </div>
   <div class="case-card" id="case-card" aria-live="polite"></div>
 </header>
-<iframe class="viewer" id="viewer" title="官方四例鼻腔气流查看器" src="plus/viewer_plus.html?case=demoA"></iframe>
+<iframe class="viewer" id="viewer" title="官方四例鼻腔气流查看器" src="plus/viewer_plus.html?case=demoA&v=T52"></iframe>
 <script>
 const CASES={
  demoA:{label:'demoA（患者a 变体·鼻中隔+鼻甲消融）',text:'ΔP 18.45 Pa｜1500 步平台'},
@@ -31,7 +31,7 @@ const CASES={
  'pN-Med':{label:'pN-Med（鼻甲内移·演示 CT 变体）',text:'ΔP 8.30 Pa｜182 步收敛'}
 };
 const frame=document.getElementById('viewer'), card=document.getElementById('case-card'), buttons=[...document.querySelectorAll('.case-btn')];
-function selectCase(id){const d=CASES[id]; if(!d)return; const src='plus/viewer_plus.html?case='+encodeURIComponent(id); if(frame.getAttribute('src')!==src)frame.src=src; buttons.forEach(b=>b.classList.toggle('active',b.dataset.case===id)); card.innerHTML='<strong>'+d.label+'</strong>｜'+d.text;}
+function selectCase(id){const d=CASES[id]; if(!d)return; const src='plus/viewer_plus.html?case='+encodeURIComponent(id)+'&v=T52'; if(frame.getAttribute('src')!==src)frame.src=src; buttons.forEach(b=>b.classList.toggle('active',b.dataset.case===id)); card.innerHTML='<strong>'+d.label+'</strong>｜'+d.text;}
 buttons.forEach(b=>b.addEventListener('click',()=>selectCase(b.dataset.case))); selectCase('demoA');
 </script>
 </body>

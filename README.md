@@ -1,4 +1,4 @@
-# 鼻腔气流分析工具（P0 鼻塞设计工具 · 开源脱敏版）
+# 鼻腔气流分析工具（P0 鼻塞设计工具 · 源码公开版 · BSL 社区许可）
 
 黑客松概念验证项目：从鼻腔 CT（DICOM）出发，经气道分割 → OpenFOAM 算例构建
 → CFD 仿真 → 鼻塞虚拟植入评估 → 查看器数据导出 → 体数据/皮肤层构建的完整
@@ -19,6 +19,17 @@ cd ../.. && pytest                              # ④ 冒烟测试（全绿 = �
 - 真实 CT 输入：`set P0_DICOM_DIR=C:\p0work\dicom`（目录内放 `*.dcm`；本仓库不含患者数据，上述 ①-④ 步无需设置）。
 
 ## 数据说明（重要）
+
+> **数据政策（2026-10-17 项目所有者亲定）**
+>
+> 本项目的可行性**已用真实患者数据测试验证**——鼻腔 CT → 气道分割 → CFD → 功能成像全链路跑通，指标经过对拍校验，未收敛算例如实标注"结果不可用"。
+> 但**真实患者数据不开源**：除非取得患者本人同意，且患者数据**不得用于任何商业用途**。现有患者衍生资产（演示四例、pA/pB/pN 归档）均在上述闭门范围内，仓库与发布包只包含代码、文档与全合成数据。
+> 感兴趣、有想法的贡献者：**欢迎用你自己的数据测试**——全流程本地运行，数据不出机（接入方式见 QUICKSTART 的 `P0_DICOM_DIR`）。
+>
+> **Data policy.** Feasibility of this project has been **validated on real patient data** — the full pipeline (nasal CT → airway segmentation → CFD → functional imaging) runs end-to-end, metrics were cross-checked, and unconverged runs are honestly flagged as "results unusable".
+> Real patient data is **not open-sourced**: it may be distributed only with the patient's own consent, and is **never permitted for any commercial use**. All existing patient-derived assets (the four demo cases, pA/pB/pN archives) stay in this closed scope; the repository and release packages contain only code, documentation, and fully synthetic data.
+> Interested contributors: **bring your own data and test** — everything runs locally and your data never leaves your machine (see `P0_DICOM_DIR` in QUICKSTART).
+
 
 **本仓库不含任何患者数据。**
 
@@ -107,6 +118,16 @@ python code/pipeline/run_all.py --dicom-dir <CT目录>  # 一键总控编排（s
 其余全部源码经五类个人标识关键字扫描（真实全名、出生年月、人名代称、
 患者编号、身份号码）与正则扫描（身份号码格式、日期字面量、绝对路径）
 通过后收录；`viewer.html` 仅页脚一处数据来源文案改为"合成示例数据"。
+
+## 医学分析线（脱敏代码与文档）
+
+本仓库补充收录医学分析线的纯代码与过程文档（**不含任何患者数据**）：
+
+- `code/pipeline/medical_extract/` —— 九键交付物提取脚本族（planes / wall / wallp / zonal / clinical / residual / mesh_quality / compare / transport）。
+- `docs/科学依据与公式附录.md` —— 科学依据与公式附录。
+- `docs/kanban/` —— 施工看板（过程证据存档）。
+
+> 患者 CT/DICOM/掩码及一切派生几何数据严禁入库（.gitignore 强制）；本仓库仅含管线代码、合成演示数据与聚合统计。
 
 ## 许可证
 

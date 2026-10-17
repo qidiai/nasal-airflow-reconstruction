@@ -38,7 +38,7 @@ body{
 header{
   padding:16px 16px 12px;display:flex;flex-wrap:wrap;gap:8px 12px;
   align-items:baseline;border-bottom:1px solid var(--line);
-  background:linear-gradient(180deg,#FAFAF7, var(--bg));
+  background:linear-gradient(180deg,var(--bg-1), var(--bg));
 }
 header h1{font-size:24px;margin:0;font-weight:700;letter-spacing:.5px}
 header .sub{color:var(--ink-soft);font-size:14px}
@@ -96,12 +96,12 @@ summary{
 }
 summary:hover{color:var(--teal)}
 pre.tech{
-  background:#FBFAF6;border:1px solid var(--line);border-radius:8px;
+  background:var(--bg-2);border:1px solid var(--line-new);border-radius:8px;
   padding:10px;font-family:ui-monospace,Consolas,monospace;font-size:12.5px;
   white-space:pre-wrap;word-break:break-all;max-height:300px;overflow:auto;
-  color:var(--ink-soft);
+  color:var(--text-0);
 }
-code{background:#F3F0E9;padding:1px 6px;border-radius:5px;font-size:13px}
+code{background:var(--teal-soft);padding:1px 6px;border-radius:5px;font-size:13px;color:var(--text-0)}
 /* ---------- 按钮/表单 ---------- */
 .btn{
   background:var(--panel);color:var(--ink);border:1px solid var(--line);
@@ -116,7 +116,7 @@ code{background:#F3F0E9;padding:1px 6px;border-radius:5px;font-size:13px}
 .btnrow{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 label.f{display:block;margin:12px 0 4px;color:var(--ink);font-weight:600;font-size:15px}
 input.f,select.f{
-  width:100%;background:#fff;color:var(--ink);border:1px solid var(--line);
+  width:100%;background:var(--bg-2);color:var(--text-0);border:1px solid var(--line-new);color-scheme:dark;
   border-radius:10px;padding:10px 12px;font-size:15px;font-family:inherit;
 }
 input.f:focus,select.f:focus{outline:2px solid #2A9D8F55;border-color:var(--teal)}
@@ -150,14 +150,14 @@ input.f:focus,select.f:focus{outline:2px solid #2A9D8F55;border-color:var(--teal
 /* ---------- Hero：3D 查看器主角 ≥60vh ---------- */
 .hero{
   border-radius:var(--radius);overflow:hidden;border:1px solid var(--line);
-  box-shadow:var(--shadow);background:#fff;
+  box-shadow:var(--shadow);background:var(--bg-2);
 }
 iframe.hero-frame{
-  display:block;width:100%;height:62vh;min-height:380px;border:0;background:#fff;
+  display:block;width:100%;height:62vh;min-height:380px;border:0;background:var(--bg-2);
 }
 .hero-ph{
   padding:34px 22px;text-align:center;background:
-    radial-gradient(1200px 300px at 50% -80px,#E3F1EF,transparent),
+    radial-gradient(1200px 300px at 50% -80px,#1d3a40,transparent),
     var(--panel);
   min-height:300px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;
 }
@@ -269,10 +269,10 @@ iframe.hero-frame{
 /* ---------- QC 三平面（大图） ---------- */
 .qc3{display:grid;grid-template-columns:1fr;gap:12px}
 .qc3 figure{
-  margin:0;background:#fff;border:1px solid var(--line);border-radius:var(--radius);
+  margin:0;background:var(--bg-2);border:1px solid var(--line-new);border-radius:var(--radius);
   padding:10px;text-align:center;box-shadow:var(--shadow);
 }
-.qc3 img{max-width:100%;border-radius:8px;background:#fff}
+.qc3 img{max-width:100%;border-radius:8px;background:var(--bg-2)}
 .qc3 figcaption{font-size:13.5px;color:var(--ink);margin-top:8px;font-weight:600}
 .qc3 figcaption .muted{font-weight:400}
 /* ---------- 步骤条 ---------- */
@@ -281,7 +281,7 @@ iframe.hero-frame{
 .step .dot{
   width:30px;height:30px;border-radius:50%;margin:0 auto 6px;
   display:flex;align-items:center;justify-content:center;
-  background:#F1EDE4;color:var(--ink-soft);font-weight:700;font-size:14px;
+  background:var(--bg-2);color:var(--text-2);font-weight:700;font-size:14px;
   border:2px solid var(--line);position:relative;z-index:1;
 }
 .step.done .dot{background:var(--teal);border-color:var(--teal);color:#fff}
@@ -304,8 +304,8 @@ iframe.hero-frame{
 .up-pct{font-size:13.5px;color:var(--ink-soft);margin-bottom:6px}
 /* ---------- 网页直接上传 CT ---------- */
 input.filepick{
-  display:block;width:100%;padding:14px;border:2px dashed #C9BFAE;
-  border-radius:var(--radius);background:#fff;color:var(--ink-soft);
+  display:block;width:100%;padding:14px;border:2px dashed var(--line-new);
+  border-radius:var(--radius);background:var(--bg-2);color:var(--text-2);color-scheme:dark;
   font-family:inherit;font-size:14.5px;cursor:pointer;
 }
 input.filepick:hover{border-color:var(--teal)}
@@ -318,7 +318,7 @@ input.filepick:hover{border-color:var(--teal)}
 /* ---------- 暖色拦截卡（🕐 不吓人） ---------- */
 .warm-card{
   border:1.5px solid var(--amber);border-radius:var(--radius);
-  background:linear-gradient(180deg,var(--amber-soft),#FFFBF5);
+  background:linear-gradient(180deg,var(--amber-soft),#2a2118);
   padding:18px;box-shadow:var(--shadow);
 }
 .warm-card .warm-head{display:flex;gap:12px;align-items:flex-start}
@@ -326,7 +326,7 @@ input.filepick:hover{border-color:var(--teal)}
 .warm-card h3{margin:0 0 4px;font-size:18.5px;color:var(--amber-deep)}
 .warm-card .reason{font-size:15px;margin:6px 0}
 .warm-card .comfort{
-  font-size:14px;color:var(--ink-soft);border-top:1px dashed #E9D9BE;
+  font-size:14px;color:var(--ink-soft);border-top:1px dashed var(--line-new);
   padding-top:10px;margin-top:10px;
 }
 .warm-card .comfort b{color:var(--ink)}
@@ -355,7 +355,7 @@ input.filepick:hover{border-color:var(--teal)}
   color:var(--teal-deep);border-radius:8px;padding:6px 12px;font-size:14px;
   text-decoration:none;font-weight:600;margin:4px 0;
 }
-.src-url:hover{background:#D6EAE7}
+.src-url:hover{background:var(--teal-soft)}
 /* ---------- 页脚 ---------- */
 footer{
   padding:18px 16px 30px;color:var(--ink-soft);font-size:13px;
@@ -463,8 +463,8 @@ footer .fixed-sentence{
   .cmp-bar-val{flex:0 0 84px;font-size:12px;color:var(--ink-soft);white-space:nowrap;
     text-align:right}
   .cmp-note{font-size:12.5px;color:var(--ink-soft);margin:8px 0 0}
-  .cmp-refband{font-size:12.5px;color:var(--ink-soft);background:#F4F1EA;
-    border:1px dashed var(--line);border-radius:8px;padding:7px 10px;margin:10px 0 2px}
+  .cmp-refband{font-size:12.5px;color:var(--text-2);background:var(--bg-2);
+    border:1px dashed var(--line-new);border-radius:8px;padding:7px 10px;margin:10px 0 2px}
   .cmp-wait{color:var(--amber-deep)}
   </style>
   <div class="card" id="compare-card" style="display:none">
@@ -632,9 +632,9 @@ footer .fixed-sentence{
     <div id="nc-path" style="display:none">
       <label class="f">CT 目录路径</label>
       <div class="dropzone" id="nc-drop" style="
-        border:2px dashed #C9BFAE;border-radius:var(--radius);
-        padding:22px 14px;text-align:center;color:var(--ink-soft);
-        background:#fff;cursor:text; margin:4px 0;">
+        border:2px dashed var(--line-new);border-radius:var(--radius);
+        padding:22px 14px;text-align:center;color:var(--text-2);
+        background:var(--bg-2);cursor:text; margin:4px 0;">
         📁 把 CT 文件夹拖到这里，或直接粘贴<b>服务器本机</b>的 CT 目录绝对路径
         <input class="f" id="nc-dicom-path" placeholder="例如 D:\ct\iso_series\"
           style="margin-top:10px;background:var(--bg)">
@@ -660,21 +660,15 @@ footer .fixed-sentence{
     <div class="btnrow">
       <select class="f" id="pg-case" style="width:auto;min-width:200px"></select>
       <button class="btn" id="pg-refresh">刷新</button>
-      <button class="btn primary" id="pg-run">启动分析</button>
-      <button class="btn" id="pg-solve">启动求解（WSL）</button>
+      <button class="btn primary" id="pg-run">开始气流分析（本机求解）</button>
       <label class="muted" style="align-self:center;font-size:14px">
         <input type="checkbox" id="pg-auto" checked> 自动刷新（2 秒）
       </label>
     </div>
-    <label class="f">分析模式</label>
-    <select class="f" id="pg-solve-mode" style="width:auto;min-width:280px">
-      <option value="skip">快速（只到算例构建+断言——预置结果秒开演示用）</option>
-      <option value="laptop">交接（生成交接文档+算例包，由安装好求解器的笔记本继续）</option>
-      <option value="local">本机求解（需 WSL + OpenFOAM 环境）</option>
-    </select>
+    <div class="hint" style="margin:8px 0 2px">预计 4-8 分钟：构建 → 求解 → 回传。分析在后台进行，可离开本页，进度自动刷新。</div>
     <div class="steps" id="step-bar"></div>
     <div class="hint" id="pg-consent" style="margin:4px 0"></div>
-    <div class="up-status" id="up-status">尚未启动——选择病例后点"启动分析"</div>
+    <div class="up-status" id="up-status">尚未启动——选择病例后点"开始气流分析（本机求解）"</div>
     <div class="up-pct" id="up-pct"></div>
     <div id="up-gate"></div>
     <details>
@@ -688,6 +682,21 @@ footer .fixed-sentence{
         ③生成算例 = 体素网格 + 几何断言；④求解 = 气流方程求解（WSL/OpenFOAM，20 分钟无进展自动停止并归档）；
         ⑤导出结果 = 后处理 + 查看器导出 + 进度落盘。原始阶段标记 [S0]…[S8] 与之一一对应。
       </div>
+    </details>
+    <details>
+      <summary>技术细节（高级：分析模式 / WSL 求解）</summary>
+      <div class="muted" style="font-size:13px;margin-bottom:8px">开发者选项：普通用户点上面的"开始气流分析（本机求解）"即可，无需关心以下内容。</div>
+      <label class="f">分析模式</label>
+      <select class="f" id="pg-solve-mode" style="width:auto;min-width:280px">
+        <option value="skip">快速（只到算例构建+断言——预置结果秒开演示用）</option>
+        <option value="laptop">交接（生成交接文档+算例包，由安装好求解器的笔记本继续）</option>
+        <option value="local">本机求解（需 WSL + OpenFOAM 环境）</option>
+      </select>
+      <div class="btnrow" style="margin-top:10px">
+        <button class="btn" id="pg-run-adv">按此模式启动分析</button>
+        <button class="btn" id="pg-solve">启动求解（WSL）</button>
+      </div>
+      <div class="hint" style="margin-top:6px">"启动求解（WSL）"仅对"交待待解算"状态的病例有效；模式说明见上方阶段对照表。</div>
     </details>
   </div>
 </section>
@@ -764,19 +773,19 @@ footer .fixed-sentence{
 <style>
 .ct-mask{position:fixed;inset:0;background:rgba(28,24,20,.55);display:none;
   align-items:center;justify-content:center;z-index:9999;padding:16px}
-.ct-modal{background:#fff;max-width:640px;width:100%;max-height:92vh;overflow:auto;
-  border-radius:14px;padding:20px 22px 14px;box-shadow:0 18px 50px rgba(0,0,0,.28)}
-.ct-modal h3{margin:0 0 4px;font-size:19px}
-.ct-sub{font-size:13px;color:#6b6257;margin-bottom:8px}
-.ct-q{border-top:1px solid #EFE9DF;padding:10px 0 2px}
-.ct-qlabel{font-weight:700;font-size:14.5px;margin-bottom:6px}
+.ct-modal{background:var(--bg-2);color-scheme:dark;max-width:640px;width:100%;max-height:92vh;overflow:auto;
+  border:1px solid var(--line-new);border-radius:14px;padding:20px 22px 14px;box-shadow:0 18px 50px rgba(0,0,0,.45)}
+.ct-modal h3{margin:0 0 4px;font-size:19px;color:var(--text-0)}
+.ct-sub{font-size:13px;color:var(--text-2);margin-bottom:8px}
+.ct-q{border-top:1px solid var(--line-new);padding:10px 0 2px}
+.ct-qlabel{font-weight:700;font-size:14.5px;margin-bottom:6px;color:var(--text-0)}
 .ct-opt{display:flex;align-items:flex-start;gap:8px;font-size:14px;padding:3px 0;
-  cursor:pointer;line-height:1.5}
+  cursor:pointer;line-height:1.5;color:var(--text-0)}
 .ct-opt input[type=radio]{margin-top:3px}
-.ct-hint{font-size:12.5px;color:#8a7f72;margin:4px 0 0 26px}
-.ct-err{color:#b23;font-size:13.5px;min-height:20px;margin:6px 0 0}
-.ct-fixed{margin-top:10px;padding-top:9px;border-top:1px dashed #DDD3C6;
-  font-size:12.5px;color:#7a6f62;text-align:center}
+.ct-hint{font-size:12.5px;color:var(--text-2);margin:4px 0 0 26px}
+.ct-err{color:var(--coral);font-size:13.5px;min-height:20px;margin:6px 0 0}
+.ct-fixed{margin-top:10px;padding-top:9px;border-top:1px dashed var(--line-new);
+  font-size:12.5px;color:var(--text-2);text-align:center}
 </style>
 <div class="ct-mask" id="ct-consent-mask">
   <div class="ct-modal" role="dialog" aria-modal="true" aria-labelledby="ct-consent-title">
@@ -1676,6 +1685,7 @@ function setHeroFrame(src,title){
   if(!hero) return null;
   if(!frame){ frame=document.createElement("iframe"); frame.className="hero-frame"; frame.setAttribute("loading","eager"); hero.appendChild(frame); }
   frame.title=title || "病例查看器";
+  if(src.indexOf("viewer_plus") !== -1 && src.indexOf("v=T52") === -1) src += (src.indexOf("?") !== -1 ? "&" : "?") + "v=T52";
   if(frame.src !== new URL(src, window.location.href).href) frame.src=src;
   return frame;
 }
@@ -2628,10 +2638,10 @@ const STAGE_ORDER = ["S0","S1","S2","S3","S4","S5","S6","S7","S8"];
 
 $("pg-case").addEventListener("change", e=>{ S.selectedProgress = e.target.value; loadProgress(); });
 $("pg-refresh").addEventListener("click", loadProgress);
-$("pg-run").addEventListener("click", async ()=>{
+/* T53UX：主路径唯一化——普通用户只点 pg-run，固定本机求解（solve=local 硬编码，不再让用户选模式） */
+async function runChain(solve){
   const cid = S.selectedProgress || $("pg-case").value;
   if(!cid) return;
-  const solve = $("pg-solve-mode") ? $("pg-solve-mode").value : "skip";
   const r = await api(`/api/run/${encodeURIComponent(cid)}`, {
     method:"POST", headers:{"Content-Type":"application/json"},
     body: JSON.stringify({solve: solve})});
@@ -2642,6 +2652,12 @@ $("pg-run").addEventListener("click", async ()=>{
     $("up-gate").innerHTML = `<div class="ok">✅ 分析已在后台启动（${esc(r.body.solve || "")}）——进度自动刷新中。</div>`;
     loadProgress();
   }
+}
+$("pg-run").addEventListener("click", ()=>{ runChain("local"); });
+/* 高级区（技术细节折叠内）：按所选模式启动，保留 skip/laptop 开发者路径 */
+$("pg-run-adv").addEventListener("click", ()=>{
+  const m = $("pg-solve-mode");
+  runChain(m ? m.value : "skip");
 });
 $("pg-solve").addEventListener("click", async ()=>{
   const cid = S.selectedProgress || $("pg-case").value;
@@ -2721,7 +2737,7 @@ function renderSteps(b){
   if(blocked){
     status = "🕐 需要仔细检查——质量闸门已暂停分析（见下方卡片）";
   } else if(!curStage){
-    status = b.status === "done" ? "✅ 分析完成" : "尚未启动——选择病例后点\"启动分析\"";
+    status = b.status === "done" ? "✅ 分析完成" : "尚未启动——选择病例后点\"开始气流分析（本机求解）\"";
   } else {
     status = FRIENDLY[curStage] || "正在处理…";
     if(b.status === "done") status = "✅ 分析完成——结果已就绪，去“查看气道”看他的气道模型";

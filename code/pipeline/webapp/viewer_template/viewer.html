@@ -47,6 +47,10 @@ label.chk.dis{color:#5a6774;cursor:default}
 .legend-title{font-size:11px;color:var(--dim);margin-bottom:4px}
 #legend-bar{height:10px;border-radius:3px;border:1px solid var(--line)}
 .legend-scale{display:flex;justify-content:space-between;font-size:10px;color:var(--dim)}
+#btn-fs{position:absolute;right:10px;bottom:176px;z-index:20;width:34px;height:34px;border:1px solid var(--line);border-radius:6px;background:#0d1116cc;color:#d8e0e8;font-size:15px;line-height:1;cursor:pointer;padding:0}
+#btn-fs:hover{background:#1a2634;color:#fff}
+#app.vp-fs{position:fixed;inset:0;z-index:9998;width:100vw;height:100vh;overflow:auto}
+body.vp-fs-on{overflow:hidden}
 #legend{position:absolute;right:10px;bottom:10px;z-index:10;pointer-events:none;margin:0;width:150px;padding:6px 8px;background:#0d1116cc;border:1px solid var(--line);border-radius:4px} /* T10-F2：色标唯一事实源移入视口右下角 */
 .slider-row{display:flex;align-items:center;gap:8px;margin:6px 0 2px}
 .slider-row input[type=range]{flex:1;accent-color:#3fae6a}
@@ -103,6 +107,7 @@ footer{flex:0 0 32px;display:flex;align-items:center;justify-content:center;back
   <main>
     <div id="canvas-wrap">
       <canvas id="glcanvas"></canvas>
+<button id="btn-fs" type="button" title="全屏放大（ESC 恢复）">⛶</button>
       <div id="vignette"></div>
       <div id="toolbar">
         <button id="btn-reset" type="button">复位视角</button>
@@ -2301,7 +2306,33 @@ return LineSegments2;
   updateLegendText();
 
   /* ---------- 9. resize 自适应 + requestAnimationFrame 渲染循环 ---------- */
-  function resize() {
+  /* T39 全屏放大（右下角按钮 / ESC 恢复） */
+(function fsMode(){
+  var btn = document.getElementById('btn-fs');
+  var wrap = document.getElementById('app') || document.getElementById('canvas-wrap');
+  if (!btn || !wrap) return;
+  function setFs(on){
+    wrap.classList.toggle('vp-fs', on);
+    document.body.classList.toggle('vp-fs-on', on);
+    btn.textContent = on ? '\u26F2' : '\u26F6';
+    btn.title = on ? '退出全屏（ESC）' : '全屏放大（ESC 恢复）';
+    setTimeout(function(){ try{ resize(); }catch(e){} }, 240);
+  }
+  btn.addEventListener('click', function(ev){ ev.preventDefault(); setFs(!wrap.classList.contains('vp-fs')); });
+  document.addEventListener('keydown', function(ev){
+    if (ev.key === 'Escape') {
+        var wasLocal = wrap.classList.contains('vp-fs');
+        if (wasLocal) { ev.preventDefault(); setFs(false); }
+        /* T47：焦点在 iframe 内时，ESC 也通知父页面退出 hero 全屏 */
+        try {
+          if (window.parent && window.parent !== window) {
+            window.parent.postMessage({type: 'vp-fullscreen', on: false}, '*');
+          }
+        } catch (e) {}
+      }
+  });
+})();
+function resize() {
     var w = wrap.clientWidth || 1, h = wrap.clientHeight || 1;
     renderer.setSize(w, h, false);
     renderer.setViewport(0, 0, w, h);

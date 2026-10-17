@@ -1,21 +1,44 @@
-MIT License
+Business Source License 1.1
 
-Copyright (c) 2026 患者社区 K-Hub
+Parameters
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+Licensor:             Xu Changming (徐长鸣)
+Licensed Work:        FlowScope — nasal/airway functional imaging pipeline, solver, imaging
+                      frontend, API and MCP server (the "Licensed Work")
+Additional Use Grant: You may use the Licensed Work for any non-commercial purpose,
+                      including without limitation: personal use, patient self-use,
+                      academic and industrial research, and education. Non-commercial
+                      Production Use of the Licensed Work is hereby granted.
+                      "Production Use" has the meaning given in the Business Source
+                      License 1.1.
+Change Date:          2099-01-01
+Change License:       Apache License, Version 2.0
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+For terms of the Business Source License 1.1 itself, see
+https://mariadb.com/bsl11/ (the canonical BSL 1.1 text).
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+Notice
+
+The Licensed Work is provided under the Business Source License 1.1 with the
+Additional Use Grant above. Until the Change Date, any use of the Licensed Work
+for commercial purposes — including but not limited to selling the software or
+services based on it, commercial training, commercial integration, SaaS, or
+redistribution of derived models — requires a separate written commercial
+license from the Licensor. There is no free commercial-use waiting window:
+the Change Date above is deliberately set so that the Licensed Work does NOT
+automatically convert to the Change License within any practical horizon.
+Non-commercial use is free and fully functional.
+
+The Change Date applies only to future versions of the Licensed Work; the
+conversion date of already-published versions is irrevocable.
+
+DATA NOTICE: This repository and its release packages contain only code,
+documentation, and fully synthetic data. Patient-derived data is NOT distributed.
+Any patient data is subject to the project data policy (see README "Data
+policy"): it may be distributed only with the patient's own consent and is never
+permitted for commercial use.
+
+HISTORICAL NOTE: Versions of this project published before 2026-10-17 were
+distributed under the MIT License (commit cd82812 and earlier). Those versions
+remain available under MIT. The Business Source License 1.1 above applies to
+versions published from 2026-10-17 onward.
