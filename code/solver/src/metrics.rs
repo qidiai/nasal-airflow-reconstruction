@@ -85,8 +85,13 @@ pub fn wall_shear_stress(mesh: &Mesh, u: &crate::fields::VolVector, mu: f64, wal
         let un = uc[0] * nhat[0] + uc[1] * nhat[1] + uc[2] * nhat[2];
         let tang = [uc[0] - un * nhat[0], uc[1] - un * nhat[1], uc[2] - un * nhat[2]];
         let mag = (tang[0] * tang[0] + tang[1] * tang[1] + tang[2] * tang[2]).sqrt();
-        // d_n：单元心到壁面的法向距离 ≈ V_c / A_f（体素估计）
-        let d_n = mesh.cell_vol[c] / mesh.face_mag[f];
+        // d_n：单元心到壁面的**法向距离**。
+        // 第四棒修正（B6）：旧实现用 V/(2A_f)（"半格"），只在**完整面**上成立；
+        // 阶梯网格的壁面大量是部分面（sliver），V/(2A) 会给出最大 50 mm 的假距离
+        // （实测中位数 22 mm），把 WSS 压低 15 倍。归档 metrics 的 dn_mm_median
+        // = 0.488 与本网格的 |C_f − C_c| 中位数 0.4883 mm 逐位吻合 → 用真实距离。
+        let dvec = crate::mesh::sub(mesh.face_cf[f], mesh.cell_cc[c]);
+        let d_n = crate::mesh::dot(dvec, dvec).sqrt();
         out.push(mu * mag / d_n.max(1e-300));
     }
     out

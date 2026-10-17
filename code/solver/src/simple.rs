@@ -361,11 +361,64 @@ impl SimpleSolver {
             for c in 0..self.mesh.n_cells() {
                 self.rau[c] = self.mesh.cell_vol[c] / csr.diag_value(c).max(1e-300);
             }
+            // 诊断（FLOWSCOPE_TRACE_CELL=<id>）：逐迭代打印指定单元的动量/压力耦合量
+            if let Ok(tc) = std::env::var("FLOWSCOPE_TRACE_CELL") {
+                if let Ok(c) = tc.parse::<usize>() {
+                    if c < n_cells {
+                        let mut off = 0.0f64;
+                        for f in self.mesh.cell_face_iter(c) {
+                            if f < self.mesh.n_internal {
+                                let nb = self.mesh.other_cell(f, c);
+                                let w = if self.mesh.is_owner(f, c) { m.upper[f] } else { m.lower[f] };
+                                off += w * self.u.data[nb][2];
+                            }
+                        }
+                        println!(
+                            "[trace {}] it {} U=({:.4},{:.4},{:.4}) HbyA=({:.4},{:.4},{:.4}) rAU {:.3e} diag {:.3e} b_z {:.3e} offmat_z {:.3e} gradp=({:.3e},{:.3e},{:.3e}) p {:.4}",
+                            c, it,
+                            self.u.data[c][0], self.u.data[c][1], self.u.data[c][2],
+                            self.hbya.data[c][0], self.hbya.data[c][1], self.hbya.data[c][2],
+                            self.rau[c], csr.diag_value(c), m.source[c][2], off,
+                            self.grad_p[c][0], self.grad_p[c][1], self.grad_p[c][2], self.p.data[c]
+                        );
+                        let mut fl = String::new();
+                        for f in self.mesh.cell_face_iter(c) {
+                            let out = self.mesh.face_sf_out(f, c);
+                            let q = self.phi[f] * if self.mesh.is_owner(f, c) { 1.0 } else { -1.0 };
+                            fl.push_str(&format!("  f{} out={} phi_out={:.3e} |Sf| {:.3e} U_nb={:.3}\n",
+                                f, if f < self.mesh.n_internal { "I" } else { "B" }, q, self.mesh.face_mag[f],
+                                if f < self.mesh.n_internal { self.u.data[self.mesh.other_cell(f, c)][2] } else { self.u.bnd[f - self.mesh.n_internal][2] }));
+                            let _ = out;
+                        }
+                        if std::env::var("FLOWSCOPE_TRACE_FACES").is_ok() {
+                            print!("{}", fl);
+                        }
+                    }
+                }
+            }
             // ⑥ phiHbyA
             self.update_hbya_bnd();
             let mut phi_hbya = hbya_flux(&self.mesh, &self.hbya);
             // ⑥b 全局通量平衡（adjustPhi）：出口通量补足入口，压力方程只处理局部失衡
             adjust_phi(&self.mesh, &self.patches, &mut phi_hbya);
+            // 诊断（FLOWSCOPE_DIAG_PATCHFLUX）：adjustPhi 前后的 patch 通量，
+            // 用于量化"出口通量有多大比例来自 adjustPhi"（D-5 归因）
+            if std::env::var("FLOWSCOPE_DIAG_PATCHFLUX").is_ok() {
+                let mut line = format!("  [phiHbyA it {it}]");
+                for (i, p) in self.patches.iter().enumerate() {
+                    let q = crate::metrics::patch_flux_sum(&self.mesh, &phi_hbya, i);
+                    line.push_str(&format!(" {}={:.4e}", p.name, q));
+                }
+                let mut uflux = 0.0f64;
+                for f in 0..self.mesh.n_faces() {
+                    let uf = self.u.face_value(&self.mesh, f);
+                    uflux += uf[0] * self.mesh.face_sf[f][0]
+                        + uf[1] * self.mesh.face_sf[f][1]
+                        + uf[2] * self.mesh.face_sf[f][2];
+                }
+                line.push_str(&format!("  | sum(U*.Sf) over all faces = {uflux:+.4e}"));
+                println!("{}", line);
+            }
             if std::env::var("FLOWSCOPE_DIAG_DIV").is_ok() {
                 let mut tops: Vec<(f64, usize)> = Vec::new();
                 let mut sumabs = 0.0f64;
@@ -473,6 +526,19 @@ impl SimpleSolver {
                     self.grad_p[bi][0], self.grad_p[bi][1], self.grad_p[bi][2],
                     self.p.data[bi]
                 );
+                // 过程量：契约 §11 口径 dP（Pa）——L1 对拍必须能看它随迭代的漂移
+                let mut num = 0.0f64;
+                let mut den = 0usize;
+                for p in &self.patches {
+                    if p.name.starts_with("inlet") {
+                        for f in p.start..p.start + p.n_faces {
+                            num += self.p.bnd[f - self.mesh.n_internal];
+                        }
+                        den += p.n_faces;
+                    }
+                }
+                let p_in = if den > 0 { num / den as f64 } else { f64::NAN };
+                println!("        dP(kin) {:.6e}  dP(Pa) {:.6e}", p_in, RHO_AIR * p_in);
             }
             // ⑫ residualControl 双达标 → 早停
             if pinfo.init_res < self.cfg.params.residual_p

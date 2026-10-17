@@ -209,8 +209,14 @@ fn nonorth_source(
     out
 }
 
-/// bounded linearUpwind 面值：U_f = U_c + θ·(C_f−C_c)·gradU_c，θ 为使面值不越出
-/// [U_c, U_d] 范围的标量限示因子（TVD 型，逐分量取最严格）
+/// bounded linearUpwind 面值：U_f = U_c + θ·(C_f−C_c)·gradU_c（可选限示器）。
+///
+/// **契约真实性（第四棒更正）**：OpenFOAM 用户指南 §4.5.3 明确 `bounded` 不是限示器，
+/// 而是把对流项按物质导数形式 ∂e/∂t + ∇·(Ue) − (∇·U)e 离散（多出 −(∇·U)e 项）；
+/// `Gauss linearUpwind` 本身是**无界**二阶迎风偏置格式（指南原文："linearUpwind:
+/// second order, upwind-biased, unbounded"）。因此本函数的默认行为是**纯外插、不限示**；
+/// 第三棒加入的"夹到 [U_c,U_d]"限示器只是诊断用的保守变体，默认关闭
+/// （`FLOWSCOPE_LU_LIMITER=clamp` 可复现旧行为）。
 fn bounded_lu_face(
     mesh: &Mesh,
     u: &VolVector,
@@ -227,10 +233,22 @@ fn bounded_lu_face(
     for i in 0..3 {
         e[i] = psi[0] * g[i][0] + psi[1] * g[i][1] + psi[2] * g[i][2];
     }
-    let mut theta = 1.0f64;
+    let mut out = [0.0f64; 3];
+    // 诊断开关（默认关）：绕过限示器 = 纯二阶迎风外插，用于量化"限示器耗散"对
+    // 真实算例的代价（见看板 W5 诊断记录）。
+    let unlimited = std::env::var("FLOWSCOPE_LU_UNLIMITED").is_ok();
+    // 限示器（默认关，仅诊断；契约方案不含限示器，见上方文档注释）
+    let clamp_on = std::env::var("FLOWSCOPE_LU_LIMITER")
+        .map(|v| v == "clamp")
+        .unwrap_or(false);
     for i in 0..3 {
+        if unlimited || !clamp_on {
+            out[i] = u.data[c][i] + e[i];
+            continue;
+        }
         let dd = u.data[d][i] - u.data[c][i];
-        let r = if dd.abs() < 1e-14 {
+        let theta = if dd.abs() < 1e-14 {
+            // 两端分量相等：外插值必须为 0（否则制造新极值）
             if e[i].abs() < 1e-14 {
                 1.0
             } else {
@@ -239,13 +257,17 @@ fn bounded_lu_face(
         } else {
             (e[i] / dd).clamp(0.0, 1.0)
         };
-        theta = theta.min(r);
+        out[i] = u.data[c][i] + theta * e[i];
     }
-    [
-        u.data[c][0] + theta * e[0],
-        u.data[c][1] + theta * e[1],
-        u.data[c][2] + theta * e[2],
-    ]
+    out
+}
+
+/// 契约 §5 的 `bounded` 前缀（默认开）：OpenFOAM 用户指南 §4.5.3 定义——
+/// 稳态下对流项按 `∇·(Ue) − (∇·U)e` 离散。它不是限示器；作用是维持有界性与
+/// 收敛性（"helps maintain boundedness of the solution variable and promotes
+/// better convergence"）。`FLOWSCOPE_BOUNDED=0` 可回退到第三棒的保守形式（诊断用）。
+pub fn bounded_form() -> bool {
+    std::env::var("FLOWSCOPE_BOUNDED").map(|v| v != "0").unwrap_or(true)
 }
 
 #[inline]
@@ -272,6 +294,7 @@ pub fn assemble_momentum(
     let n = mesh.n_cells();
     let ni = mesh.n_internal;
     let mut m = FvVectorMatrix::zeros(n, ni);
+    let bounded = bounded_form();
     // ---- 内部面 ----
     for f in 0..ni {
         let o = mesh.face_owner[f] as usize;
@@ -289,7 +312,15 @@ pub fn assemble_momentum(
         let cf = nonorth_source(sf, &grad_u[o], &grad_u[nb], delta, nu);
         m.source[o] = add3(m.source[o], cf);
         m.source[nb] = add3(m.source[nb], scale3(cf, -1.0));
-        // 对流（隐式 upwind + bounded LU 显式偏差）
+        // 对流（隐式 upwind + 二阶外插的显式延迟修正）
+        //
+        // 两种稳态形式（第四棒按用户指南 §4.5.3 更正）：
+        //  · 保守形式（bounded=0）：C_P = Σ φ_f u_f —— 上风向单元持有隐式对流对角项；
+        //  · bounded 形式（默认）  ：C_P = Σ φ_f u_f − u_P·Σ φ_f —— 下风向单元持有对角项，
+        //    等价于对 ∇·(Ue) − (∇·U)e 做离散，是 OpenFOAM `bounded` 前缀的**文档定义**。
+        // 两者在 Σφ→0 时同一不动点，但 bounded 形式的矩阵对角只含入流贡献，
+        // 对流项不抬高对角 → 配合 α_U=0.7 的方程松弛后可容纳无界二阶外插
+        // （这正是 OF 不开限示器也稳定的机制）。
         if phi_f != 0.0 {
             let u_f = if lu_deviation {
                 bounded_lu_face(mesh, u, grad_u, f, phi_f)
@@ -297,19 +328,24 @@ pub fn assemble_momentum(
                 if phi_f > 0.0 { u.data[o] } else { u.data[nb] }
             };
             // 符号约定：本文所有显式项按 A·u = b 记，b = −(显式 LHS 项)。
-            // 高阶面值分解 u_f = u_upwind + dev，隐式部分已进 A（upwind 系数），
-            // 故余项 φ_f·dev 的 RHS 贡献为 **−φ_f·dev**（owner 行）。
-            // 写成 +φ_f·dev 会把延迟修正变成**反扩散**（量级 = 迎风数值扩散的 2 倍，
-            // 而 ν·k_f 只有其 1/5）→ 高 Péclet 局部奇偶失稳（pN6 尖峰根因）。
+            // 高阶偏差 dev = u_f − u_upwind，其 RHS 贡献为 −φ_f·dev（行主元侧）。
             if phi_f > 0.0 {
-                m.diag[o] += phi_f;
+                if bounded {
+                    m.diag[nb] += phi_f;
+                } else {
+                    m.diag[o] += phi_f;
+                }
                 m.lower[f] += -phi_f;
                 let dev = sub(u_f, u.data[o]);
                 m.source[o] = add3(m.source[o], scale3(dev, -phi_f));
                 m.source[nb] = add3(m.source[nb], scale3(dev, phi_f));
             } else {
+                if bounded {
+                    m.diag[o] += -phi_f;
+                } else {
+                    m.diag[nb] += -phi_f;
+                }
                 m.upper[f] += phi_f;
-                m.diag[nb] += -phi_f;
                 let dev = sub(u_f, u.data[nb]);
                 m.source[o] = add3(m.source[o], scale3(dev, -phi_f));
                 m.source[nb] = add3(m.source[nb], scale3(dev, phi_f));
@@ -333,15 +369,21 @@ pub fn assemble_momentum(
                 let cf = nonorth_source(sf, &grad_u[c], &grad_u[c], delta, nu);
                 m.source[c] = add3(m.source[c], cf);
             }
-            // 对流
+            // 对流：C_P 边界面贡献 φ_f(u_f − u_P)
             if phi_f != 0.0 {
                 let u_f = if p.vel_fixed { u.bnd[bi] } else { u.data[c] };
                 if phi_f > 0.0 {
-                    // 出流：上游 = 本单元
-                    m.diag[c] += phi_f;
+                    // 出流：u_f 由本单元/BC 给出；bounded 形式的 −u_PΣφ 使对角项归零
+                    if !bounded {
+                        m.diag[c] += phi_f;
+                    }
                     m.source[c] = add3(m.source[c], scale3(sub(u_f, u.data[c]), phi_f));
                 } else {
                     // 入流：上游 = 边界面值，已知项移到 RHS（LHS 的 +phi_f·u_b 取负）
+                    if bounded {
+                        // −u_P·Σφ 中该面的贡献：φ_f<0 → 对角 +(−φ_f)
+                        m.diag[c] += -phi_f;
+                    }
                     m.source[c] = add3(m.source[c], scale3(u_f, -phi_f));
                 }
             }
@@ -373,26 +415,30 @@ pub fn hbya_flux(mesh: &Mesh, hbya: &VolVector) -> Vec<f64> {
 }
 
 /// 全局通量平衡（对标 OpenFOAM adjustPhi，SIMPLE 标准预处理）：
-/// 固定速度 patch（入口/壁面）的通量视为给定；在速度非固定 patch（出口）上
-/// 均匀加一个常数，使 Σ_boundary phi = 0。缺少此步时，压力方程被迫在首步
+/// 在速度非固定、压力固定的 patch（出口）上均匀加一个常数，使
+/// **Σ_所有边界面 phi = 0**。缺少此步时，压力方程被迫在首步
 /// 用局部压差"造出"全部流量，会在缩颈处产生非物理射流种子。
+///
+/// 第四棒修正（B5）：旧实现只把"非可调面"的失衡摊到出口，**漏掉了出口自身的
+/// phiHbyA 通量**——于是出口总通量被写成 (自身 + 入口)，压力方程再把它修正回来，
+/// 等价于在出口附近人为压低 Δp ≈ 10 Pa（p_cell ≈ −9 kinematic），并使出口单元速度
+/// 与面通量脱节（见 D-5）。正确做法是失衡按**全部边界面**求和。
 pub fn adjust_phi(mesh: &Mesh, patches: &[PatchCtx], phi: &mut [f64]) {
     // 只有"压力固定 + 速度不固定"的 patch 才是真正的出口/可调面
     // （对称/零梯度 patch 两侧同号补偿，绝不能灌流通量——否则入口流量会从对称面漏走）
     let adjustable = |p: &PatchCtx| !p.vel_fixed && p.pres_fixed;
-    let mut sum_fixed = 0.0f64;
+    let mut sum_all = 0.0f64;
     let mut n_adjust = 0usize;
     for p in patches {
         for f in p.start..p.start + p.n_faces {
+            sum_all += phi[f];
             if adjustable(p) {
                 n_adjust += 1;
-            } else {
-                sum_fixed += phi[f];
             }
         }
     }
-    if n_adjust > 0 && sum_fixed.abs() > 0.0 {
-        let add = -sum_fixed / n_adjust as f64;
+    if n_adjust > 0 && sum_all.abs() > 0.0 {
+        let add = -sum_all / n_adjust as f64;
         for p in patches {
             if !adjustable(p) {
                 continue;
