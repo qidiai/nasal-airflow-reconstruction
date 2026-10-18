@@ -69,3 +69,5 @@ code/pipeline/_m2_patch_*.py
 code/pipeline/_m2tools/
 code/pipeline/T52_work/
 code/pipeline/T50*.png
+
+code/solver/out/
