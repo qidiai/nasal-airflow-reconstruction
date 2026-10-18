@@ -12,7 +12,7 @@
 use std::path::Path;
 
 use crate::bc::{BoundaryConditions, PatchBC, PressureBC, VelocityBC};
-use crate::config::{CaseConfig, SolverParams};
+use crate::config::{CaseConfig, RunMode, SolverParams};
 use crate::fields::{grad_scalar, grad_vector, VolScalar, VolVector};
 use crate::fvm::{
     adjust_phi, assemble_momentum, assemble_pressure, bnd_pres_fixed_flags, compile_patches,
@@ -47,6 +47,8 @@ pub struct SimpleSolver {
     pub p: VolScalar,
     pub hbya: VolVector,
     pub rau: Vec<f64>,
+    /// Run-B 启动压力斜坡的基准值（PatchCtx.pres_value 的初始快照）
+    pub p_bc_base: Vec<f64>,
     pub phi: Vec<f64>,
     pub grad_u: Vec<[[f64; 3]; 3]>,
     pub grad_p: Vec<[f64; 3]>,
@@ -66,6 +68,7 @@ impl SimpleSolver {
         let hbya = VolVector::zeros(&mesh);
         let rau = vec![0.0; mesh.n_cells()];
         let phi = vec![0.0; mesh.n_faces()];
+        let p_bc_base: Vec<f64> = patches.iter().map(|p| p.pres_value).collect();
         Ok(SimpleSolver {
             mesh,
             cfg,
@@ -75,6 +78,7 @@ impl SimpleSolver {
             p,
             hbya,
             rau,
+            p_bc_base,
             phi,
             grad_u: Vec::new(),
             grad_p: Vec::new(),
@@ -172,6 +176,31 @@ impl SimpleSolver {
                 let bi = f - ni;
                 let c = self.mesh.face_owner[f] as usize;
                 self.p.bnd[bi] = self.p.data[c];
+            }
+        }
+    }
+
+    /// Run-B 等压模式启动压力斜坡（`FLOWSCOPE_RUNB_RAMP=<N>`，默认 0=关）：
+    /// 入口 fixedValue 压力在前 N 步由 0 线性升到归档值（pA-v1B = 80 kinematic）。
+    /// 动机（看板 G-C3b）：U=0 冷启动 + 全压差 fixedValue 在首步产生 |U|≈800 m/s
+    /// 的非物理射流种子，随后压力场指数放大（iter 3 已 |p|max 1.4e5）直至 NaN。
+    /// 压力参数连续性（pressure continuation）是 SIMPLE 标准启动手段；第 N+1 步起
+    /// BC 与归档 0/p 逐字段一致（终态同口径），仅在启动阶段改动。
+    fn apply_runb_p_ramp(&mut self, it: usize) {
+        if self.cfg.run != RunMode::RunB {
+            return;
+        }
+        let ramp = std::env::var("FLOWSCOPE_RUNB_RAMP")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(0);
+        if ramp == 0 {
+            return;
+        }
+        let scale = (it as f64 / ramp as f64).min(1.0);
+        for (i, p) in self.patches.iter_mut().enumerate() {
+            if p.pres_fixed {
+                p.pres_value = self.p_bc_base[i] * scale;
             }
         }
     }
@@ -297,6 +326,10 @@ impl SimpleSolver {
         for it in 1..=max_iter {
             self.iter = it;
             let n_cells = self.mesh.n_cells();
+            // ⓪ Run-B 启动压力斜坡（默认关；见 apply_runb_p_ramp）
+            self.apply_runb_p_ramp(it);
+            self.update_bcs();
+            self.grad_p = grad_scalar(&self.mesh, &self.p);
             // ① grad(U)（当前场）
             self.grad_u = grad_vector(&self.mesh, &self.u);
             // ② 组装松弛后动量矩阵 + CSR
