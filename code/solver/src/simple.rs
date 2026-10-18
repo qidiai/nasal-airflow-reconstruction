@@ -308,6 +308,59 @@ impl SimpleSolver {
         }
         self.grad_p = grad_scalar(&self.mesh, &self.p);
         self.grad_u = grad_vector(&self.mesh, &self.u);
+        // Run-B 势流初场（`FLOWSCOPE_RUNB_POTENTIAL=1`，默认关）：
+        // 先解无对流 Laplace 压力场（边界 fixedValue 80/0），再由 U = -rAU·grad(p)
+        // 初始化速度并生成满足守恒的 Rhie-Chow 面通量。目的是消除 U=0 冷启动下
+        // 全压差 fixedValue 对 SIMPLE 首步的冲击（G-C3b 发散机制）。
+        if self.cfg.run == RunMode::RunB && std::env::var("FLOWSCOPE_RUNB_POTENTIAL").is_ok() {
+            let m0 = assemble_momentum(
+                &self.mesh,
+                nu,
+                alpha_u,
+                &self.patches,
+                &self.phi,
+                &self.u,
+                &self.grad_u,
+                lu_dev,
+            );
+            let csr0 = m0.to_csr(&self.mesh);
+            for c in 0..self.mesh.n_cells() {
+                self.rau[c] = self.mesh.cell_vol[c] / csr0.diag_value(c).max(1e-300);
+            }
+            let zero_phi = vec![0.0f64; self.mesh.n_faces()];
+            let pm = assemble_pressure(&self.mesh, &self.patches, &self.rau, &zero_phi, &self.bnd_pf);
+            let pcsr = pm.to_csr(&self.mesh);
+            let mut p0 = vec![0.0f64; self.mesh.n_cells()];
+            let pinfo = pcg(&pcsr, &pm.source, &mut p0, 1e-9, 1e-8, 5000, true);
+            self.p.data = p0;
+            self.refresh_p_bnd();
+            self.grad_p = grad_scalar(&self.mesh, &self.p);
+            for c in 0..self.mesh.n_cells() {
+                let r = self.rau[c];
+                self.u.data[c] = [
+                    -r * self.grad_p[c][0],
+                    -r * self.grad_p[c][1],
+                    -r * self.grad_p[c][2],
+                ];
+            }
+            self.update_bcs();
+            self.hbya = self.u.clone();
+            self.update_hbya_bnd();
+            let phi_hbya = hbya_flux(&self.mesh, &self.hbya);
+            self.phi = rhie_chow_phi(&self.mesh, &self.rau, &phi_hbya, &self.p);
+            self.grad_u = grad_vector(&self.mesh, &self.u);
+            println!(
+                "[init] Run-B potential-flow: pLin {} it, final {:.3e}, |U|max {:.4e} m/s, |p|max {:.4e}",
+                pinfo.iters,
+                pinfo.final_res,
+                self.u
+                    .data
+                    .iter()
+                    .map(|v| v[0].abs().max(v[1].abs()).max(v[2].abs()))
+                    .fold(0.0f64, f64::max),
+                self.p.data.iter().cloned().fold(0.0f64, |a, b| a.max(b.abs()))
+            );
+        }
         if verbose {
             println!(
                 "== FlowScope SIMPLE：{} | cells {} | faces {} (internal {}) | nu {:.4e} | maxIter {} ==",
