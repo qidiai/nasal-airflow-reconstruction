@@ -144,3 +144,23 @@ OpenFOAM 退役（M3）须待以下条件闭合——退役不可逆（永久失
   flux closure 4e-6%；cells 53,747。
 - M3 回归三例全过：pA +1.632% / case-003 +0.116% / case-001 -0.527%，全部在 ±2% 内。
 - errata 闭环：f53b708"回归全过"失实声明（case-001 未跑完即宣称）至此纠正。
+
+## 2026-10-19 M4 门控关闭：双审计 GO-with-conditions → 整改全闭环 → 历史干净重写
+
+- **双审计**（报告：`项目\审计-M4成像-GLM53-2026-10-19.md` / `审计-M4成像-KIMI27-2026-10-19.md`）：
+  GLM53 GO-with-conditions（10 发现/C1-C5）；KIMI27 GO-with-conditions（1 中 5 低）。
+  分歧裁决：GLM 的 C1（患者影像禁入仓）成立——consent-ledger L62"实图也禁"明文，
+  KIMI 未列该条属漏检（只对照 wording.py 禁则、未查影像来源）。
+- **C1 闭环（高·推送前硬闸）**：初版交付 f39de64 曾将患者派生影像（qc_pA_mid.png
+  CT 轴位轮廓 + 患者几何场切片）随样例报告入仓。因两提交均未推送，按审计要求做
+  **本地历史干净重写**：`git reset --soft ce2320f` 后以审计整改后树重组单一提交
+  `633014f`（32 文件/5492 行）；`git diff --name-only ce2320f HEAD` 患者产物=0。
+  旧哈希 f39de64/8c748c9 仅存 reflog，**推送前不得恢复**。
+- **C2-C5 闭环**：plus/ 入 gitignore；requirements.txt 补 meshio/pyvista；cases.py
+  pN-Lat/pN-Med 双口径注释（前端包 116.28/8.30 vs 归档 148.65/27.76 Pa）；
+  看板-M4.md 重写（门结果+证据引用+提交态措辞校正）。
+- **提交态边界**：examples/ 仅 synth-001（100% 合成）；患者例报告/渲染图本地授权展示，
+  `embed_demo_reports.py --cases` 本地重建；demo.html 患者例按钮转提示文案。
+- **遗留（不阻断 M5 派工，阻断 M5 供数）**：pN-Lat/pN-Med 口径对账须在 M5 API
+  对外供数前完成（cases.py 注释已标）。
+- **推送闸门**：本地领先 origin 16 提交；C1-C3 已复验闭环，推送待用户确认。
