@@ -130,6 +130,54 @@ def case_results_dir(case_id):
     return d if os.path.isdir(d) else ""
 
 
+# LT-8：结果档案"必需文件"白名单子集（RESULTS_WHITELIST 的文件名 + metrics.json 为契约锚点）。
+# 只做"档案在不在"的存在性判断——不解析内容，不改任何导出闸门。
+REQUIRED_RESULT_FILES = ("metrics.json",)
+
+
+def case_results_status(case_id):
+    """结果档案就绪度：(ok, 缺失文件清单)。
+
+    ok = 结果目录存在且必需文件齐全。上传病例 status=done 但 ok=False 即"陈旧病例"
+    （badge 该显示 ⚠️ 而不是 ✅）——只标记，不删数据、不改导出。
+    """
+    files = [fn for fn in REQUIRED_RESULT_FILES if fn in RESULTS_WHITELIST]
+    d = case_results_dir(case_id)
+    if not d:
+        return False, list(files)
+    missing = [fn for fn in files if not os.path.isfile(os.path.join(d, fn))]
+    return (not missing), missing
+
+
+def scan_stale_cases(cfg):
+    """启动自检（LT-8）：扫描注册表，统计"结果缺失的陈旧病例"，打印 [W] 日志。
+
+    只标记不删数据：不写注册表、不动任何目录，仅把事实暴露在启动日志里，
+    便于操作员发现 pX 这类"badge=done 但结果目录为空"的历史记录。
+    """
+    try:
+        reg = load_registry(cfg)
+    except Exception as e:  # noqa: BLE001
+        print("[W] 陈旧病例扫描跳过（注册表读取失败：%r）" % (e,), flush=True)
+        return 0
+    stale = []
+    for cid, r in sorted(reg.items()):
+        if not isinstance(r, dict):
+            continue
+        if r.get("kind") != "upload" or r.get("status") != "done":
+            continue
+        ok, missing = case_results_status(cid)
+        if not ok:
+            stale.append((cid, missing))
+    for cid, missing in stale:
+        print("[W] 陈旧病例 %s：status=done 但结果档案缺失（缺 %s）——仅标记 stale，不删数据"
+              % (cid, ",".join(missing) or "结果目录"), flush=True)
+    if stale:
+        print("[W] 陈旧病例扫描：%d 个上传病例标记为结果缺失（stale）——前端显示 ⚠️（结果缺失）"
+              % len(stale), flush=True)
+    return len(stale)
+
+
 # ---------------------------------------------------------------- 真实鼻腔 3D 模型（GLB）  [MODEL-ROUTE]
 # 白名单（case_id → 文件名）。2026-10-16 裁决：pN/pN2 正常对照前端下架
 # （鼻阻力经文献对比未达标准），GLB 数据文件保留不删、仅不再 serve。
@@ -162,6 +210,24 @@ def digest_pii_fail(f):
         raw = parts[2]
         parts[2] = "<值已隐藏,长度%d>" % len(raw)
     return parts
+
+
+# run_all 的 FATAL 行把 scan_pii 的 fails 元组 repr 原样带出（含原始值）。
+# 前端"拦截原因"卡片要展示该行，因此展示前把元组第 3 个元素（值字段）摘要化。
+_PII_TUPLE_RE = re.compile(
+    r"(\(\s*'(?:[^'\\]|\\.)*'\s*,\s*'(?:[^'\\]|\\.)*'\s*,\s*)('[^']*'|\"[^\"]*\")")
+
+
+def mask_fatal_pii_values(text):
+    """把 FATAL 行里 PII 元组的"值"字段摘要化（只影响展示，不动日志/数据）。"""
+    s = str(text or "")
+    if "PatientName" not in s and "PatientID" not in s and "AccessionNumber" not in s \
+            and "InstitutionName" not in s:
+        return s
+    try:
+        return _PII_TUPLE_RE.sub(lambda m: m.group(1) + "'<值已隐藏>'", s)
+    except Exception:  # noqa: BLE001
+        return s
 
 
 def case_results_metrics_path(case_id):
@@ -534,7 +600,7 @@ def _parse_retention(v):
 
 
 def parse_consent_fields(src):
-    """弹窗三问 → 规范 consent 字段；校验失败返回 (None, 中文错误串)。
+    """弹窗三问 → 规范 consent 字段；校验失败返回 (None, 中文错误串, 出错字段名)。
 
     三问校验（顺序即报错顺序）：
       ① 数据主体 ∈ 本人CT / 已获授权的他人CT / 演示数据
@@ -542,30 +608,34 @@ def parse_consent_fields(src):
       ③ 数据保留 ∈ 仅本次会话 / 保留1天 / 保留7天 / 保留30天（不提供永久保留）
     附加：非演示数据必填"来源一句话"；authorization_ref 由放行层判定
     （见 evaluate_consent——缺凭证时如实拦截而非此处 400，便于落档留证）。
+
+    第 3 个返回值是字段名（data_subject / processing_scope / retention /
+    source_declaration / authorization_ref），供前端把 400 定位到具体控件。
+    成功时返回 (fields, "", "")。
     """
     src = src if isinstance(src, dict) else {}
     ds_raw = str(src.get("data_subject") or "").strip()
     ds = _DATA_SUBJECT_ALIASES.get(ds_raw.lower())
     if not ds:
         return None, ("数据主体须为 本人CT / 已获授权的他人CT / 演示数据（收到："
-                      + (ds_raw or "（空）") + "）")
+                      + (ds_raw or "（空）") + "）"), "data_subject"
     ps_raw = str(src.get("processing_scope") or "").strip()
     ps = _PROCESSING_ALIASES.get(ps_raw.lower())
     if not ps:
         return None, ("处理位置须为 仅本机处理 / 允许云端处理（收到："
-                      + (ps_raw or "（空）") + "）")
+                      + (ps_raw or "（空）") + "）"), "processing_scope"
     ret = _parse_retention(src.get("retention"))
     if not ret:
         return None, ("数据保留须为 仅本次会话 / 保留1天 / 保留7天 / 保留30天（收到："
-                      + str(src.get("retention") or "（空）") + "）")
+                      + str(src.get("retention") or "（空）") + "）"), "retention"
     decl = str(src.get("source_declaration") or "").strip()
     if ds != "demo" and not decl:
-        return None, "来源声明必填（演示数据可空）：请用一句话说明数据来源"
+        return None, "来源声明必填（演示数据可空）：请用一句话说明数据来源", "source_declaration"
     return {"data_subject": ds,
             "source_declaration": decl,
             "authorization_ref": str(src.get("authorization_ref") or "").strip(),
             "processing_scope": ps,
-            "retention": ret}, ""
+            "retention": ret}, "", ""
 
 
 def build_consent_record(case_id, fields, pii_scan="pass"):
@@ -693,18 +763,18 @@ def _consent_audit(cfg, event):
 
 
 def _consent_from_form(form):
-    """从表单解析弹窗三问（字段 consent=JSON 串）。返回 (fields|None, err|None)。
+    """从表单解析弹窗三问（字段 consent=JSON 串）。返回 (fields|None, err|None, field|None)。
 
     缺省即"未弹窗"（向后兼容：不带 consent 的调用行为与 T16 完全一致）；
-    带字段但非法 → (None, 错误串)，调用方 400。
+    带字段但非法 → (None, 错误串, 字段名)，调用方 400 并把字段名回给前端定位控件。
     """
     raw = form.get("consent") if form is not None else None
     if not raw:
-        return None, None
+        return None, None, None
     try:
         src = json.loads(raw)
     except (ValueError, TypeError):
-        return None, "consent 字段须为 JSON 对象（弹窗三问）"
+        return None, "consent 字段须为 JSON 对象（弹窗三问）", "consent"
     return parse_consent_fields(src)
 
 
@@ -1147,7 +1217,8 @@ def run_chain_thread(cfg, case_id, solve, result_dir):
                                        + case_id + "/viewer_single.html）")
     elif mapped == "blocked":
         r["gate"] = "run_all 断言闸门"
-        r["gate_failures"] = [extract_fatal_reason(out_dir) or "断言停工（exit 2），详见进度日志"]
+        r["gate_failures"] = [mask_fatal_pii_values(extract_fatal_reason(out_dir))
+                              or "断言停工（exit 2），详见进度日志"]
         append_progress(out_dir, f"[W] ⛔ 门禁拦截（exit 2）：{r['gate_failures'][0]}")
     elif mapped == "failed_env":
         r["gate_failures"] = [f"求解环境缺失（exit 3，backend={SB.resolve_backend()}）："
@@ -2041,6 +2112,10 @@ def build_app(cfg):
     app = Flask(__name__, static_folder=WEBAPP_DIR, static_url_path="/static")
     app.config["SERVER_CONFIG"] = cfg
 
+    # LT-8 启动自检：登记表里 status=done 但结果档案缺失的"陈旧病例"打 [W] 日志
+    # （只标记不删数据；/api/cases 每次请求按需重算，不会因为标记而误伤后来补回的结果）
+    scan_stale_cases(cfg)
+
     @app.before_request
     def static_patient_gate():
         """云形态（only_synthetic）下，患者衍生静态数据直通一律 403（step5 审计 Medium 修复）"""
@@ -2139,6 +2214,7 @@ def build_app(cfg):
                 "badge": d["badge"], "badge_text": d["badge_text"],
                 "status": rec["status"],
                 "dicom_configured": dicom_ok,
+                "stale": False,
                 "dicom_label": d.get("dicom_label", ""),
                 "presenter_only": bool(rec.get("presenter_only")) and not cfg.presenter,
                 "viewer_available": _viewer_available(cfg, rec),
@@ -2157,6 +2233,7 @@ def build_app(cfg):
             "case_id": "demo", "label": rec["label"], "kind": "synthetic",
             "synthetic": True, "badge": rec["badge"], "badge_text": rec["badge_text"],
             "status": rec["status"], "dicom_configured": True,
+            "stale": False,
             "presenter_only": False,
             "viewer_available": True, "viewer_block_reason": "",
             "results_available": case_results_available(cfg, "demo"),
@@ -2170,15 +2247,26 @@ def build_app(cfg):
         for cid, r in sorted(reg.items()):
             if r.get("kind") != "upload":
                 continue
+            # LT-8 陈旧病例懒校验：status=done 但结果档案缺失 → 不显示绿勾
+            # （badge 降级为 pending + stale 标记；只改展示态，不删数据、不动结果）
+            results_ok, missing = case_results_status(cid)
+            stale = bool(r.get("status") == "done" and not results_ok)
+            badge = {"blocked": "⛔", "failed_env": "⚠️",
+                     "failed": "❌", "done": "✅", "handover": "📦",
+                     "running": "🔄", "segmented": "🔬",
+                     "registered": "📝"}.get(r.get("status"), "❓")
+            if stale:
+                badge = "pending"
             cards.append({
                 "case_id": cid, "label": r.get("label") or f"上传病例 {cid}",
                 "kind": "upload", "synthetic": False,
-                "badge": {"blocked": "⛔", "failed_env": "⚠️",
-                          "failed": "❌", "done": "✅", "handover": "📦",
-                          "running": "🔄", "segmented": "🔬",
-                          "registered": "📝"}.get(r.get("status"), "❓"),
+                "badge": badge,
                 "badge_text": r.get("status"),
                 "status": r.get("status"),
+                "results_ok": results_ok,
+                "stale": stale,
+                "stale_reason": "results_missing" if stale else "",
+                "missing_results": missing if stale else [],
                 "dicom_configured": bool(r.get("dicom_dir")),
                 "presenter_only": False,
                 "viewer_available": _viewer_available(cfg, r),
@@ -2231,9 +2319,10 @@ def build_app(cfg):
                                   anatomy_inclusion=bool(d.get("anatomy_inclusion")))
         elif source == "path":
             dicom_dir = form.get("dicom_path", "").strip().strip('"')
-            consent, cerr = _consent_from_form(form)  # T17 弹窗三问（可与上传同送）
+            consent, cerr, cfield = _consent_from_form(form)  # T17 弹窗三问（可与上传同送）
             if cerr:
-                return jsonify({"error": "弹窗授权字段校验失败：" + cerr}), 400
+                return jsonify({"error": "弹窗授权字段校验失败：" + cerr,
+                                "field": cfield or ""}), 400
             if not dicom_dir or not os.path.isdir(dicom_dir):
                 return jsonify({"error": f"CT 目录不存在或不是目录：{dicom_dir}"}), 400
             return _register_path_case(cfg, dicom_dir, source_label="服务器目录导入",
@@ -2342,9 +2431,10 @@ def build_app(cfg):
                                 + os.path.basename(f.filename.replace("\\", "/"))
                                 + "）；请重新选择 CT 序列目录（非 .dcm 文件请先剔除）"}), 400
         # T17 弹窗三问：真实数据上传即校验（非法 400 且不落盘；缺省=未弹窗，行为同 T16）
-        consent, cerr = _consent_from_form(request.form)
+        consent, cerr, cfield = _consent_from_form(request.form)
         if cerr:
-            return jsonify({"error": "弹窗授权字段校验失败：" + cerr}), 400
+            return jsonify({"error": "弹窗授权字段校验失败：" + cerr,
+                            "field": cfield or ""}), 400
         stamp = time.strftime("%Y%m%d-%H%M%S")
         up_dir = os.path.join(cfg.state_dir, "uploads", stamp)
         n = 1
@@ -2411,9 +2501,10 @@ def build_app(cfg):
         """
         body = request.get_json(silent=True) or {}
         # 先校验三问（fail-fast），再定位病例——与 /api/upload 的校验次序一致
-        fields, err = parse_consent_fields(body)
+        fields, err, fld = parse_consent_fields(body)
         if err:
-            return jsonify({"error": "弹窗授权字段校验失败：" + err}), 400
+            return jsonify({"error": "弹窗授权字段校验失败：" + err,
+                            "field": fld or ""}), 400
         case_id = str(body.get("case_id") or "").strip()
         rec = get_case_record(cfg, case_id) if case_id else None
         if rec is None:

@@ -331,6 +331,18 @@ input.filepick:hover{border-color:var(--teal)}
 }
 .warm-card .comfort b{color:var(--ink)}
 .warm-link{color:var(--teal-deep);font-weight:600}
+/* ---------- PII 脱敏指引卡（T1：拦截原因按闸门类型分流） ---------- */
+.pii-card{border-color:var(--coral,#ff6b6b)}
+.pii-card h3{color:var(--coral,#ff6b6b)}
+.pii-list{margin:10px 0;border:1px solid var(--line-new);border-radius:8px;overflow:hidden}
+.pii-row{display:grid;grid-template-columns:1.6fr 1fr 2.4fr;gap:8px;padding:7px 10px;font-size:13.5px;border-top:1px solid var(--line-new)}
+.pii-row:first-child{border-top:0}
+.pii-row.pii-head{background:var(--bg-2,#0000001a);font-weight:700}
+.pii-file{word-break:break-all;color:var(--ink-soft)}
+.pii-tag{font-weight:600}
+.pii-how{margin-top:10px;font-size:14px;line-height:1.7}
+.pii-how ul{margin:6px 0 8px 18px}
+.pii-how code{background:var(--bg-2,#00000022);padding:1px 6px;border-radius:5px;font-size:13px}
 /* ---------- 机制卡（了解 ENS） ---------- */
 .mech{display:grid;grid-template-columns:1fr;gap:12px}
 .mech .m-card{
@@ -393,7 +405,7 @@ footer .fixed-sentence{
   <span class="sub">把"喘不上气"变成看得见的数据 · 患者视角</span>
   <span id="badge-mode" class="badge">形态检测中…</span>
   <span id="badge-presenter" class="badge presenter" style="display:none">定向演示模式</span>
-  <button type="button" id="presenter-toggle" class="badge presenter" aria-pressed="false" title="打开独立演示页">演示模式 · 打开演示页</button>
+  <button type="button" id="presenter-toggle" class="badge presenter" aria-pressed="false" title="打开 M4 成像演示页（合成数据，无需 CT）">演示模式 · 打开演示页</button>
   <span id="badge-synthetic" class="badge m2" style="display:none">仅合成数据形态</span>
 </header>
 <nav id="tabs">
@@ -603,9 +615,14 @@ footer .fixed-sentence{
   <div class="card">
     <h2>网页直接上传 CT（现场演示）</h2>
     <div class="lead">直接从这台电脑选择 CT 文件夹（或若干 .dcm 文件）→ 自动登记病例 → 一键跑管线。无需把目录放到服务器本机。</div>
-    <label class="f" for="up-files">选择 CT 文件夹 / .dcm 文件</label>
-    <input type="file" class="filepick" id="up-files" multiple accept=".dcm" webkitdirectory directory>
-    <div class="hint" id="up-pick">尚未选择文件——点上方按钮选择包含 .dcm 序列的文件夹</div>
+    <label class="f">选择 CT 数据（文件夹，或若干 .dcm 文件）</label>
+    <input type="file" class="filepick" id="up-files" multiple accept=".dcm" webkitdirectory directory style="display:none">
+    <input type="file" class="filepick" id="up-files-plain" multiple accept=".dcm" style="display:none">
+    <div class="btnrow" style="margin-top:8px">
+      <button class="btn" type="button" id="up-pick-dir">选择 CT 文件夹</button>
+      <button class="btn" type="button" id="up-pick-files">选择 .dcm 文件</button>
+    </div>
+    <div class="hint" id="up-pick">尚未选择——点上方按钮选择包含 .dcm 序列的文件夹，或若干 .dcm 文件</div>
     <div class="btnrow" style="margin-top:12px">
       <button class="btn primary" id="up-go" disabled>开始上传</button>
       <span class="hint">上传后自动建病例（隐私检查 + 气道重建），完成后可直接跑管线</span>
@@ -786,23 +803,30 @@ footer .fixed-sentence{
 .ct-err{color:var(--coral);font-size:13.5px;min-height:20px;margin:6px 0 0}
 .ct-fixed{margin-top:10px;padding-top:9px;border-top:1px dashed var(--line-new);
   font-size:12.5px;color:var(--text-2);text-align:center}
+.ct-err-inline{color:var(--coral);font-size:13px;margin:4px 0 0 4px;min-height:0}
+.ct-q.field-err-group{background:rgba(255,107,107,.08);border-radius:6px;box-shadow:inset 2px 0 0 var(--coral)}
+.ct-opt input.field-err,#ct-ret.field-err,#ct-decl.field-err,#ct-ref.field-err{outline:2px solid var(--coral);outline-offset:1px;border-radius:4px}
 </style>
 <div class="ct-mask" id="ct-consent-mask">
   <div class="ct-modal" role="dialog" aria-modal="true" aria-labelledby="ct-consent-title">
     <h3 id="ct-consent-title">数据授权确认（三问）</h3>
     <div class="ct-sub">上传真实 CT 前请逐项确认；选择「合成 demo」体验时不会出现本弹窗。</div>
-    <div class="ct-q">
+    <div class="ct-q" id="ct-g-ds">
       <div class="ct-qlabel">① 数据主体</div>
       <label class="ct-opt"><input type="radio" name="ct-ds" value="self" checked><span>本人CT</span></label>
       <label class="ct-opt"><input type="radio" name="ct-ds" value="authorized_third_party"><span>已获授权的他人CT</span></label>
       <label class="ct-opt"><input type="radio" name="ct-ds" value="demo"><span>演示数据</span></label>
+      <div class="ct-hint">本人 CT 为默认；他人 CT 需持授权凭证（在第 ④ 项一并填写）。</div>
+      <div class="ct-err-inline" id="ct-err-ds"></div>
     </div>
-    <div class="ct-q">
+    <div class="ct-q" id="ct-g-ps">
       <div class="ct-qlabel">② 处理位置</div>
       <label class="ct-opt"><input type="radio" name="ct-ps" value="local_only" checked><span>仅本机处理（数据不离开这台电脑）</span></label>
       <label class="ct-opt"><input type="radio" name="ct-ps" value="cloud_optin"><span>允许云端处理（opt-in，需主动选择）</span></label>
+      <div class="ct-hint">仅本机处理：数据不离开这台电脑。</div>
+      <div class="ct-err-inline" id="ct-err-ps"></div>
     </div>
-    <div class="ct-q">
+    <div class="ct-q" id="ct-g-ret">
       <div class="ct-qlabel">③ 数据保留</div>
       <select class="f" id="ct-ret">
         <option value="session_only">仅本次会话（跑完即删）</option>
@@ -810,9 +834,10 @@ footer .fixed-sentence{
         <option value="days:7" selected>保留 7 天</option>
         <option value="days:30">保留 30 天</option>
       </select>
-      <div class="ct-hint">不提供永久保留。选「仅本次会话」时，分析链跑完即删除本例数据（不可恢复）。</div>
+      <div class="ct-hint">默认保留 7 天；不提供永久保留。选「仅本次会话」时，分析链跑完即删除本例数据（不可恢复）。</div>
+      <div class="ct-err-inline" id="ct-err-ret"></div>
     </div>
-    <div class="ct-q">
+    <div class="ct-q" id="ct-g-decl">
       <label class="ct-qlabel" for="ct-decl">数据来源说明（一句话；选「演示数据」可空）</label>
       <input class="f" id="ct-decl" maxlength="200"
         placeholder="例：本人 2026-09 于 XX 医院鼻窦 CT，已自行脱敏">
@@ -821,6 +846,7 @@ footer .fixed-sentence{
         <input class="f" id="ct-ref" maxlength="200"
           placeholder="例：授权书-20261001.pdf / 编号 AUTH-2026-101">
       </div>
+      <div class="ct-err-inline" id="ct-err-decl"></div>
     </div>
     <div class="ct-err" id="ct-err"></div>
     <div class="btnrow" style="margin-top:4px">
@@ -848,6 +874,32 @@ const S = { mode:null, presenter:false, onlySynthetic:false,
 const BAND_DP_UI = {lo:30, hi:150, unit:"Pa"};
 const BAND_DP_LIT = {lo:30, hi:50, unit:"Pa"};
 const BAND_R_UI = {lo:120, hi:600, unit:"Pa/(L/s)"};
+
+/* ================= T1 拦截原因：PII 字段 → 中文名 / 目标值 指引 =================
+   PII 闸门失败记录形如 [文件名, 字段名, 值(已打码), 判定语]（server digest_pii_fail）。
+   命中 PII 时不再套用"缺结果文件"话术，改用下表的定向脱敏指引。 */
+const GATE_TAG_HELP = {
+  PatientName:            {name:"患者姓名", target:"改为 Anonymous"},
+  PatientID:              {name:"患者 ID", target:"改为 YYYYMMDD-NNNNNN 格式（同一患者保持一致）"},
+  PatientBirthDate:       {name:"出生日期", target:"清空"},
+  InstitutionName:        {name:"机构名称", target:"清空"},
+  InstitutionAddress:     {name:"机构地址", target:"清空"},
+  ReferringPhysicianName: {name:"申请医师", target:"清空"},
+  AccessionNumber:        {name:"检查号", target:"清空"},
+  OtherPatientIDs:        {name:"其他 ID", target:"清空"},
+};
+const PII_TAGS = Object.keys(GATE_TAG_HELP);
+function isPiiText(s){
+  const t = String(s == null ? "" : s);
+  if(/\bPII\b/i.test(t)) return true;
+  return PII_TAGS.some(tag => t.indexOf(tag) >= 0);
+}
+function isPiiGate(c){
+  if(!c) return false;
+  if(/pii/i.test(String(c.gate || ""))) return true;
+  const fails = c.gate_failures || [];
+  return isPiiText(fails.map(f=>Array.isArray(f) ? f.join(" ") : String(f)).join(" "));
+}
 
 /* ================= 工具 ================= */
 async function api(path, opts){
@@ -2410,7 +2462,7 @@ $("nc-demo").addEventListener("click", ()=>doRegister("demo"));
 /* ================= 网页直接上传 CT（POST /api/upload · XHR 进度条） ================= */
 const UP_MAX_BYTES = 2048 * 1024 * 1024;   /* R-11 上传契约：2048 MiB */
 let upPicked = [];
-$("up-files").addEventListener("change", e=>{
+function upFilesChange(e){
   const all = Array.from(e.target.files || []);
   upPicked = all.filter(f=>/\.dcm$/i.test(f.name || ""));
   const skipped = all.length - upPicked.length;
@@ -2427,7 +2479,11 @@ $("up-files").addEventListener("change", e=>{
   if(mb > 2048) extra += ' <span class="warn">—约 ' + mb.toFixed(0) + " MiB 超过 2048 MiB 上限（R-11）</span>";
   $("up-pick").innerHTML = "已选择 <b>" + upPicked.length + "</b> 个 .dcm（约 " + mb.toFixed(1) + " MiB）" + skipTxt + extra;
   $("up-go").disabled = (mb > 2048) || upPicked.length < 2;
-});
+}
+$("up-files").addEventListener("change", upFilesChange);
+$("up-files-plain").addEventListener("change", upFilesChange);
+if($("up-pick-dir")) $("up-pick-dir").addEventListener("click", ()=>$("up-files").click());
+if($("up-pick-files")) $("up-pick-files").addEventListener("click", ()=>$("up-files-plain").click());
 $("up-go").addEventListener("click", uploadCT);
 
 function upBar(pct){
@@ -2492,6 +2548,13 @@ async function handleUploadResponse(xhr){
   }
   if(code === 413){
     $("up-result").innerHTML = (seriesNoteHtml(b) || "") + '<div class="warn">体积超限（HTTP 413）：' + esc(err) + "</div>";
+    return;
+  }
+  if(code === 400){
+    /* T6：同意字段校验失败（响应体带 field）→ 重开弹窗并定位到对应控件 */
+    $("up-result").innerHTML = (seriesNoteHtml(b) || "") + '<div class="warn">上传被拒绝（HTTP 400）：' + esc(err) + "</div>";
+    const ce = consentErrorFromBody(b);
+    if(ce) reopenConsentWithError(ce);
     return;
   }
   if(code !== 200 || !b){
@@ -2559,6 +2622,13 @@ async function doRegister(source, extra){
       <div><h3>访问受限</h3><div class="reason">${esc(r.body.error)}</div></div></div></div>`;
     return;
   }
+  if(r.status === 400){
+    /* T6：同意字段校验失败（响应体带 field）→ 重开弹窗并定位到对应控件 */
+    $("nc-result").innerHTML = `<div class="warn">登记失败（HTTP 400）：${esc(r.body && r.body.error || "")}</div>`;
+    const ce = consentErrorFromBody(r.body);
+    if(ce) reopenConsentWithError(ce);
+    return;
+  }
   if(!r.ok){
     $("nc-result").innerHTML = `<div class="warn">登记失败（HTTP ${r.status}）：${esc(r.body && r.body.error || "")}</div>`;
     return;
@@ -2587,6 +2657,8 @@ async function doRegister(source, extra){
 /* ---------- 暖色拦截卡（评审王牌 · 患者语言） ---------- */
 function patientReason(fails){
   const t = (fails || []).join(" ");
+  if(isPiiText(t))
+    return "这份 CT 的头信息里还带着未脱敏的隐私字段——我们不接收未脱敏的数据，请先脱敏后再上传。";
   if(/体积回归比|回归比/.test(t))
     return "气道模型的体积与原始 CT 扫描的差异超出了我们的质量带——某些区域在这个扫描精度下太细小，模型可能不够忠实。";
   if(/连续性|发散|FPE|不平衡|残差/.test(t))
@@ -2597,7 +2669,51 @@ function patientReason(fails){
     return "结果档案不完整——缺少部分必需的结果文件，我们不允许用其他患者的数据补位。";
   return "自动质量检查未通过——数据未达到我们每一步设下的质量标准。";
 }
+
+/* T1：PII 闸门专用拦截卡——逐条列 文件｜字段中文名｜原因（值打码），并按 GATE_TAG_HELP 给脱敏清单 */
+function piiGateCardHtml(c){
+  const raw = (c.gate_failures && c.gate_failures.length) ? c.gate_failures : [];
+  const rowsArr = raw.map(f=>{
+    if(!Array.isArray(f)) return {file:"—", tag:"", why:String(f)};
+    return {file:f[0], tag:f[1], masked:f[2], why:f[3]};
+  });
+  const rows = rowsArr.map(r=>{
+    const info = GATE_TAG_HELP[r.tag];
+    const why = (r.why || "未脱敏") + (r.masked ? "（值已打码：" + r.masked + "）" : "");
+    return '<div class="pii-row"><span class="pii-file">' + esc(r.file) + "</span>" +
+      '<span class="pii-tag">' + esc((info && info.name) || r.tag || "隐私字段") + "</span>" +
+      '<span class="pii-why">' + esc(why) + "</span></div>";
+  }).join("") || '<div class="pii-row"><span class="pii-file">—</span><span class="pii-tag">—</span><span class="pii-why">详见原始日志</span></div>';
+  const guide = PII_TAGS.map(tag=>{
+    const info = GATE_TAG_HELP[tag];
+    return "<li><b>" + esc(info.name) + "</b>（" + esc(tag) + "）→ " + esc(info.target) + "</li>";
+  }).join("");
+  return `<div class="warm-card pii-card">
+    <div class="warm-head">
+      <span class="warm-emoji">🔒</span>
+      <div style="flex:1">
+        <h3>CT 头信息含未脱敏隐私字段</h3>
+        <div class="reason">这份 CT 的 DICOM 头里仍带着可以识别到患者的信息——我们不接收未脱敏的数据。请先脱敏，再重新上传。</div>
+        <div class="pii-list">
+          <div class="pii-row pii-head"><span class="pii-file">文件</span><span class="pii-tag">字段</span><span class="pii-why">原因</span></div>
+          ${rows}
+        </div>
+        <div class="pii-how">
+          <div><b>需要怎么改</b>（把下列字段按目标值修改或清空）：</div>
+          <ul>${guide}</ul>
+          <div><b>怎么改</b>：用一行命令批量脱敏 —— <code>python anon_dicom.py &lt;CT目录&gt; &lt;输出目录&gt;</code></div>
+          <div>改完把输出目录重新上传即可（本页会自动登记并重跑隐私闸门）。</div>
+        </div>
+        <details><summary>技术细节（拦截原因）</summary>
+          <pre class="tech">${esc(rowsArr.map(r=>[r.file, r.tag, r.masked, r.why].filter(v=>v!=null).join(" | ")).join("\n") || "（原因列表为空——详见原始日志）")}</pre>
+        </details>
+      </div>
+    </div>
+  </div>`;
+}
+
 function warmGateCardHtml(c){
+  if(isPiiGate(c)) return piiGateCardHtml(c);
   const fails = (c.gate_failures && c.gate_failures.length)
     ? c.gate_failures : ["（原因列表为空——详见原始日志）"];
   const items = fails.map(f=>Array.isArray(f) ? f.join(" | ") : f);
@@ -2611,7 +2727,7 @@ function warmGateCardHtml(c){
         <div style="margin-top:8px">
           <a class="warm-link" href="#quality-stds" onclick="switchTab('ens')">我们的质量标准 →</a>
         </div>
-        <details><summary>技术详情（拦截原因·值已脱敏）</summary>
+        <details><summary>技术细节（拦截原因）</summary>
           <pre class="tech">${esc(items.join("\n"))}</pre>
         </details>
       </div>
@@ -2642,6 +2758,12 @@ $("pg-refresh").addEventListener("click", loadProgress);
 async function runChain(solve){
   const cid = S.selectedProgress || $("pg-case").value;
   if(!cid) return;
+  const blocker = caseRunBlocker(cid);   /* T3：blocked/stale 兜底（即便按钮未被禁也拦） */
+  if(blocker){
+    $("up-gate").innerHTML = '<div class="warn">' + esc(blocker) + "</div>";
+    if($("up-status")) $("up-status").innerHTML = '<span class="warn">' + esc(blocker) + "</span>";
+    return;
+  }
   const r = await api(`/api/run/${encodeURIComponent(cid)}`, {
     method:"POST", headers:{"Content-Type":"application/json"},
     body: JSON.stringify({solve: solve})});
@@ -2672,8 +2794,27 @@ $("pg-solve").addEventListener("click", async ()=>{
   }
 });
 
+/* T3：blocked / stale 病例 → 禁用主分析按钮并给出原因（数据来自 /api/cases，不写死） */
+function caseRunBlocker(cid){
+  const c = (S.cases || []).find(x=>x.case_id === cid);
+  if(!c) return "";
+  if(c.status === "blocked" || c.case_id === "pC") return "该病例未通过隐私闸门，需脱敏后重新上传";
+  if(c.stale) return "该病例结果缺失，需重新分析";
+  return "";
+}
+function updateRunAvailability(cid){
+  const reason = caseRunBlocker(cid);
+  const btn = $("pg-run");
+  if(btn){ btn.disabled = !!reason; btn.title = reason || ""; }
+  return reason;
+}
 function fillCaseSelects(){
-  const opts = S.cases.map(c=>`<option value="${esc(c.case_id)}">${esc(c.badge)} ${esc(c.label)}（${esc(c.badge_text || c.status)}）</option>`).join("");
+  const opts = S.cases.map(c=>{
+    const stale = !!c.stale;
+    const badge = stale ? "⚠️" : c.badge;
+    const tail = stale ? "结果缺失" : (c.badge_text || c.status);
+    return `<option value="${esc(c.case_id)}">${esc(badge)} ${esc(c.label)}（${esc(tail)}）</option>`;
+  }).join("");
   const el = $("pg-case");
   const cur = el.value;
   el.innerHTML = opts;
@@ -2692,6 +2833,9 @@ async function loadProgress(){
   const b = r.body;
   if($("pg-consent")) $("pg-consent").innerHTML = progressConsentHtml(b);
   renderSteps(b);
+  // T3：blocked / stale 病例禁用主分析按钮，并在状态行给出原因（数据来自 /api/cases）
+  const runReason = updateRunAvailability(cid);
+  if(runReason) $("up-status").innerHTML = '<span class="warn">' + esc(runReason) + "</span>";
   // 闸门 → 暖卡
   const gate = $("up-gate");
   if(b.status === "blocked" && (b.gate_failures || []).length){
@@ -2706,7 +2850,7 @@ async function loadProgress(){
       <div><h3>求解停滞，已自动停止</h3>
       <div class="reason">${esc((b.gate_failures || [""])[0])}</div>
       <div class="comfort">日志已归档——这是"失败也是交付物"的审计链文化。</div>
-      <details><summary>技术详情</summary><pre class="tech">${esc((b.gate_failures || [""])[0])}</pre></details></div></div></div>`;
+      <details><summary>技术细节（拦截原因）</summary><pre class="tech">${esc((b.gate_failures || [""])[0])}</pre></details></div></div></div>`;
   } else {
     gate.innerHTML = "";
   }
@@ -2775,6 +2919,51 @@ const CT_DISCLAIMER = "分析结果仅供科研与康复参考，非诊断依据
 const DS_LABEL = {self:"本人CT", authorized_third_party:"已获授权的他人CT", demo:"演示数据"};
 const PS_LABEL = {local_only:"仅本机处理", cloud_optin:"允许云端处理"};
 let ctOnOk = null;
+let ctLastOnOk = null;   /* T6：服务端 400 需重开弹窗定位控件——记住上次回调 */
+
+/* ---------- T6：同意表单行内错误定位（field → 控件/分组，红框高亮 + 组下文字） ---------- */
+const CONSENT_FIELD_TARGET = {
+  data_subject:       {grp:"ct-g-ds",   ctrl:'input[name="ct-ds"]', err:"ct-err-ds"},
+  processing_scope:   {grp:"ct-g-ps",   ctrl:'input[name="ct-ps"]', err:"ct-err-ps"},
+  retention:          {grp:"ct-g-ret",  ctrl:"#ct-ret",             err:"ct-err-ret"},
+  source_declaration: {grp:"ct-g-decl", ctrl:"#ct-decl",            err:"ct-err-decl"},
+  authorization_ref:  {grp:"ct-g-decl", ctrl:"#ct-ref",             err:"ct-err-decl"},
+};
+function clearConsentFieldErrors(){
+  for(const id of ["ct-err-ds", "ct-err-ps", "ct-err-ret", "ct-err-decl"]){
+    const e = $(id); if(e) e.textContent = "";
+  }
+  document.querySelectorAll(".ct-q.field-err-group").forEach(g=>g.classList.remove("field-err-group"));
+  document.querySelectorAll(".field-err").forEach(el=>el.classList.remove("field-err"));
+}
+function markConsentField(field, msg){
+  const cfg = CONSENT_FIELD_TARGET[field];
+  if(!cfg) return false;
+  const grp = $(cfg.grp);
+  if(grp) grp.classList.add("field-err-group");
+  const ctrls = document.querySelectorAll(cfg.ctrl);
+  ctrls.forEach(el=>el.classList.add("field-err"));
+  const errEl = $(cfg.err);
+  if(errEl) errEl.textContent = msg || "该项未通过校验，请检查后重试";
+  const anchor = ctrls[0] || grp;
+  if(anchor && anchor.scrollIntoView){
+    try { anchor.scrollIntoView({block:"center", behavior:"smooth"}); } catch(e){ anchor.scrollIntoView(); }
+  }
+  return true;
+}
+/* 400 响应体可能是 JSON 字符串或已解析对象——两种都处理 */
+function consentErrorFromBody(raw){
+  let b = raw;
+  if(typeof b === "string"){ try { b = JSON.parse(b); } catch(e){ return null; } }
+  if(!b || typeof b !== "object") return null;
+  if(!b.field) return null;
+  return {field: b.field, msg: b.error || "该字段未通过校验，请修改后重试"};
+}
+function reopenConsentWithError(ce){
+  if(!ctLastOnOk) return false;
+  openConsentModal(ctLastOnOk);
+  return markConsentField(ce.field, ce.msg);
+}
 
 function retLabel(v){
   if(v === "session_only") return "仅本次会话（跑完即删）";
@@ -2791,6 +2980,8 @@ function ctModalSync(){
 }
 function openConsentModal(onOk){
   ctOnOk = onOk;
+  ctLastOnOk = onOk;
+  clearConsentFieldErrors();
   if($("ct-err")) $("ct-err").textContent = "";
   if($("ct-consent-mask")) $("ct-consent-mask").style.display = "flex";
   ctModalSync();
@@ -2804,15 +2995,19 @@ function ctModalConfirm(){
   const ret = $("ct-ret") ? $("ct-ret").value : "";
   const decl = $("ct-decl") ? $("ct-decl").value.trim() : "";
   const ref = $("ct-ref") ? $("ct-ref").value.trim() : "";
-  const fail = m=>{ if($("ct-err")) $("ct-err").textContent = m; };
-  if(!ds) return fail("请选择数据主体");
-  if(ds !== "demo" && !decl) return fail("请用一句话说明数据来源（选「演示数据」可空）");
+  const fail = (m, field)=>{
+    clearConsentFieldErrors();
+    if($("ct-err")) $("ct-err").textContent = m;
+    if(field) markConsentField(field, m);
+  };
+  if(!ds) return fail("请选择数据主体", "data_subject");
+  if(ds !== "demo" && !decl) return fail("请用一句话说明数据来源（选「演示数据」可空）", "source_declaration");
   if(ds === "authorized_third_party" && !ref)
-    return fail("他人数据必须填写授权凭证（凭证号 / 文件名）——缺凭证时云端会被如实拦截");
-  if(!ps) return fail("请选择处理位置");
+    return fail("他人数据必须填写授权凭证（凭证号 / 文件名）——缺凭证时云端会被如实拦截", "authorization_ref");
+  if(!ps) return fail("请选择处理位置", "processing_scope");
   if(S.onlySynthetic && ps !== "cloud_optin")
-    return fail("云形态须选择「允许云端处理」才能继续（「仅本机处理」的数据不上云）");
-  if(!ret) return fail("请选择数据保留方式");
+    return fail("云形态须选择「允许云端处理」才能继续（「仅本机处理」的数据不上云）", "processing_scope");
+  if(!ret) return fail("请选择数据保留方式", "retention");
   const consent = {data_subject: ds, source_declaration: decl, authorization_ref: ref,
                    processing_scope: ps, retention: ret};
   const fn = ctOnOk;
