@@ -397,17 +397,79 @@ footer .fixed-sentence{
   .step .hp{display:none}
   header h1{font-size:21px}
 }
+/* ================= 三角色观看方式（前端批 R1-R5） =================
+   一个 role 状态 + 能力阶梯配置表（CAPS/REGIONS/LEX 三件套）+ JS 统一渲染；
+   CSS 只做视觉派生（body[data-role=...]）。操作员档 = 现状基线，不加任何显隐规则。
+   三档为线性包含：patient ⊂ clinical ⊂ operator，不做三套 HTML 片段。 */
+#role-bar{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;
+  padding:7px 16px;border-bottom:1px solid var(--line);background:var(--bg-1)}
+#role-bar .rb-label{color:var(--ink-soft);font-size:13px}
+#role-bar .rb-seg{display:inline-flex;border:1px solid var(--line);border-radius:999px;overflow:hidden}
+#role-bar .rb-btn{background:none;border:none;color:var(--ink-soft);font-family:inherit;
+  font-size:13.5px;padding:6px 14px;cursor:pointer;line-height:1.4}
+#role-bar .rb-btn:hover{color:var(--ink)}
+#role-bar .rb-btn[aria-pressed="true"]{background:var(--teal);color:#04222b;font-weight:700}
+#role-bar .rb-cur{margin-left:auto;color:var(--ink-soft);font-size:12.5px}
+#role-bar .rb-cur b{color:var(--mint)}
+body[data-role="patient"]{font-size:calc(16px * 1.08)}
+body[data-role="patient"] #role-bar{background:linear-gradient(90deg,#173a3b,#111a23)}
+body[data-role="clinical"] #role-bar{background:linear-gradient(90deg,#1b2f3d,#111a23)}
+body[data-role="operator"] #role-bar{background:linear-gradient(90deg,#2a2118,#111a23)}
+body[data-role="patient"] main{max-width:900px}
+body[data-role="patient"] .btn{padding:11px 18px;font-size:15.5px}
+/* 术语双写：技术词（.t-tech）与患者词（.t-plain）同处一行；仅患者档切换到患者词。
+   操作员/医生档保留原文（.t-plain 默认隐藏），确保 operator 逐屏 diff 为空。 */
+.t-plain{display:none}
+body[data-role="patient"] .t-tech{display:none}
+body[data-role="patient"] .t-plain{display:inline}
+/* 角色条右侧常驻身份带（防操作员忘切回 / 患者误以为在完整模式） */
+#badge-role{display:none}
+body[data-role="patient"] #badge-role{display:inline-block;color:var(--coral);
+  border-color:#E76F5155;background:var(--coral-soft)}
+/* ---------- 报障 / 操作日记（复用 ct-modal 家族，不新增模态体系） ---------- */
+#ops-mask .ct-modal{max-width:720px}
+#ops-mask textarea.f{width:100%;background:var(--bg-2);color:var(--text-0);
+  border:1px solid var(--line-new);border-radius:10px;padding:10px 12px;font-size:14.5px;
+  font-family:inherit;color-scheme:dark;resize:vertical;min-height:56px}
+#ops-mask textarea.f:focus{outline:2px solid #2A9D8F55;border-color:var(--teal)}
+#ops-list{max-height:190px;overflow:auto;border:1px solid var(--line-new);border-radius:8px;
+  padding:6px 10px;font-size:12.5px;color:var(--ink-soft);background:var(--bg)}
+#ops-list .op-row{padding:4px 0;border-bottom:1px solid var(--line-new);word-break:break-all}
+#ops-list .op-row:last-child{border-bottom:0}
+#ops-confirm{margin-top:10px;border:1px dashed var(--teal);border-radius:10px;padding:10px 12px;
+  background:var(--teal-soft);font-size:13.5px;color:var(--text-0)}
+#toast-box{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:100001;
+  display:flex;flex-direction:column;gap:6px;align-items:center;pointer-events:none}
+.toast{background:#0d1116ee;border:1px solid var(--teal);color:var(--text-0);
+  font-size:13.5px;padding:8px 16px;border-radius:999px;box-shadow:0 4px 18px #000a;
+  animation:fade .18s ease}
+/* ---------- 患者档空态引导卡 ---------- */
+.guide-card{margin:4px 0 12px;border:1px dashed var(--line);border-radius:var(--radius);
+  background:var(--panel);padding:14px 16px;font-size:14.5px;box-shadow:var(--shadow)}
+.guide-card .gc-head{font-weight:700;color:var(--mint);margin-bottom:4px}
+.guide-card .gc-body{color:var(--ink-soft)}
 </style>
 </head>
 <body>
 <header>
   <h1>鼻腔气流分析工作台</h1>
-  <span class="sub">把"喘不上气"变成看得见的数据 · 患者视角</span>
+  <span class="sub">把"喘不上气"变成看得见的数据 · <span id="role-sub">患者视角</span></span>
   <span id="badge-mode" class="badge">形态检测中…</span>
   <span id="badge-presenter" class="badge presenter" style="display:none">定向演示模式</span>
   <button type="button" id="presenter-toggle" class="badge presenter" aria-pressed="false" title="打开 M4 成像演示页（合成数据，无需 CT）">演示模式 · 打开演示页</button>
   <span id="badge-synthetic" class="badge m2" style="display:none">仅合成数据形态</span>
+  <span id="badge-role" class="badge">患者视角</span>
+  <button type="button" id="btn-bugreport" class="badge" title="遇到问题？一键报障——提交前有隐私确认，不会上传任何患者数据">？ 报障</button>
 </header>
+<div id="role-bar" aria-label="观看身份">
+  <span class="rb-label">您是？</span>
+  <span class="rb-seg" role="radiogroup" aria-label="使用身份">
+    <button type="button" class="rb-btn" data-role="patient" aria-pressed="false">我是患者</button>
+    <button type="button" class="rb-btn" data-role="clinical" aria-pressed="false">我是医务人员</button>
+    <button type="button" class="rb-btn" data-role="operator" aria-pressed="true">我是操作员</button>
+  </span>
+  <span class="rb-cur" id="role-cur">当前：<b>完整模式</b> · 点击切换</span>
+</div>
 <nav id="tabs">
   <button data-tab="airway" class="active">查看气道</button>
   <button data-tab="ens">了解 ENS</button>
@@ -430,11 +492,11 @@ footer .fixed-sentence{
       <div class="rail-item"><span class="rail-k">解算状态</span><span class="rail-v" id="rail-status">—</span></div>
     </div>
     <div class="hero-viewtoggle" id="hero-viewtoggle" style="display:none">
-      <button type="button" class="pill vt" id="vt-model" style="display:none">🏥 3D 模型</button>
+      <button type="button" class="pill vt" id="vt-model" data-region="hero.vtmodel" style="display:none">🏥 3D 模型</button>
       <button type="button" class="pill vt" id="vt-flow" style="display:none">💨 气流动画</button>
-      <button type="button" class="pill vt" id="vt-plus" style="display:none">🧩 17 功能查看器</button>
+      <button type="button" class="pill vt" id="vt-plus" data-region="hero.vtplus" style="display:none">🧩 17 功能查看器</button>
     </div>
-    <div class="hero-viewtoggle" id="demo-pills">
+    <div class="hero-viewtoggle" id="demo-pills" data-region="hero.demo">
       <span class="muted" style="font-size:13px;align-self:center">官方四例演示：</span>
       <button type="button" class="pill vt demo-pill" data-demo="demoA">demoA</button>
       <button type="button" class="pill vt demo-pill" data-demo="demoB">demoB</button>
@@ -479,7 +541,7 @@ footer .fixed-sentence{
     border:1px dashed var(--line-new);border-radius:8px;padding:7px 10px;margin:10px 0 2px}
   .cmp-wait{color:var(--amber-deep)}
   </style>
-  <div class="card" id="compare-card" style="display:none">
+  <div class="card" id="compare-card" data-region="ia.compare" style="display:none">
     <h2>两例并排对比 · 患者 A vs 患者 B</h2>
     <div class="lead">同一套管线、同一参数口径，把两例放进一张表：谁更“空”、谁更“堵”、
       谁落在文献正常范围——一眼看明白。</div>
@@ -505,7 +567,7 @@ footer .fixed-sentence{
     <div class="hint" id="metrics-disclaimer"></div>
   </div>
 
-  <div class="card" id="qc-card" style="display:none">
+  <div class="card" id="qc-card" data-region="ia.qc" style="display:none">
     <h2>三平面 QC 预览</h2>
     <div class="lead">重建质量的三个切面检查（只读预览 · 掩膜/掩膜叠加态）。</div>
     <div class="qc3" id="qc-grid"></div>
@@ -519,7 +581,7 @@ footer .fixed-sentence{
     <div class="hint" id="results-note"></div>
   </div>
 
-  <div class="card" id="figures-card" style="display:none">
+  <div class="card" id="figures-card" data-region="ia.figures" style="display:none">
     <h2>截面气流与分析图表</h2>
     <div class="lead">气流仿真的截面与结果图（本例真实结果）——速度切片 = 截面气流情况。</div>
     <div class="qc3" id="figures-grid"></div>
@@ -553,21 +615,21 @@ footer .fixed-sentence{
       <div class="m-card">
         <div class="m-head"><span class="m-emoji">💨</span>气流是否均匀</div>
         <div class="m-one">空气流过鼻腔每个截面时，分布均不均匀——有没有"一股独大"的窄道。</div>
-        <details><summary>技术细节</summary>
+        <details data-region="ens.tech"><summary>技术细节</summary>
           <div class="m-tech">检查气流是不是一股脑冲进一边、另一边没气（统计口径已定义，逐截面统计开发中）。</div>
         </details>
       </div>
       <div class="m-card">
         <div class="m-head"><span class="m-emoji">🔍</span>有没有"死区"</div>
         <div class="m-one">鼻甲区有没有气流几乎不经过的小角落——那里的感觉可能最"空"。</div>
-        <details><summary>技术细节</summary>
+        <details data-region="ens.tech"><summary>技术细节</summary>
           <div class="m-tech">检查该有“通气感”的地方是不是感觉不到气流（统计口径已定义，开发中）。</div>
         </details>
       </div>
       <div class="m-card">
         <div class="m-head"><span class="m-emoji">🖐</span>鼻腔内壁摩擦力</div>
         <div class="m-one">气流滑过鼻腔内壁的“抚摸感”——太弱了大脑就感觉不到在呼吸（空鼻症的核心）。</div>
-        <details><summary>技术细节</summary>
+        <details data-region="ens.tech"><summary>技术细节</summary>
           <div class="m-tech">壁面剪切应力（WSS）：壁面处速度梯度 × 流体黏度，单位 Pa；报均值与 p95。</div>
         </details>
       </div>
@@ -585,12 +647,12 @@ footer .fixed-sentence{
 
   <div class="card" id="quality-stds">
     <h3>我们的质量标准（拦截时看这里）</h3>
-    <p class="lead">每一步都设下自动闸门——不过就停工，绝不带病进入下一步。这也是"坏数据进不来"的可现场复现证据：</p>
+    <p class="lead">每一步都设下自动<span class="t-tech">闸门</span><span class="t-plain">检查关卡</span>——不过就停工，绝不带病进入下一步。这也是"坏数据进不来"的可现场复现证据：</p>
     <ul class="story-list">
-      <li>🛡️ <b>隐私闸门</b>：156/394/420 头 CT 逐头匿名化断言，非空即停工；</li>
-      <li>📐 <b>几何闸门</b>：气道体积回归比须落在 0.94–1.06 质量带（网格与原始扫描的一致性）；</li>
-      <li>🧭 <b>朝向闸门</b>：6 项几何方向断言（层序/坐标/中心线）；</li>
-      <li>📦 <b>结果契约闸门</b>：查看器导出的每个数字必须来自本例自己的结果档案——严禁套用其他患者的数字；</li>
+      <li>🛡️ <b>隐私<span class="t-tech">闸门</span><span class="t-plain">检查</span></b>：156/394/420 头 CT 逐头匿名化断言，非空即停工；</li>
+      <li>📐 <b>几何<span class="t-tech">闸门</span><span class="t-plain">检查</span></b>：气道体积回归比须落在 0.94–1.06 质量带（网格与原始扫描的一致性）；</li>
+      <li>🧭 <b>朝向<span class="t-tech">闸门</span><span class="t-plain">检查</span></b>：6 项几何方向断言（层序/坐标/中心线）；</li>
+      <li>📦 <b>结果契约<span class="t-tech">闸门</span><span class="t-plain">检查</span></b>：查看器导出的每个数字必须来自本例自己的结果档案——严禁套用其他患者的数字；</li>
       <li>📊 <b>六项质量检查</b>：三维模型平滑前后的六项偏离报表（体积/形心/左右比/帧校验…）越限即停工。</li>
     </ul>
   </div>
@@ -633,20 +695,20 @@ footer .fixed-sentence{
     <div class="hint">上传契约（R-11）：仅 .dcm 序列；体积上限 2048 MiB；扫描超时 900 s；失败保留证据不清理。上传病例默认仅操作员可见。</div>
   </div>
 
-  <div class="card">
+  <div class="card" data-region="up.register">
     <h2>上传分析</h2>
     <div class="lead">操作员/志愿者用：登记一份脱敏 CT → 隐私检查 → 气道重建 → 一键全链分析。全程零安装。</div>
     <label class="f">病例来源</label>
     <select class="f" id="nc-source">
       <option value="builtin">内置病例（赛方发放序列，需服务器已配置 CT 根目录）</option>
-      <option value="path">服务器目录路径（把脱敏 CT 目录放到服务器本机）</option>
+      <option value="path" data-region="up.pathreg">服务器目录路径（把脱敏 CT 目录放到服务器本机）</option>
       <option value="demo">合成 demo（一键体验 · 无需 CT）</option>
     </select>
     <div id="nc-builtin">
       <label class="f" style="display:none">内置病例</label>
       <!-- T44: 旧病例下拉收编——官方四例 pill 为唯一选择器 -->
     </div>
-    <div id="nc-path" style="display:none">
+    <div id="nc-path" data-region="up.pathreg" style="display:none">
       <label class="f">CT 目录路径</label>
       <div class="dropzone" id="nc-drop" style="
         border:2px dashed var(--line-new);border-radius:var(--radius);
@@ -665,14 +727,14 @@ footer .fixed-sentence{
     <div id="nc-result" style="margin-top:12px"></div>
   </div>
 
-  <div class="card" id="up-qc-card" style="display:none">
+  <div class="card" id="up-qc-card" data-region="up.qccard" style="display:none">
     <h2>三平面 QC 预览</h2>
     <div class="lead">请确认掩膜重建合理（红/绿色区域为气道掩膜）。</div>
     <div class="qc3" id="up-qc"></div>
     <div class="hint" id="up-qc-note"></div>
   </div>
 
-  <div class="card">
+  <div class="card" data-region="up.progress">
     <h2>分析进度</h2>
     <div class="btnrow">
       <select class="f" id="pg-case" style="width:auto;min-width:200px"></select>
@@ -688,11 +750,11 @@ footer .fixed-sentence{
     <div class="up-status" id="up-status">尚未启动——选择病例后点"开始气流分析（本机求解）"</div>
     <div class="up-pct" id="up-pct"></div>
     <div id="up-gate"></div>
-    <details>
+    <details data-region="tech.log">
       <summary>技术细节（原始进度日志）</summary>
       <pre class="tech" id="pg-log">—</pre>
     </details>
-    <details>
+    <details data-region="tech.stage">
       <summary>技术细节（阶段对照表）</summary>
       <div class="muted" style="font-size:13px">
         ①检查隐私 = 隐私闸门 + CT 头普查；②重建气道 = 气道三维分割；
@@ -700,7 +762,7 @@ footer .fixed-sentence{
         ⑤导出结果 = 后处理 + 查看器导出 + 进度落盘。原始阶段标记 [S0]…[S8] 与之一一对应。
       </div>
     </details>
-    <details>
+    <details data-region="tech.adv">
       <summary>技术细节（高级：分析模式 / WSL 求解）</summary>
       <div class="muted" style="font-size:13px;margin-bottom:8px">开发者选项：普通用户点上面的"开始气流分析（本机求解）"即可，无需关心以下内容。</div>
       <label class="f">分析模式</label>
@@ -748,7 +810,7 @@ footer .fixed-sentence{
       <li>合成 demo：100% 参数化管腔（开源仓库生成器产物），无 CT、无患者数据。</li>
     </ul>
   </div>
-  <div class="card">
+  <div class="card" data-region="about.tech">
     <h3>给评委的技术细节</h3>
     <details open>
       <summary>一句话摘要</summary>
@@ -773,6 +835,24 @@ footer .fixed-sentence{
         本页全部文案经 33 条禁说词表核对：治疗/治好/试戴/推荐/安全余量/常人带中部/媲美临床/可以直接打印/完整答案 等承诺义表述零使用。
       </div>
     </details>
+  </div>
+  <div class="card" id="boundary-card">
+    <h3>边界声明：界面上换身份 ≠ 数据隔离</h3>
+    <p style="font-size:15px;margin:6px 0">
+      本页顶部的"我是患者 / 我是医务人员 / 我是操作员"是<b>观看方式</b>（体验层），<b>不是安全边界</b>：
+      工作台没有账号体系，任何人按 F12 或直接请求接口，都能看到本机的全部病例。
+      真正的数据边界在服务器端代码里执行，本页不宣称"看不到就等于取不到"。
+    </p>
+    <ul class="story-list">
+      <li>🛡️ <b>患者衍生静态数据闸</b>：云形态下 <code>/static/cases/*</code>、<code>/static/models/*</code>、<code>/static/plus/*</code> 一律 403（<code>static_patient_gate</code>，代码级）。</li>
+      <li>🔒 <b>PII 硬闸</b>：真实 CT 逐文件头信息断言，出现未脱敏身份字段即停工（PII 拦截指引卡）。</li>
+      <li>📦 <b>结果契约闸</b>：查看器导出的每个数字必须来自本例自己的结果档案，严禁套用其他患者数据。</li>
+      <li>🗂️ <b>病例目录隔离</b>：删除/清理操作限定在 state_dir 内（realpath 越界拒绝），内置/合成病例不可删。</li>
+    </ul>
+    <p style="font-size:13.5px;color:var(--ink-soft);margin:6px 0">
+      因此"患者档看不到别人的病例"只是<b>默认展示收敛</b>，跨患者隔离需专用机器或引入账号体系（已列入路线）。
+      任一本机使用者都能打开本工作台——请勿在共享机器上放置未脱敏的真实患者数据。
+    </p>
   </div>
 </section>
 
@@ -857,6 +937,59 @@ footer .fixed-sentence{
   </div>
 </div>
 
+<!-- ================= 报障 / 反馈（三角色共用容器；操作员档追加原始日志与 oplog 导出） ================= -->
+<div class="ct-mask" id="ops-mask">
+  <div class="ct-modal" role="dialog" aria-modal="true" aria-labelledby="ops-title">
+    <h3 id="ops-title">一键报障 / 反馈</h3>
+    <div class="ct-sub" id="ops-sub">告诉我们遇到的情况——提交前有隐私确认，不会上传任何患者数据。</div>
+    <div class="ct-q">
+      <label class="ct-qlabel" for="ops-what">发生了什么？</label>
+      <textarea id="ops-what" maxlength="2000" placeholder="例：点“开始上传”后一直转圈，没有进度条"></textarea>
+    </div>
+    <div class="ct-q">
+      <label class="ct-qlabel" for="ops-expect">你期望什么？</label>
+      <textarea id="ops-expect" maxlength="1000" placeholder="例：希望上传完成并显示病例卡片"></textarea>
+    </div>
+    <div class="ct-q" id="ops-ctx">
+      <div class="ct-qlabel">附带信息（可取消勾选）</div>
+      <label class="ct-opt"><input type="checkbox" id="ops-env" checked><span>环境信息（形态 / 当前身份 / 浏览器 / 页面）</span></label>
+      <label class="ct-opt"><input type="checkbox" id="ops-manifest" checked><span>manifest 尾部 200 行（本机运行时日志，不含病例内容）</span></label>
+      <label class="ct-opt"><input type="checkbox" id="ops-page" checked><span>当前页面标识（页签 / 选中病例的 case_id）</span></label>
+      <label class="ct-opt" data-region="ops.rawlog"><input type="checkbox" id="ops-rawlog"><span>原始日志 / 拦截原因 / 技术细节（操作员全量）</span></label>
+    </div>
+    <div class="ct-q" id="ops-case-wrap" data-region="ops.casectx">
+      <label class="ct-qlabel" for="ops-caseid">病例上下文（case_id；留空表示与具体病例无关）</label>
+      <input class="f" id="ops-caseid" maxlength="64" placeholder="例：pX2">
+      <div class="ct-hint">只记 case_id 代号，绝不附带患者姓名/影像内容。</div>
+    </div>
+    <div class="ct-err" id="ops-err"></div>
+    <div class="btnrow" style="margin-top:4px">
+      <button class="btn primary" id="ops-submit" type="button">提交报障</button>
+      <button class="btn" id="ops-cancel" type="button">取消</button>
+    </div>
+    <div id="ops-confirm" style="display:none">
+      <b>隐私确认</b>：提交内容会写到本机的报障目录（<code>state_dir/bugreports/</code>），
+      <b>不会上传任何患者数据</b>；文中的本机绝对路径会自动替换为 case_id 代号。
+      确认提交吗？
+      <div class="btnrow" style="margin-top:8px">
+        <button class="btn primary" id="ops-confirm-yes" type="button">确认提交</button>
+        <button class="btn" id="ops-confirm-no" type="button">返回修改</button>
+      </div>
+    </div>
+    <div class="ct-q" data-region="ops.oplog" style="margin-top:12px">
+      <div class="ct-qlabel">报障记录（操作员可查看 / 导出）</div>
+      <div id="ops-list"><span class="muted">加载中…</span></div>
+      <div class="btnrow" style="margin-top:8px">
+        <button class="btn" id="ops-reload" type="button">刷新列表</button>
+        <a class="btn" id="ops-export" href="/api/bugreports/export.zip">导出全部（zip）</a>
+        <a class="btn" id="ops-oplog-export" href="/api/oplog/export.jsonl">导出操作日记（jsonl）</a>
+      </div>
+    </div>
+    <div class="ct-fixed">报障仅用于改进本工具，不代表任何诊断或治疗意见。</div>
+  </div>
+</div>
+<div id="toast-box" aria-live="polite"></div>
+
 <script src="/static/vendor/three.min.js"></script>
 <script src="/static/vendor/OrbitControls.js"></script>
 <script src="/static/vendor/GLTFLoader.js"></script>
@@ -864,7 +997,317 @@ footer .fixed-sentence{
 "use strict";
 /* ================= 状态 ================= */
 const S = { mode:null, presenter:false, onlySynthetic:false,
-            cases:[], selected:null, selectedProgress:null, pollTimer:null };
+            cases:[], selected:null, selectedProgress:null, pollTimer:null,
+            role:null, lastMetrics:null };
+
+/* ================= 角色系统（三角色观看方式 · 前端批） =================
+   一个 role 状态 + 能力阶梯（CAPS）+ 容器表（REGIONS）+ 文案表（LEX/lexText）。
+   操作员档 = 现状基线（能力全真、REGIONS 不隐任何元素、LEX 不改一字）。
+   三档线性包含 patient ⊂ clinical ⊂ operator；非能力型差异只有页签排序与文案层两处。
+   M5 迁移路径：把 CAPS 的键从本地 role 换成 /api/session 返回的 caps:[...]，
+   只需改 has() 一行；REGIONS/TABS/LEX/applyRole 全部复用（见 §风险 R-9）。 */
+const ROLE_KEY = "nasal_role_v1";
+const ROLE_DEFAULT = "operator";
+const ROLE_LABEL = { patient:"患者视角", clinical:"专业视角", operator:"运维视角" };
+const ROLE_MODE  = { patient:"患者模式", clinical:"专业模式", operator:"完整模式" };
+const CAPS = {
+  patient : ["own_case","patient_words","ens_first","consent_self","bugform"],
+  clinical: ["all_cases","all_metrics","qc","figures","upload","consent","full_hero",
+             "compare","bugform","case_ctx","tech_all"],
+  operator: ["all_cases","all_metrics","qc","figures","upload","consent","full_hero",
+             "compare","bugform","case_ctx","tech_all",
+             "case_admin","server_dir_register","solve_mode","raw_log","oplog","stale_admin"],
+};
+const TABS = { patient:["ens","airway","about"],
+               clinical:["airway","ens","upload","about"],
+               operator:["airway","ens","upload","about"] };
+const REGIONS = {                 /* region → 所需能力；不满足则隐藏（多重条件取「全部满足」） */
+  "hero.vtmodel":["full_hero"], "hero.vtplus":["full_hero"], "hero.layers":["full_hero"],
+  "hero.demo":["all_cases"],
+  "ia.qc":["qc"], "ia.figures":["figures"], "ia.compare":["compare"],
+  "ens.tech":["tech_all"],
+  "up.register":["upload"], "up.pathreg":["server_dir_register"], "up.qccard":["qc"],
+  "up.progress":["upload"],
+  "tech.log":["tech_all"], "tech.stage":["tech_all"], "tech.adv":["solve_mode"],
+  "about.tech":["tech_all"],
+  "gate.detail":["tech_all"], "gauge.detail":["tech_all"],
+  "ops.rawlog":["raw_log"], "ops.oplog":["oplog"], "ops.casectx":["case_ctx"],
+};
+function role(){ return S.role || ROLE_DEFAULT; }
+function has(cap){ return (CAPS[role()] || CAPS[ROLE_DEFAULT]).indexOf(cap) >= 0; }
+function tabList(){ return TABS[role()] || TABS[ROLE_DEFAULT]; }
+function regionAllowed(region){
+  const need = REGIONS[region];
+  if(!need || !need.length) return true;
+  return need.every(has);
+}
+/* 患者档文案替换（禁词 + 系统术语整表翻译）；非患者档原样返回（operator 逐字不变） */
+const LEX_PATIENT = [
+  [/[⛔⚠️]+\s*/g, ""],
+  [/未收敛/g, "需要重新生成"],
+  [/已拦截/g, "还没算出来"],
+  [/已收敛/g, "已算好"],
+  [/闸门/g, "检查关卡"],
+  [/WSL|OpenFOAM/g, "本机求解器"],
+  [/求解/g, "分析"],
+  [/stale/gi, "结果缺失"],
+  [/blocked/gi, "受限"],
+  [/FATAL/g, "错误"],
+  [/\[S\d\]/g, ""],
+];
+function lexText(s){
+  if(role() !== "patient") return s;
+  let t = String(s == null ? "" : s);
+  for(const pair of LEX_PATIENT) t = t.replace(pair[0], pair[1]);
+  return t;
+}
+function lexStatusText(st){
+  const m = { blocked:"这份资料还差一点，需要工作人员帮您补一下",
+    done:"已完成", running:"正在分析", registered:"已登记", segmented:"已完成气道重建",
+    handover:"等待继续分析", failed:"遇到问题，需要工作人员处理",
+    failed_env:"需要工作人员准备分析环境", failed_solve_stalled:"分析暂停，需要工作人员处理",
+    stale:"结果需要重新生成", pending:"结果需要重新生成" };
+  return m[st] || "";
+}
+function isMyCase(c){ return !!(c && c.kind === "upload" && c.consent && c.consent.data_subject === "self"); }
+/* 本角色可见病例集合：患者=本人病例置顶 + 示例病例（演示数据）；其余=全量 */
+function displayCases(){
+  const all = S.cases || [];
+  if(role() !== "patient") return all;
+  const mine = all.filter(isMyCase);
+  const examples = all.filter(c => !isMyCase(c) &&
+    (c.kind === "builtin" || c.kind === "synthetic") && !c.presenter_only);
+  return mine.concat(examples);
+}
+function pillVisual(c){
+  if(role() === "patient"){
+    const isExample = (c.kind === "builtin" || c.kind === "synthetic");
+    const label = (c.label || c.case_id) + (isExample ? "（示例病例 · 演示数据）" : "");
+    const st = isExample ? "示例病例（演示数据）" : lexStatusText(c.status);
+    return {badge:"", label:label, status:st};
+  }
+  const _status = c.status === "blocked" ? "⛔ 受限" : (c.case_id === "pC" ? "⛔ 受限" : (c.badge_text || c.status || ""));
+  const _needSt = _status && !String(c.label || "").includes(_status);
+  const _badge = c.status === "blocked" ? "⛔" : (c.case_id === "pC" ? "⛔" : (c.badge || ""));
+  return {badge:_badge, label:c.label || c.case_id, status:_needSt ? _status : ""};
+}
+function renderMyCasesGuide(hasMine){
+  let el = $("my-cases-guide");
+  if(role() !== "patient" || hasMine){ if(el) el.style.display = "none"; return; }
+  if(!el){
+    el = document.createElement("div");
+    el.id = "my-cases-guide";
+    el.className = "guide-card";
+    const pills = $("airway-pills");
+    if(pills && pills.parentNode) pills.parentNode.insertBefore(el, pills);
+  }
+  el.style.display = "";
+  el.innerHTML = '<div class="gc-head">还没有您的病例</div>' +
+    '<div class="gc-body">上传您自己的 CT 后，这里会显示属于您的病例。' +
+    '下面列出的是<b>示例病例（演示数据）</b>，不是您的影像。<br>' +
+    '不知道怎么上传 / 结果看不懂 / 想删除自己的数据 → 请找现场工作人员。</div>';
+}
+/* 容器显隐统一入口：只隐不属本角色的容器，并记住原 inline display 以便切回时还原。
+   操作员档全部允许 → 不写任何 display，DOM 可见集合与今天逐屏一致。 */
+function applyRegions(){
+  document.querySelectorAll("[data-region]").forEach(function(el){
+    const ok = regionAllowed(el.getAttribute("data-region"));
+    if(!ok){
+      if(!el._rbHidden){ el._rbSaved = el.style.display; el._rbHidden = true; }
+      el.style.display = "none";
+    } else if(el._rbHidden){
+      el.style.display = el._rbSaved || "";
+      el._rbHidden = false;
+    }
+  });
+}
+function applyRole(){
+  const r = role();
+  document.body.dataset.role = r;
+  document.querySelectorAll("#role-bar .rb-btn").forEach(function(b){
+    b.setAttribute("aria-pressed", b.dataset.role === r ? "true" : "false");
+  });
+  const cur = $("role-cur");
+  if(cur) cur.innerHTML = "当前：<b>" + esc(ROLE_MODE[r]) + "</b> · 点击切换";
+  const sub = $("role-sub"); if(sub) sub.textContent = ROLE_LABEL[r];
+  const br = $("badge-role"); if(br) br.textContent = ROLE_MODE[r];
+  /* 页签过滤（不属本角色的页签隐藏；当前页签被隐藏则回退到本角色首页签） */
+  const tl = tabList();
+  document.querySelectorAll("#tabs button").forEach(function(b){
+    b.style.display = tl.indexOf(b.dataset.tab) >= 0 ? "" : "none";
+  });
+  const active = document.querySelector("#tabs button.active");
+  if(!active || tl.indexOf(active.dataset.tab) < 0){
+    const target = document.querySelector('#tabs button[data-tab="' + tl[0] + '"]');
+    if(target) target.click();
+  }
+  applyRegions();
+}
+function saveRole(v, from){
+  try{
+    localStorage.setItem(ROLE_KEY, JSON.stringify({v:v, ts:new Date().toISOString(),
+      from:from || "self-choice"}));
+  }catch(e){}
+}
+let _roleDemoTimer = null;
+function armDemoExpiry(ms){
+  if(_roleDemoTimer) clearTimeout(_roleDemoTimer);
+  _roleDemoTimer = setTimeout(function(){
+    if(role() === "patient"){ setRole("operator", {from:"fallback"}); toast("演示已结束，已切回完整模式"); }
+  }, Math.max(1000, ms));
+}
+function loadRole(){
+  let stored = null;
+  try{ stored = JSON.parse(localStorage.getItem(ROLE_KEY) || "null"); }catch(e){ stored = null; }
+  let r = (stored && ROLE_LABEL[stored.v]) ? stored.v : null;
+  if(stored && stored.from === "demo-default" && stored.ts){
+    const age = Date.now() - Date.parse(stored.ts);
+    if(!(age >= 0 && age < 60000)){ r = ROLE_DEFAULT; stored = null; saveRole(ROLE_DEFAULT, "fallback"); }
+    else armDemoExpiry(60000 - age);
+  }
+  const params = new URLSearchParams(location.search);
+  if(!stored && (params.get("demo") === "1" || params.get("role") === "patient")){
+    r = "patient";
+    saveRole("patient", "demo-default");
+    armDemoExpiry(60000);
+    toast("演示入口：已临时切到患者视角（60 秒后自动回到完整模式）");
+  }
+  S.role = r || ROLE_DEFAULT;
+}
+async function setRole(r, opts){
+  if(!ROLE_LABEL[r]) r = ROLE_DEFAULT;
+  const prev = S.role;
+  if(prev === r && !(opts && opts.force)){ applyRole(); return; }
+  S.role = r;
+  saveRole(r, (opts && opts.from) || "self-choice");
+  applyRole();
+  await loadCases();
+  fillCaseSelects();
+  const list = displayCases();
+  if(!(S.selected && list.some(function(c){ return c.case_id === S.selected; }))){
+    const next = (role() === "patient" ? (list.find(isMyCase) || list[0]) : (list.find(function(c){ return c.case_id === "pA"; }) || list[0]));
+    if(next) selectCase(next.case_id);
+  } else {
+    selectCase(S.selected);
+  }
+  logOplog("role_switch", null, "ok", (prev || "?") + " -> " + r);
+}
+
+/* ================= 操作日记 oplog + 一键报障（收尾轮补全 2026-10-19） =================
+   边界：oplog 的 actor 是客户端声称（服务端永不做鉴权）；写盘前服务端掩码路径。 */
+function toast(msg){
+  const box = document.getElementById("toast-box"); if(!box) return;
+  const t = document.createElement("div"); t.className = "toast"; t.textContent = msg;
+  box.appendChild(t); setTimeout(function(){ t.remove(); }, 2600);
+}
+function logOplog(action, case_id, result, detail){
+  try{
+    fetch("/api/oplog", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({actor: role(), action: String(action||""), case_id: case_id || null,
+        result: result || "ok", detail: String(detail||"").slice(0,300),
+        client: String(navigator.userAgent||"").slice(0,200)})})
+      .catch(function(e){ console.warn("[oplog]", e); });
+  }catch(e){ console.warn("[oplog]", e); }
+}
+function opsOpen(){
+  const m = document.getElementById("ops-mask"); if(!m) return;
+  m.style.display = "flex";
+  const conf = document.getElementById("ops-confirm"); if(conf) conf.style.display = "none";
+  const err = document.getElementById("ops-err"); if(err) err.textContent = "";
+  if(has("oplog")) loadOpsList();
+  logOplog("bugmodal_open", S.selected, "ok", "");
+}
+function opsClose(){ const m = document.getElementById("ops-mask"); if(m) m.style.display = "none"; }
+function loadOpsList(){
+  const box = document.getElementById("ops-list"); if(!box) return;
+  box.innerHTML = '<span class="muted">加载中…</span>';
+  fetch("/api/bugreports").then(function(r){ return r.json(); }).then(function(d){
+    const items = (d && d.items) || [];
+    if(!items.length){ box.innerHTML = '<span class="muted">暂无报障记录</span>'; return; }
+    box.innerHTML = items.map(function(it){
+      return '<div class="op-row">' + esc(it.ts||"") + " · " + esc(it.role||"?") + " · " +
+             esc(String(it.what||"").slice(0,80)) + "</div>";
+    }).join("");
+  }).catch(function(){ box.innerHTML = '<span class="muted">加载失败（仅操作员可查看）</span>'; });
+}
+function opsSubmit(){
+  const what = (document.getElementById("ops-what").value || "").trim();
+  const err = document.getElementById("ops-err");
+  if(!what){ if(err) err.textContent = "请先描述发生了什么"; return; }
+  if(err) err.textContent = "";
+  const conf = document.getElementById("ops-confirm");
+  if(conf){ conf.style.display = "block"; if(conf.scrollIntoView) conf.scrollIntoView({block:"nearest"}); }
+}
+function opsConfirmYes(){
+  const btn = document.getElementById("ops-confirm-yes");
+  if(btn) btn.disabled = true;
+  const rawlog = document.getElementById("ops-rawlog");
+  const cidIn = document.getElementById("ops-caseid");
+  const payload = {
+    role: role(),
+    what: document.getElementById("ops-what").value || "",
+    expected: document.getElementById("ops-expect").value || "",
+    attach_env: !!(document.getElementById("ops-env") && document.getElementById("ops-env").checked),
+    attach_manifest: !!(document.getElementById("ops-manifest") && document.getElementById("ops-manifest").checked),
+    attach_page: !!(document.getElementById("ops-page") && document.getElementById("ops-page").checked),
+    attach_log: has("raw_log") && !!(rawlog && rawlog.checked),
+    case_id: (cidIn && cidIn.value || "").trim() || (S.selected || null),
+    page_url: location.pathname
+  };
+  fetch("/api/bugreports", {method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify(payload)})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if(d && d.ok){
+        toast("报障已记录（仅存本机）——谢谢！");
+        logOplog("bug_submit", payload.case_id, "ok", "id=" + (d.id||""));
+        opsClose();
+      } else {
+        const err = document.getElementById("ops-err");
+        if(err) err.textContent = (d && d.error) || "提交失败";
+      }
+    })
+    .catch(function(){
+      const err = document.getElementById("ops-err");
+      if(err) err.textContent = "提交失败（网络）";
+    })
+    .finally(function(){ if(btn) btn.disabled = false; });
+}
+(function bindOps(){
+  function bind(){
+    /* 启动初始化角色（loadRole 读 localStorage/demo 参数；applyRole 落 DOM） */
+    try{ loadRole(); applyRole(); }catch(e){ console.warn("[role-boot]", e); }
+    document.querySelectorAll("#role-bar .rb-btn").forEach(function(b){
+      b.addEventListener("click", function(){ setRole(b.dataset.role, {from:"self-choice"}); });
+    });
+    const open = document.getElementById("btn-bugreport");
+    if(open) open.addEventListener("click", opsOpen);
+    const cancel = document.getElementById("ops-cancel");
+    if(cancel) cancel.addEventListener("click", opsClose);
+    const no = document.getElementById("ops-confirm-no");
+    if(no) no.addEventListener("click", function(){
+      const conf = document.getElementById("ops-confirm"); if(conf) conf.style.display = "none"; });
+    const yes = document.getElementById("ops-confirm-yes");
+    if(yes) yes.addEventListener("click", opsConfirmYes);
+    const sub = document.getElementById("ops-submit");
+    if(sub) sub.addEventListener("click", opsSubmit);
+    const reload = document.getElementById("ops-reload");
+    if(reload) reload.addEventListener("click", loadOpsList);
+    const mask = document.getElementById("ops-mask");
+    if(mask) mask.addEventListener("click", function(ev){ if(ev.target === mask) opsClose(); });
+    /* P 键：兑现 setPresenter 的空头承诺（输入框聚焦时不触发） */
+    document.addEventListener("keydown", function(ev){
+      const t = ev.target;
+      if(t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
+      if(ev.key === "p" || ev.key === "P"){
+        setPresenter(!document.body.classList.contains("presenter-enhanced"));
+      }
+    });
+    logOplog("page_view", null, "ok", "");
+  }
+  if(document.readyState === "loading") document.addEventListener("DOMContentLoaded", bind);
+  else bind();
+})();
 
 /* ================= 患者口径常量 =================
    ΔP 绿区：路演演示口径 常人带 30–150 Pa（路演幻灯 P3，与讲稿一致）；
@@ -1663,21 +2106,22 @@ async function loadCases(){
   S.cases = r.body.cases || [];
   const pills = $("airway-pills");
   pills.innerHTML = "";
-  for(const c of S.cases){
+  const list = displayCases();
+  renderMyCasesGuide((S.cases || []).filter(isMyCase).length > 0);
+  for(const c of list){
     const wrap = document.createElement("span");
     wrap.className = "pill-wrap";
     const b = document.createElement("button");
     b.className = "pill" + (c.presenter_only && !S.presenter ? " gated" : "");
     b.dataset.cid = c.case_id;
-    const _status = c.status === "blocked" ? "⛔ 受限" : (c.case_id === "pC" ? "⛔ 受限" : (c.badge_text || c.status || ""));
-    const _needSt = _status && !String(c.label || "").includes(_status);   /* label 已含该词则不重复追加（观感修复 2026-10-16） */
-    const _badge = c.status === "blocked" ? "⛔" : (c.case_id === "pC" ? "⛔" : c.badge);
-    b.innerHTML = esc(_badge) + " " + esc(c.label) +
-      (_needSt ? '<span class="st">' + esc(_status) + "</span>" : "");
+    const vs = pillVisual(c);
+    b.innerHTML = esc(vs.badge ? vs.badge + " " : "") + esc(vs.label) +
+      (vs.status ? '<span class="st">' + esc(vs.status) + "</span>" : "");
     b.addEventListener("click", ()=>selectCase(c.case_id));
     wrap.appendChild(b);
-    /* 删除按钮：仅上传病例（内置/合成病例不渲染）——blocked 的更显眼（用户痛点） */
-    if(c.kind === "upload"){
+    /* 删除按钮：仅上传病例（内置/合成病例不渲染）——blocked 的更显眼（用户痛点）；
+       角色系统：仅操作员档渲染（患者/医生档无删除入口；接口仍受服务端闸保护） */
+    if(c.kind === "upload" && has("case_admin")){
       const del = document.createElement("button");
       del.className = "pill-del" + (c.status === "blocked" ? " blocked" : "");
       del.type = "button";
@@ -1688,6 +2132,11 @@ async function loadCases(){
     }
     pills.appendChild(wrap);
   }
+  if(!list.length){
+    pills.innerHTML = '<span class="muted">' +
+      (role() === "patient" ? "还没有属于您的病例" : "暂无可见病例") + "</span>";
+  }
+  applyRegions();
 }
 
 /* ---------- 删除上传病例（DELETE /api/case/<cid>；内置/合成病例无按钮） ---------- */
@@ -1828,20 +2277,23 @@ function renderHeroPlaceholder(c, cid){
 
 function updateCaseSummaryRail(cid, c, metrics){
   const d = registryCase(cid);
+  S.lastMetrics = metrics || null;
   const put = (id, value) => { const el = $(id); if(el) el.textContent = value || "—"; };
   if(!cid){ put("rail-case", "选择病例查看"); put("rail-dp", "—"); put("rail-min", "—"); put("rail-status", "—"); return; }
   const isDemo = !!(registryCase(cid).source === "static");
-  put("rail-case", d.name || c.label || cid);
+  put("rail-case", lexText(d.name || c.label || cid));
   if(isDemo){
     put("rail-dp", d.dp || "—");
     put("rail-min", d.min || "—");
-    put("rail-status", d.conv && d.conv.indexOf("未收敛") >= 0 ? "⚠ 未收敛" : (d.conv || "—"));
-    const status = $("rail-status"); if(status) status.style.color = cid === "pN-Lat" ? "#ff6b6b" : "";
+    const conv = d.conv && d.conv.indexOf("未收敛") >= 0 ? "⚠ 未收敛" : (d.conv || "—");
+    put("rail-status", lexText(conv));
+    const status = $("rail-status"); if(status) status.style.color = (role() !== "patient" && cid === "pN-Lat") ? "#ff6b6b" : "";
     return;
   }
   put("rail-dp", metrics && (metrics.delta_p || metrics.dp) ? String(metrics.delta_p || metrics.dp) + " Pa" : "—");
   put("rail-min", metrics && metrics.min_area ? String(metrics.min_area) + " mm²" : "—");
-  put("rail-status", metrics ? (c.status === "blocked" ? "已拦截" : "已收敛") : "—");
+  const rawStatus = metrics ? (c.status === "blocked" ? "已拦截" : "已收敛") : "—";
+  put("rail-status", lexText(rawStatus));
   const status = $("rail-status"); if(status) status.style.color = "";
 }
 
@@ -1884,6 +2336,13 @@ function renderHeroWithToggle(cid, c){
   bf.style.display = "";
   if(bp) bp.style.display = hasPlus ? "" : "none";
   bar.style.display = "";
+  /* 患者档：只保留 💨 气流动画（3D 模型 / 17 功能查看器属专业工具） */
+  if(!has("full_hero")){
+    bm.style.display = "none";
+    if(bp) bp.style.display = "none";
+    setHeroView(cid, c, "flow", true);
+    return;
+  }
   setHeroView(cid, c, "model", true);
 }
 
@@ -1903,6 +2362,7 @@ function setHeroView(cid, c, view, force){
   if(bf) bf.classList.toggle("active", view === "flow");
   if(bp) bp.classList.toggle("active", view === "plus");
   if(view === "plus"){
+    if(!has("full_hero")) return;    /* 患者档无 17 功能查看器 */
     destroyHeroModel();   /* 切走时销毁 three 场景并 forceContextLoss 释放 WebGL 上下文 */
     const PLUS_MAP = {pA:"viewer_plus.html?case=pA",pB:"viewer_plus.html?case=pB",demoA:"viewer_plus.html?case=demoA",demoB:"viewer_plus.html?case=demoB", "pN-Lat":"viewer_plus.html?case=pN-Lat", "pN-Med":"viewer_plus.html?case=pN-Med"};
     const src = "/static/plus/" + (PLUS_MAP[cid] || "viewer_plus.html?case=" + encodeURIComponent(cid));
@@ -2193,6 +2653,7 @@ function updateEnsLive(cid, m){
 
 /* ---------- QC 三平面 ---------- */
 function renderQC(q, gridId, cardId, noteId){
+  if(!has("qc")) return;             /* 患者档不展示 QC（区域容器已按 REGIONS 隐藏） */
   $(cardId).style.display = "";
   const box = $(gridId);
   box.innerHTML = "";
@@ -2239,6 +2700,7 @@ function renderResults(c, cid){
     "-v1/后处理/）；只读复用——严禁套用其他患者数字（结果契约闸门）。";
 }
 function renderFigures(c, cid){
+  if(!has("figures")) return;        /* 患者档不展示技术图表 */
   cid = cid || (c && c.case_id) || "";
   const card = $("figures-card");
   card.style.display = "";
@@ -2316,6 +2778,7 @@ function cmpVal(data, cid, key){
 async function renderCompare(c, cid){
   const card = $("compare-card");
   if(!card) return;
+  if(!has("compare")){ card.style.display = "none"; return; }   /* 患者档：跨患者并列对比整块隐藏（伦理） */
   if(COMPARE_CIDS.indexOf(cid) < 0){   /* pC / demo / 上传病例：不显示对比入口 */
     card.style.display = "none";
     return;

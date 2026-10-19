@@ -37,6 +37,7 @@
   python server.py --presenter              # presenter 定向演示模式（解锁 presenter_only 病例详情，R-01 机制）
 """
 import argparse
+import io
 import glob
 import json
 import os
@@ -2108,6 +2109,62 @@ def _register_path_case(cfg, dicom_dir, source_label="服务器目录导入", ex
 
 
 # ---------------------------------------------------------------- Flask app
+# ---------- 操作日记 oplog + 一键报障（三角色前端批 R5，2026-10-19） ----------
+# 边界：actor 是客户端声称（actor_source=client-claim），永不做鉴权——
+# 界面角色只是观看方式，真正的数据边界是服务端硬闸（见关于本项目边界声明卡）。
+_PATH_RE = re.compile(r'[A-Za-z]:\\[^\s"\',;)}\]\[]+|[A-Za-z]:/[^\s"\',;)}\]\[]+')
+
+def mask_fatal_pii_values(text):
+    """oplog/bugreport 写盘前必过：把本机绝对路径替换为 <path>。返回 (masked, n_hits)。
+    只掩码路径——不猜姓名；患者数据宪法下宁少掩不多猜。"""
+    s = str(text or "")
+    out, n = _PATH_RE.subn("<path>", s)
+    return out, n
+
+def _state_subdir(cfg, name):
+    d = os.path.join(cfg.state_dir, name)
+    try:
+        os.makedirs(d, exist_ok=True)
+    except OSError:
+        pass
+    return d
+
+def _read_manifest_tail(cfg, n=200):
+    """manifest 尾部 n 行（本机运行时日志；不含病例内容）。找不到返回 None。"""
+    sd = getattr(cfg, "state_dir", "") or ""
+    cand = os.path.join(sd, "manifest-progress.json")
+    if not os.path.exists(cand):
+        alts = sorted(glob.glob(os.path.join(sd, "manifest*.json")), key=os.path.getmtime, reverse=True)
+        cand = alts[0] if alts else None
+    if not cand or not os.path.exists(cand):
+        return None
+    try:
+        with io.open(cand, encoding="utf-8") as f:
+            return "\n".join(f.read().splitlines()[-n:])
+    except OSError:
+        return None
+
+def purge_oplog_bugreports(cfg, days, dry_run=True):
+    """按 consent days:N 语义清理超期 oplog/bugreports。
+    默认 dry_run=True（只计数打印，不删）——自动删除患者本机数据须显式接线。"""
+    import time as _t
+    cutoff = _t.time() - float(days) * 86400.0
+    n_del = n_keep = 0
+    for sub in ("oplog", "bugreports"):
+        d = _state_subdir(cfg, sub)
+        for fn in os.listdir(d):
+            p = os.path.join(d, fn)
+            try:
+                if os.path.getmtime(p) < cutoff:
+                    n_del += 1
+                    if not dry_run:
+                        os.remove(p)
+                else:
+                    n_keep += 1
+            except OSError:
+                continue
+    return {"would_delete": n_del, "keep": n_keep, "dry_run": dry_run}
+
 def build_app(cfg):
     app = Flask(__name__, static_folder=WEBAPP_DIR, static_url_path="/static")
     app.config["SERVER_CONFIG"] = cfg
@@ -3069,6 +3126,119 @@ code{{background:#0d1117;padding:2px 6px;border-radius:4px;font-size:12px}}
             except Exception:  # noqa: BLE001
                 return None
         return None
+
+    # ---------- oplog / 报障端点（R5） ----------
+    @app.route("/api/oplog", methods=["POST"])
+    def api_oplog():
+        import uuid as _uuid
+        body = request.get_json(silent=True) or {}
+        action = str(body.get("action") or "")[:64]
+        if not action:
+            return jsonify({"ok": False, "error": "missing action"}), 400
+        detail, n_mask = mask_fatal_pii_values(body.get("detail") or "")
+        rec = {
+            "ts": datetime.now().isoformat(timespec="seconds"),
+            "actor": str(body.get("actor") or "?")[:32],
+            "actor_source": "client-claim",
+            "action": action,
+            "case_id": (str(body.get("case_id"))[:64] if body.get("case_id") else None),
+            "result": str(body.get("result") or "ok")[:32],
+            "detail": detail[:500],
+            "masked_paths": n_mask,
+            "client": str(body.get("client") or "")[:200],
+        }
+        d = _state_subdir(cfg, "oplog")
+        with io.open(os.path.join(d, datetime.now().strftime("%Y-%m-%d") + ".jsonl"),
+                     "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        return jsonify({"ok": True})
+
+    @app.route("/api/bugreports", methods=["POST"])
+    def api_bugreports_post():
+        import uuid as _uuid
+        body = request.get_json(silent=True) or {}
+        what = str(body.get("what") or "").strip()
+        if not what:
+            return jsonify({"ok": False, "error": "missing what"}), 400
+        what_m, n1 = mask_fatal_pii_values(what)
+        exp_m, n2 = mask_fatal_pii_values(body.get("expected") or "")
+        rid = datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + _uuid.uuid4().hex[:6]
+        rec = {
+            "id": rid,
+            "ts": datetime.now().isoformat(timespec="seconds"),
+            "role": str(body.get("role") or "?")[:32],
+            "what": what_m[:2000],
+            "expected": exp_m[:1000],
+            "case_id": (str(body.get("case_id"))[:64] if body.get("case_id") else None),
+            "page_url": str(body.get("page_url") or "")[:200],
+            "attach": {
+                "env": bool(body.get("attach_env")),
+                "manifest": bool(body.get("attach_manifest")),
+                "page": bool(body.get("attach_page")),
+                "rawlog": bool(body.get("attach_log")),
+            },
+            "masked_paths": n1 + n2,
+        }
+        if rec["attach"]["manifest"]:
+            rec["manifest_tail"] = _read_manifest_tail(cfg, 200)
+        d = _state_subdir(cfg, "bugreports")
+        with io.open(os.path.join(d, rid + ".json"), "w", encoding="utf-8") as f:
+            json.dump(rec, f, ensure_ascii=False, indent=1)
+        return jsonify({"ok": True, "id": rid})
+
+    @app.route("/api/bugreports", methods=["GET"])
+    def api_bugreports_get():
+        d = _state_subdir(cfg, "bugreports")
+        items = []
+        for fn in sorted(os.listdir(d), reverse=True)[:100]:
+            if not fn.endswith(".json"):
+                continue
+            try:
+                with io.open(os.path.join(d, fn), encoding="utf-8") as f:
+                    r = json.load(f)
+                items.append({"id": r.get("id"), "ts": r.get("ts"),
+                              "role": r.get("role"), "what": (r.get("what") or "")[:80]})
+            except (OSError, ValueError):
+                continue
+        return jsonify({"ok": True, "items": items})
+
+    @app.route("/api/bugreports/export.zip")
+    def api_bugreports_export():
+        import zipfile
+        d = _state_subdir(cfg, "bugreports")
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+            for fn in sorted(os.listdir(d)):
+                if fn.endswith(".json"):
+                    z.write(os.path.join(d, fn), arcname=fn)
+        buf.seek(0)
+        return send_file(buf, mimetype="application/zip", as_attachment=True,
+                         download_name="bugreports.zip")
+
+    @app.route("/api/oplog/export.jsonl")
+    def api_oplog_export():
+        d = _state_subdir(cfg, "oplog")
+        parts = []
+        for fn in sorted(os.listdir(d)):
+            if fn.endswith(".jsonl"):
+                try:
+                    with io.open(os.path.join(d, fn), encoding="utf-8") as f:
+                        parts.append(f.read())
+                except OSError:
+                    pass
+        buf = io.BytesIO("".join(parts).encode("utf-8"))
+        buf.seek(0)
+        return send_file(buf, mimetype="application/x-ndjson", as_attachment=True,
+                         download_name="oplog.jsonl")
+
+    # 启动时 dry-run 打印（不自动删——患者本机数据的自动清理须显式接线）
+    try:
+        _purge_info = purge_oplog_bugreports(cfg, 30, dry_run=True)
+        if _purge_info["would_delete"]:
+            print("[W] oplog/bugreports 超 30 天条目 %d 个（dry-run，未删除；"
+                  "接入保留期策略后自动清理）" % _purge_info["would_delete"], flush=True)
+    except Exception as _e:
+        print("[W] purge dry-run 跳过：%s" % _e, flush=True)
 
     return app
 
