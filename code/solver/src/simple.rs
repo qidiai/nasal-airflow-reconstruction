@@ -19,8 +19,8 @@ use crate::fvm::{
     hbya_flux, rhie_chow_phi, FvVectorMatrix,
 };
 use crate::linalg::{
-    dump_csr, ic0_reset_stats, ic0_stats, matrix_precheck, pcg, pcg_equiv_check, sgs_solve, Csr,
-    LinSolveInfo, PrecondKind,
+    dump_csr, ic0_reset_stats, ic0_stats, matrix_precheck, pcg, pcg_equiv_check, sgs_solve,
+    two_level_enabled, two_level_reset_stats, two_level_stats, Csr, LinSolveInfo, PrecondKind,
 };
 use crate::mesh::{dot, Mesh, Patch};
 use crate::metrics::{
@@ -282,6 +282,7 @@ impl SimpleSolver {
         // 否则 A/B 对照会被初始化路径污染。
         let precond = PrecondKind::from_env();
         ic0_reset_stats();
+        two_level_reset_stats();
         if std::env::var("FLOWSCOPE_INIT_UNIFORM").is_ok()
             && self.u.data.iter().all(|v| v == &[0.0, 0.0, 0.0])
         {
@@ -392,7 +393,9 @@ impl SimpleSolver {
                 } else {
                     String::new()
                 },
-                if precond.is_ic_like() && crate::linalg::deflate_enabled() {
+                if precond.is_ic_like() && two_level_enabled() {
+                    " + 聚合两层（FLOWSCOPE_TWO_LEVEL=1，常数模 deflation 自动关闭）"
+                } else if precond.is_ic_like() && crate::linalg::deflate_enabled() {
                     " + 常数模 deflation"
                 } else {
                     ""
@@ -739,7 +742,7 @@ impl SimpleSolver {
             let nbrk = self.lin_p.iter().filter(|i| i.breakdown).count();
             let cap = self.lin_p.iter().filter(|i| i.iters >= p_cap).count();
             println!(
-                "[pLin-stats] precond {} n {} min {} median {:.1} mean {:.1} max {} | converged {}/{} breakdown {} cap_hits {}",
+                "[pLin-stats] precond {} n {} min {} median {:.1} mean {:.1} max {} | converged {}/{} breakdown {} cap_hits {} | two_level {}",
                 precond.tag(),
                 n,
                 iters[0],
@@ -749,7 +752,8 @@ impl SimpleSolver {
                 nconv,
                 n,
                 nbrk,
-                cap
+                cap,
+                if two_level_enabled() { 1 } else { 0 }
             );
             if std::env::var("FLOWSCOPE_VERBOSE_ALL").is_ok() {
                 let seq: Vec<String> = self.lin_p.iter().map(|i| i.iters.to_string()).collect();
@@ -765,6 +769,24 @@ impl SimpleSolver {
                     st.factor_secs,
                     st.mem_bytes,
                     st.mem_bytes as f64 / (1024.0 * 1024.0)
+                );
+            }
+            // W7-M2：两层构建/应用耗时分解（验收要求「构建占比 ≤20%」可核算）
+            let tst = two_level_stats();
+            if tst.builds > 0 || tst.degraded > 0 {
+                let build_secs = tst.agg_secs + tst.galerkin_secs + tst.coarse_factor_secs;
+                println!(
+                    "[two-level-stats] builds {} dirichlet_cells {} coarse_size {} agg_secs {:.3} galerkin_secs {:.3} coarse_factor_secs {:.3} coarse_apply_secs {:.3} coarse_iters {} degraded {} build_total_secs {:.3}",
+                    tst.builds,
+                    tst.dirichlet_cells,
+                    tst.coarse_size,
+                    tst.agg_secs,
+                    tst.galerkin_secs,
+                    tst.coarse_factor_secs,
+                    tst.coarse_apply_secs,
+                    tst.coarse_iters,
+                    tst.degraded,
+                    build_secs
                 );
             }
         }
