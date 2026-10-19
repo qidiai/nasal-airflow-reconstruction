@@ -1,0 +1,72 @@
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "system";
+    object      controlDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+
+application     simpleFoam;
+
+startFrom       latestTime;
+startTime       0;
+stopAt          endTime;
+endTime         1500;
+deltaT          1;
+
+writeControl    timeStep;
+writeInterval   500;
+purgeWrite      2;
+writeFormat     ascii;
+writePrecision  6;
+timeFormat      general;
+timePrecision   6;
+graphFormat     raw;
+
+functions
+{
+    fluxInletL
+    {
+        type            surfaceFieldValue;
+        libs            ("libfieldFunctionObjects.so");
+        fields          (phi);
+        operation       sum;
+        regionType      patch;
+        name            inletL;
+        writeControl    writeTime;
+        writeFields      false;
+    }
+    fluxInletR
+    {
+        type            surfaceFieldValue;
+        libs            ("libfieldFunctionObjects.so");
+        fields          (phi);
+        operation       sum;
+        regionType      patch;
+        name            inletR;
+        writeControl    writeTime;
+        writeFields      false;
+    }
+    fluxOutlet
+    {
+        type            surfaceFieldValue;
+        libs            ("libfieldFunctionObjects.so");
+        fields          (phi);
+        operation       sum;
+        regionType      patch;
+        name            outlet;
+        writeControl    writeTime;
+        writeFields      false;
+    }
+    wss
+    {
+        type            wallShearStress;
+        libs            ("libfieldFunctionObjects.so");
+        writeControl    writeTime;
+    }
+}
+
+// ************************************************************************* //
