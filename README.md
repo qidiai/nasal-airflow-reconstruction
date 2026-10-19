@@ -182,7 +182,9 @@ OpenFOAM 后端**不删除**，作为对拍真值源：L3 批量回归（baselin
 
 ## 许可证
 
-MIT License（见 `LICENSE`）。
+Business Source License 1.1（见 `LICENSE` 与 `NOTICE`）：
+非商业用途（个人/患者自用/学术研究/教育）免费；**商用须获得 Licensor（Xu Changming）书面授权**；
+Change Date 2099-01-01 后方转为 Apache-2.0。legacy OpenFOAM 模板为 GPL-3.0（见 NOTICE 第 2 节）。
 
 ## 免责
 
