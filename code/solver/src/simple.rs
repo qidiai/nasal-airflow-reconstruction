@@ -276,7 +276,8 @@ impl SimpleSolver {
         let alpha_u = alpha_u.unwrap_or(self.cfg.params.alpha_u);
         let alpha_p = alpha_p.unwrap_or(self.cfg.params.alpha_p);
         let lu_dev = lu_dev.unwrap_or(self.cfg.params.lu_deviation);
-        // W6 A/B 开关：`FLOWSCOPE_PRECOND=sgs|ic0`（默认 sgs）。
+        // W6 开关：`FLOWSCOPE_PRECOND=sgs|ic0|mic0`（W6-v3 起默认 ic0 + 常数模 deflation，
+        // 可用 `FLOWSCOPE_PRECOND=sgs` / `FLOWSCOPE_DEFLATE=0` 分别回退）。
         // 必须同时作用于下面两处 pcg 调用点（Run-B 位势流初始化 + 主循环压力方程），
         // 否则 A/B 对照会被初始化路径污染。
         let precond = PrecondKind::from_env();
@@ -384,9 +385,14 @@ impl SimpleSolver {
                 self.cfg.params.p_tol, self.cfg.params.p_reltol,
                 self.cfg.params.u_tol, self.cfg.params.u_reltol);
             println!(
-                "linear preconditioner : {}（FLOWSCOPE_PRECOND=sgs|ic0）{}",
+                "linear preconditioner : {}（FLOWSCOPE_PRECOND=sgs|ic0|mic0）{}{}",
                 precond.tag(),
-                if precond == PrecondKind::Ic0 && crate::linalg::deflate_enabled() {
+                if precond == PrecondKind::Mic0 {
+                    format!(" ω {:.3}", crate::linalg::mic_omega())
+                } else {
+                    String::new()
+                },
+                if precond.is_ic_like() && crate::linalg::deflate_enabled() {
                     " + 常数模 deflation"
                 } else {
                     ""
@@ -696,6 +702,16 @@ impl SimpleSolver {
                 if self.cfg.params.write_interval > 0 && it % self.cfg.params.write_interval == 0 {
                     self.write_snapshot(dir, it)?;
                 }
+            }
+        }
+        // 收尾写出：residualControl 双达标提前 break 时会跳过循环内写出（W6 v3 门实证：
+        // case-026 在 ic0+deflation 下约 100 步提前收敛，write_interval=1500 时末态从未落盘），
+        // 若末迭代未写过则补写一次——早停也是完成态，fields 必须存在。
+        if let Some(dir) = out_dir {
+            if self.cfg.params.write_interval > 0
+                && self.iter % self.cfg.params.write_interval != 0
+            {
+                self.write_snapshot(dir, self.iter)?;
             }
         }
         if !self.converged {
