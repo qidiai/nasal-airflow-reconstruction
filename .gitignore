@@ -75,3 +75,10 @@ code/pipeline/T52_work/
 code/pipeline/T50*.png
 
 code/solver/out/
+
+# ---- M4 临时目录（2026-10-19 收尾；实际目录在 code/ 下，旧规则只覆盖 code/pipeline/.playwright-mcp/）----
+code/.tmp-m4/
+code/.playwright-mcp/
+
+# ---- M4 整改 C2（2026-10-19）：患者衍生 viewer 数据防误提交（consent-ledger L3，230MB）----
+code/pipeline/webapp/plus/

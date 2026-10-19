@@ -8,6 +8,9 @@ pydicom
 scikit-image
 trimesh
 matplotlib
+# M4 报告引擎证图渲染依赖（2026-10-19 审计 C3 补入；均为宽松许可）
+meshio      # MIT——VTU/VTP 读取与场切片渲染（report/figures.py）
+pyvista     # Apache-2.0——VTK 渲染后端（report/figures.py）
 
 # 测试（pytest 冒烟套件，见 tests/）
 pytest

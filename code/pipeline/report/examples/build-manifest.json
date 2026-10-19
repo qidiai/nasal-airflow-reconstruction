@@ -1,0 +1,61 @@
+{
+ "generated_at": "2026-10-19T15:21:25",
+ "out_dir": "pipeline\\report\\examples",
+ "note": "提交态仅含合成算例 synth-001（consent-ledger：患者派生影像/几何禁入仓）；患者例报告仅本地授权展示",
+ "ok": true,
+ "reports": [
+  {
+   "ok": true,
+   "path": "F:\\比赛项目\\罕见无界黑客松\\开源仓库\\code\\pipeline\\report\\examples\\report-synth-001.html",
+   "checks": {
+    "size": {
+     "ok": true,
+     "bytes": 210008,
+     "limit": 5242880,
+     "human": "205.1 KB"
+    },
+    "doctype": {
+     "ok": true
+    },
+    "charset": {
+     "ok": true
+    },
+    "no_remote": {
+     "ok": true,
+     "hits": []
+    },
+    "no_external_script": {
+     "ok": true
+    },
+    "no_external_css": {
+     "ok": true
+    },
+    "images": {
+     "ok": true,
+     "count": 4
+    },
+    "metric_cards": {
+     "ok": true,
+     "count": 8,
+     "with_evidence": 8
+    },
+    "numbers": {
+     "ok": true,
+     "items": {}
+    },
+    "percentile_free": {
+     "ok": true,
+     "hits": []
+    },
+    "patient_layer": {
+     "ok": true,
+     "hits": [],
+     "has_conclusion": true
+    },
+    "print_ready": {
+     "ok": true
+    }
+   }
+  }
+ ]
+}
