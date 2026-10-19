@@ -54,6 +54,7 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
 import run_all as RA  # noqa: E402  # 复用同款闸门（scan_pii / survey_dicom / probe_openfoam）
+import solver_backend as SB  # noqa: E402  # M3：custom / openfoam / auto
 
 import matplotlib  # noqa: E402
 matplotlib.use("Agg")
@@ -1149,8 +1150,9 @@ def run_chain_thread(cfg, case_id, solve, result_dir):
         r["gate_failures"] = [extract_fatal_reason(out_dir) or "断言停工（exit 2），详见进度日志"]
         append_progress(out_dir, f"[W] ⛔ 门禁拦截（exit 2）：{r['gate_failures'][0]}")
     elif mapped == "failed_env":
-        r["gate_failures"] = ["本机 OpenFOAM/WSL 环境探测 ABSENT（exit 3）："
-                              "local 模式不可用；可改 --solve laptop 生成交接文档"]
+        r["gate_failures"] = [f"求解环境缺失（exit 3，backend={SB.resolve_backend()}）："
+                              "local 模式不可用；可改 --solve laptop 生成交接文档，"
+                              "或 --backend custom/openfoam"]
         append_progress(out_dir, "[W] 环境缺失（exit 3）：" + r["gate_failures"][0])
     else:
         r["gate_failures"] = [f"后台链失败（exit {rc}），详见进度日志"]
@@ -1187,6 +1189,32 @@ def solve_thread(cfg, case_id):
     out_dir = rec.get("out_dir") or ""
     case_dir = os.path.join(out_dir, "step2",
                             f"P0-OF-case-{rec.get('prefix')}-{rec.get('case_name')}")
+    # ---- M3：后端分派（custom 无需 WSL；openfoam 保留对拍路径）----
+    backend = SB.resolve_backend()
+    if backend == "custom":
+        if not SB.custom_available():
+            _mark_solve_status(cfg, case_id, "failed",
+                               ["custom 后端不可用：FlowScope 可执行文件不存在"])
+            return
+        append_progress(out_dir, "[W] 自研 FlowScope 求解启动：" + case_dir)
+        rc = SB.run_custom_monitored(
+            case_dir, case_dir, tag="custom", stall_limit=7200,
+            progress=lambda m: append_progress(out_dir, "[W] " + m))
+        if rc == 0:
+            append_progress(out_dir, "[W] FlowScope 完成（exit 0）——进入后处理+step5")
+            reg = load_registry(cfg)
+            r = reg.get(case_id) or rec
+            r["status"] = "running"
+            r["updated"] = now_iso()
+            reg[case_id] = r
+            save_registry(cfg, reg)
+            run_chain_thread(cfg, case_id, "local", case_dir)
+        else:
+            append_progress(out_dir, f"[W] FlowScope 失败（exit {rc}）")
+            _mark_solve_status(cfg, case_id, "failed",
+                               [f"自研 FlowScope 求解失败（exit {rc}）；日志："
+                                + os.path.join(case_dir, "solver.log")])
+        return
     append_progress(out_dir, "[W] WSL Allrun 启动：" + to_wsl_path(case_dir))
     log_path = os.path.join(case_dir, "log.simpleFoam")
     cmd = f"cd {shlex.quote(to_wsl_path(case_dir))} && ./Allrun"
@@ -1390,6 +1418,32 @@ def _run_wsl_allrun_monitored(case_dir, out_dir, tag, stall_limit=1200):
     return (rc, parse_last_time(log_path))
 
 
+def _run_backend_monitored(case_dir, out_dir, tag, stall_limit=1200):
+    """M3 后端分派：custom=FlowScope 心跳看护；openfoam=WSL Allrun。"""
+    if SB.resolve_backend() == "custom":
+        return SB.run_custom_monitored(
+            case_dir, case_dir, tag=tag, stall_limit=max(stall_limit, 7200),
+            progress=lambda m: append_progress(out_dir, "[W] " + m))
+    rc, _t = _run_wsl_allrun_monitored(case_dir, out_dir, tag,
+                                       stall_limit=stall_limit)
+    return rc
+
+
+def _solve_and_post(cfg, case_dir, out_dir, tag):
+    """求解 + 后处理（custom 后端由适配层直接产出 metrics.json）。
+    返回 ``(rc, metrics_path)``。"""
+    backend = SB.resolve_backend()
+    rc = _run_backend_monitored(case_dir, out_dir, tag)
+    if rc != 0:
+        return rc, ""
+    if backend == "custom":
+        mp = os.path.join(case_dir, "后处理", "metrics.json")
+        return (0, mp) if os.path.isfile(mp) else (-996, "")
+    return _run_postcfd(cfg, os.path.join(case_dir, "VTK"),
+                        os.path.join(case_dir, "后处理"), tag + " post_cfd",
+                        out_dir)
+
+
 def _run_postcfd(cfg, vtk_dir, post_dir, tag, out_dir, timeout=1800):
     """post_cfd 后处理（nu=1.8e-5 审计 Y2 口径显式传入;几何单位 m）。
     返回 (rc, metrics_path)。"""
@@ -1419,8 +1473,8 @@ def _run_postcfd(cfg, vtk_dir, post_dir, tag, out_dir, timeout=1800):
 
 def full_chain_thread(cfg, case_id, zlo=None, zhi=None):
     """T16 全自动链（后台线程）：
-    主算例（结果就绪则复用；否则几何补齐→WSL Allrun→post_cfd）
-    → step3 占位算例×3（含占位体 STL）→ 逐个 WSL Allrun→post_cfd×3
+    主算例（结果就绪则复用；否则几何补齐→后端求解→后处理）
+    → step3 占位算例×3（含占位体 STL）→ 逐个后端求解→后处理×3
     → 契约占位档汇编（run_all assemble_contract + 占位 metrics）
     → step5 导出（F3 六板门禁照常把关）→ 舞台化。
     红线：run_all/step5 的契约与门禁逻辑一行不动——档案齐了闸门自然放行。"""
@@ -1478,15 +1532,12 @@ def _full_chain_impl(cfg, case_id, rec, out_dir, zlo, zhi):
         if os.path.isdir(res_dir):
             shutil.rmtree(res_dir)
         shutil.copytree(case_dir, res_dir)
-        rc, _t = _run_wsl_allrun_monitored(res_dir, out_dir, "算例 1/4 " + main_case)
-        if rc != 0:
-            _fail("failed", [f"主算例 WSL Allrun 失败（exit {rc}）；"
-                             f"日志：{os.path.join(res_dir, 'log.simpleFoam')}"], rc)
-        rc2, main_metrics = _run_postcfd(
-            cfg, os.path.join(res_dir, "VTK"),
-            os.path.join(res_dir, "后处理"), "主算例 post_cfd", out_dir)
+        rc2, main_metrics = _solve_and_post(cfg, res_dir, out_dir,
+                                             "算例 1/4 " + main_case)
         if rc2 != 0:
-            _fail("failed", [f"主算例 post_cfd 失败（exit {rc2}）"], rc2)
+            _fail("failed", [f"主算例求解/后处理失败（backend="
+                             f"{SB.resolve_backend()}，exit {rc2}）；"
+                             f"日志：{os.path.join(res_dir, 'solver.log')}"], rc2)
         main_vtu = RA.find_vtu(res_dir)
         if not main_vtu:
             _fail("failed", ["主算例求解完成但 VTK/internal.vtu 缺失"], 2)
@@ -1573,15 +1624,11 @@ def _full_chain_impl(cfg, case_id, rec, out_dir, zlo, zhi):
             if os.path.isdir(ph_res):
                 shutil.rmtree(ph_res)
             shutil.copytree(ph_src, ph_res)
-            rc, _t = _run_wsl_allrun_monitored(ph_res, out_dir, f"算例 {n+1}/4 {ph_name}")
-            if rc != 0:
-                _fail("failed", [f"占位算例 {ph_name} WSL Allrun 失败（exit {rc}）；"
-                                 f"日志：{os.path.join(ph_res, 'log.simpleFoam')}"], rc)
-            rc2, ph_metrics = _run_postcfd(
-                cfg, os.path.join(ph_res, "VTK"),
-                os.path.join(ph_res, "后处理"), f"占位 {n}mm post_cfd", out_dir)
+            rc2, ph_metrics = _solve_and_post(cfg, ph_res, out_dir,
+                                              f"算例 {n+1}/4 {ph_name}")
             if rc2 != 0:
-                _fail("failed", [f"占位算例 {ph_name} post_cfd 失败（exit {rc2}）"], rc2)
+                _fail("failed", [f"占位算例 {ph_name} 求解/后处理失败"
+                                 f"（backend={SB.resolve_backend()}，exit {rc2}）"], rc2)
             append_progress(out_dir, f"[W] 占位算例 {n}/3 求解+后处理完成（{ph_name}）")
         ph_dirs.append((ph_name, ph_metrics, nqc["levels"][n - 1]))
         _mark_full_chain(cfg, case_id, cases_done=1 + n)
@@ -2500,17 +2547,26 @@ def build_app(cfg):
         if not os.path.isdir(result_dir):
             result_dir = None
         if solve == "local" and result_dir is None:
-            # 无已回传结果 → 本机需求解：先探测环境（run_all exit 3 契约前置化）
-            try:
-                probe = RA.probe_openfoam()
-            except Exception:  # noqa: BLE001
-                probe = {"any_present": False}
-            if not probe.get("any_present"):
-                return jsonify({
-                    "error": "环境缺失（exit 3 前置检查）：本机未检测到 "
-                             "OpenFOAM/WSL/Docker——local 求解不可用；"
-                             "可改 solve=laptop 生成交接文档（待 WSL 笔记本求解）"
-                             }), 409
+            # 无已回传结果 → 本机需求解：先探测后端（run_all exit 3 契约前置化）
+            backend = SB.resolve_backend()
+            if backend == "custom":
+                if not SB.custom_available():
+                    return jsonify({
+                        "error": "环境缺失（exit 3 前置检查）：custom 后端不可用——"
+                                 "FlowScope 可执行文件不存在；请构建 code/solver "
+                                 "或改 --backend openfoam/laptop"
+                        }), 409
+            else:
+                try:
+                    probe = RA.probe_openfoam()
+                except Exception:  # noqa: BLE001
+                    probe = {"any_present": False}
+                if not probe.get("any_present"):
+                    return jsonify({
+                        "error": "环境缺失（exit 3 前置检查）：本机未检测到 "
+                                 "OpenFOAM/WSL/Docker——openfoam 后端不可用；"
+                                 "可改 solve=laptop 生成交接文档（待 WSL 笔记本求解）"
+                        }), 409
         reg = load_registry(cfg)
         r = reg.get(case_id) or rec
         r.update(status="running", updated=now_iso(),
@@ -2584,21 +2640,31 @@ def build_app(cfg):
                             f"仅'交接待解算'状态可启动 WSL 求解（当前：{r.get('status')}）"}), 409
         if case_id in RUNNING:
             return jsonify({"error": "求解已在进行中"}), 409
-        # WSL 探测
-        try:
-            probe = subprocess.run(["wsl", "-l", "-v"], capture_output=True, timeout=60)
-            wsl_ok = probe.returncode == 0
-        except Exception:  # noqa: BLE001
-            wsl_ok = False
-        if not wsl_ok:
-            return jsonify({"error":
-                            "环境缺失：本机未检测到 WSL（wsl -l -v 失败）——"
-                            "笔记本侧求解不可用；请在已装 WSL+OpenFOAM 的笔记本上执行"}), 409
+        # 后端探测（M3：custom 无需 WSL；openfoam 仍要求 WSL+OpenFOAM）
+        backend = SB.resolve_backend()
+        if backend == "custom":
+            if not SB.custom_available():
+                return jsonify({"error":
+                                "环境缺失：custom 后端不可用——FlowScope 可执行文件"
+                                "不存在；请构建 code/solver 后重试"}), 409
+        else:
+            try:
+                probe = subprocess.run(["wsl", "-l", "-v"], capture_output=True, timeout=60)
+                wsl_ok = probe.returncode == 0
+            except Exception:  # noqa: BLE001
+                wsl_ok = False
+            if not wsl_ok:
+                return jsonify({"error":
+                                "环境缺失：本机未检测到 WSL（wsl -l -v 失败）——"
+                                "笔记本侧求解不可用；请在已装 WSL+OpenFOAM 的笔记本上执行"}), 409
         t = threading.Thread(target=solve_thread, args=(cfg, case_id), daemon=True)
         RUNNING[case_id] = t
         t.start()
+        msg = ("FlowScope 求解已启动（custom 后端，心跳看护）"
+               if backend == "custom"
+               else "WSL Allrun 已启动（20 分钟心跳看护）")
         return jsonify({"case_id": case_id, "status": "solving",
-                        "message": "WSL Allrun 已启动（20 分钟心跳看护）"}), 202
+                        "message": msg}), 202
 
     @app.route("/api/full/<case_id>", methods=["POST"])
     def api_full(case_id):
@@ -2621,17 +2687,23 @@ def build_app(cfg):
             zhi = int(body["zhi"]) if body.get("zhi") is not None else None
         except (TypeError, ValueError):
             return jsonify({"error": "zlo/zhi 须为整数（占位档层位窗口）"}), 400
-        # 环境前置探测（缺环境直接 409,不空转）
-        try:
-            probe = subprocess.run(["wsl", "-l", "-v"], capture_output=True, timeout=60)
-            wsl_ok = probe.returncode == 0
-        except Exception:  # noqa: BLE001
-            wsl_ok = False
-        if not wsl_ok:
-            return jsonify({"error": "环境缺失：wsl -l -v 失败——全自动求解不可用"}), 409
-        if not post_cfd_path(cfg):
-            return jsonify({"error": "环境缺失：post_cfd.py 未定位"
-                            "（环境变量 P0_POST_CFD 或 ct_base 相对推导）"}), 409
+        # 环境前置探测（缺环境直接 409,不空转；M3 后端分派）
+        backend = SB.resolve_backend()
+        if backend == "custom":
+            if not SB.custom_available():
+                return jsonify({"error": "环境缺失：custom 后端不可用——"
+                                "FlowScope 可执行文件不存在；请构建 code/solver"}), 409
+        else:
+            try:
+                probe = subprocess.run(["wsl", "-l", "-v"], capture_output=True, timeout=60)
+                wsl_ok = probe.returncode == 0
+            except Exception:  # noqa: BLE001
+                wsl_ok = False
+            if not wsl_ok:
+                return jsonify({"error": "环境缺失：wsl -l -v 失败——全自动求解不可用"}), 409
+            if not post_cfd_path(cfg):
+                return jsonify({"error": "环境缺失：post_cfd.py 未定位"
+                                "（环境变量 P0_POST_CFD 或 ct_base 相对推导）"}), 409
         if not (os.path.isfile(STEP3) and os.path.isfile(STEP5)):
             return jsonify({"error": "环境缺失：step3/step5 管线脚本不存在"}), 409
         reg = load_registry(cfg)

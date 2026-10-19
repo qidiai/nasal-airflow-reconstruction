@@ -65,7 +65,7 @@ cd code/viewer
 python gen_demo_data.py     # 重写 viewer_data.js
 ```
 
-### 2. 数据处理管线（需 numpy/scipy/pydicom/trimesh，CFD 环节需 OpenFOAM）
+### 2. 数据处理管线（需 numpy/scipy/pydicom/trimesh；CFD 默认自研 FlowScope，OpenFOAM 可选）
 
 ```bash
 export P0_DICOM_DIR=/path/to/dicom      # CT 数据目录（Windows: set P0_DICOM_DIR=...）
@@ -84,6 +84,14 @@ python code/pipeline/run_all.py --dicom-dir <CT目录>  # 一键总控编排（s
 各脚本默认参数与内部路径已参数化（CT 目录经 `P0_DICOM_DIR`/`--dicom-dir`；输出与审计路径经 %QIDI_WORKSPACE%/%DATA_ROOT% 占位）——全仓无机器绝对路径，核心管线不含硬编码患者路径。
 `step1_airway_segment.py` 与 `step2_make_ofcase.py` 支持 `--dicom-dir`（覆盖 `P0_DICOM_DIR`）；`step2_make_ofcase.py` 支持 `--case/--ext/--iso` 等选项（延长段、去窦对照）。
 裸跑（无 DICOM）时 step1/step2 给出中文可操作报错并中止，不产生 IndexError 裸崩。
+
+> **求解后端（M3 起）**：`run_all.py --solve local --backend auto`（默认）优先调用
+> 自研求解器 `code/solver/target/release/flowscope`（先 `cargo build --release`），
+> **无需 WSL/OpenFOAM**；可执行文件缺失时回退 OpenFOAM（WSL `Allrun`，保留为
+> L3 回归与 Run-B 大网格的对拍基准）。Run-A 一律优先 custom；Run-B 按网格规模
+> 路由（`cells <= 50,000` 走 custom，更大网格走 OpenFOAM）。已知边界：custom
+> 的 Run-B 在 pA 满分辨率网格（269,913 cells）上失稳，故 OpenFOAM 后端保留不删。
+> 细节见 `code/pipeline/legacy/openfoam-reference/README.md` 与根目录 `NOTICE`。
 
 ### 3. 验证与审计工具
 

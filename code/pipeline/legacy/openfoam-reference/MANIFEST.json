@@ -1,0 +1,105 @@
+{
+ "note": "OpenFOAM-derived reference case files (GPL-3.0); copied from runtime archive out/ without modifying it",
+ "files": [
+  {
+   "case": "P0-OF-case-pA-v1",
+   "rel": "Allrun",
+   "source": "code/pipeline/out/step2/P0-OF-case-pA-v1/Allrun",
+   "dest": "code/pipeline/legacy/openfoam-reference/P0-OF-case-pA-v1/Allrun",
+   "md5_before": "c4505791109c7668b95ee87fbde7f626",
+   "md5_after": "c4505791109c7668b95ee87fbde7f626",
+   "match": true,
+   "bytes": 263
+  },
+  {
+   "case": "P0-OF-case-pA-v1",
+   "rel": "0/p",
+   "source": "code/pipeline/out/step2/P0-OF-case-pA-v1/0/p",
+   "dest": "code/pipeline/legacy/openfoam-reference/P0-OF-case-pA-v1/0/p",
+   "md5_before": "01c968ff17074d6da7b92098187ee327",
+   "md5_after": "01c968ff17074d6da7b92098187ee327",
+   "match": true,
+   "bytes": 580
+  },
+  {
+   "case": "P0-OF-case-pA-v1",
+   "rel": "0/U",
+   "source": "code/pipeline/out/step2/P0-OF-case-pA-v1/0/U",
+   "dest": "code/pipeline/legacy/openfoam-reference/P0-OF-case-pA-v1/0/U",
+   "md5_before": "d9f986d54b596b78b0ce503e3e980ebb",
+   "md5_after": "d9f986d54b596b78b0ce503e3e980ebb",
+   "match": true,
+   "bytes": 843
+  },
+  {
+   "case": "P0-OF-case-pA-v1",
+   "rel": "constant/transportProperties",
+   "source": "code/pipeline/out/step2/P0-OF-case-pA-v1/constant/transportProperties",
+   "dest": "code/pipeline/legacy/openfoam-reference/P0-OF-case-pA-v1/constant/transportProperties",
+   "md5_before": "58c2e8e340c5702493b11033c08b37c0",
+   "md5_after": "58c2e8e340c5702493b11033c08b37c0",
+   "match": true,
+   "bytes": 385
+  },
+  {
+   "case": "P0-OF-case-pA-v1",
+   "rel": "constant/turbulenceProperties",
+   "source": "code/pipeline/out/step2/P0-OF-case-pA-v1/constant/turbulenceProperties",
+   "dest": "code/pipeline/legacy/openfoam-reference/P0-OF-case-pA-v1/constant/turbulenceProperties",
+   "md5_before": "8e296953c7a06bded5b4980c7e24efac",
+   "md5_after": "8e296953c7a06bded5b4980c7e24efac",
+   "match": true,
+   "bytes": 339
+  },
+  {
+   "case": "P0-OF-case-pA-v1",
+   "rel": "system/controlDict",
+   "source": "code/pipeline/out/step2/P0-OF-case-pA-v1/system/controlDict",
+   "dest": "code/pipeline/legacy/openfoam-reference/P0-OF-case-pA-v1/system/controlDict",
+   "md5_before": "81657ade0175b03224004a8c3c6265da",
+   "md5_after": "81657ade0175b03224004a8c3c6265da",
+   "match": true,
+   "bytes": 1734
+  },
+  {
+   "case": "P0-OF-case-pA-v1",
+   "rel": "system/fvSchemes",
+   "source": "code/pipeline/out/step2/P0-OF-case-pA-v1/system/fvSchemes",
+   "dest": "code/pipeline/legacy/openfoam-reference/P0-OF-case-pA-v1/system/fvSchemes",
+   "md5_before": "554fb551af3732630d8a1090c9ffdfa9",
+   "md5_after": "554fb551af3732630d8a1090c9ffdfa9",
+   "match": true,
+   "bytes": 711
+  },
+  {
+   "case": "P0-OF-case-pA-v1",
+   "rel": "system/fvSolution",
+   "source": "code/pipeline/out/step2/P0-OF-case-pA-v1/system/fvSolution",
+   "dest": "code/pipeline/legacy/openfoam-reference/P0-OF-case-pA-v1/system/fvSolution",
+   "md5_before": "e8b426a7f3c409d649647fc908867d12",
+   "md5_after": "e8b426a7f3c409d649647fc908867d12",
+   "match": true,
+   "bytes": 904
+  },
+  {
+   "case": "P0-OF-case-pA-v1B",
+   "rel": "0/p",
+   "source": "code/pipeline/out/step2/P0-OF-case-pA-v1B/0/p",
+   "dest": "code/pipeline/legacy/openfoam-reference/P0-OF-case-pA-v1B/0/p",
+   "md5_before": "5680a82c4478f9866c000eef122225cc",
+   "md5_after": "5680a82c4478f9866c000eef122225cc",
+   "match": true,
+   "bytes": 568
+  },
+  {
+   "case": "P0-OF-case-pA-v1B",
+   "rel": "0/U",
+   "source": "code/pipeline/out/step2/P0-OF-case-pA-v1B/0/U",
+   "dest": "code/pipeline/legacy/openfoam-reference/P0-OF-case-pA-v1B/0/U",
+   "md5_before": "e9a2f792fbf7d943e86472581d02671e",
+   "md5_after": "e9a2f792fbf7d943e86472581d02671e",
+   "match": true,
+   "bytes": 548
+  }
+ ]
+}

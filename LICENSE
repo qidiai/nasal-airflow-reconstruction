@@ -42,3 +42,12 @@ HISTORICAL NOTE: Versions of this project published before 2026-10-17 were
 distributed under the MIT License (commit cd82812 and earlier). Those versions
 remain available under MIT. The Business Source License 1.1 above applies to
 versions published from 2026-10-17 onward.
+
+
+---------------------------------------------------------------------------
+
+Third-party and legacy-component licensing boundaries are set out in the NOTICE
+file in the repository root. In case of conflict, the Business Source License
+1.1 terms above govern the Licensed Work. OpenFOAM-derived files under
+code/pipeline/legacy/openfoam-reference/ are licensed under GPL-3.0 and are
+not part of the Licensed Work.

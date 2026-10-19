@@ -1,0 +1,77 @@
+# NOTICE — FlowScope 许可边界与第三方组件
+
+本仓库采用**分层许可**。请以下列边界为准；如与仓库内其他说明冲突，以本文件
+与根目录 `LICENSE` 为准。
+
+## 1. BSL 核心（Business Source License 1.1）
+
+除第 2、3 节明确列出的内容外，本仓库的全部代码与文档（包括但不限于自研
+FlowScope 求解器 `code/solver/`、流水线 `code/pipeline/`、查看器与 webapp、
+API/MCP server、测试与构建脚本）均为 **BSL 核心**，按根目录 `LICENSE`
+（Business Source License 1.1，Licensor: Xu Changming，Change Date: 2099-01-01，
+Change License: Apache-2.0，Additional Use Grant: 非商用全功能免费）授权。
+商用需另行取得书面商业许可；**不存在等待自动转换的免费商用窗口**。
+
+## 2. OpenFOAM 衍生文件（GPL-3.0）
+
+`code/pipeline/legacy/openfoam-reference/` 下的算例模板文件
+（`Allrun`、`0/U`、`0/p`、`system/controlDict`、`system/fvSchemes`、
+`system/fvSolution`、`constant/transportProperties`、
+`constant/turbulenceProperties`）来源于 OpenFOAM（openfoam.com v2406）算例
+组织方式与公开教程约定，属于 OpenFOAM 衍生文件，按 **GPL-3.0** 分发。
+
+- 这些文件**仅作历史参考与对拍基准**（L3 回归、Run-B 大网格真值来源）；
+- 它们**不是** BSL 核心的一部分，**不随 BSL 核心代码分发**；
+- OpenFOAM 本身**未在本仓库分发**。使用 OpenFOAM 后端时由用户自行安装
+  （例如 WSL Ubuntu + `openfoam2406-default`），OpenFOAM 的许可证为 GPL-3.0；
+- 该目录的 `NOTICE`、`MANIFEST.json`（复制前后 md5）与 `MD5SUMS.txt` 为
+  许可与可追溯性证据。
+
+运行时由 `step2_make_ofcase.py` 在 `code/pipeline/out/` 下生成的算例字典
+（`0/`、`constant/`、`system/`、`Allrun`）属于同类 OpenFOAM 衍生数据，
+仅供 OpenFOAM 后端与历史对拍使用；`out/` 被 `.gitignore` 排除，不进入本
+仓库的公开发布面，也不属于 BSL 核心分发内容。
+
+## 3. 第三方依赖许可谱（宽松许可）
+
+本仓库不 vendor 下列组件（`three.js` 除外，见 `code/pipeline/webapp/vendor/`）。
+它们由用户环境安装或随前端静态分发，各自保留原许可证：
+
+### Python / 科学计算
+
+| 组件 | 用途 | 许可证 |
+|---|---|---|
+| numpy | 数值数组 | BSD-3-Clause |
+| scipy | 稀疏矩阵/插值/空间索引 | BSD-3-Clause |
+| pydicom | DICOM 读取 | MIT |
+| scikit-image | 形态学/等值面 | BSD-3-Clause |
+| trimesh | 网格处理 | MIT |
+| matplotlib | QC 图/曲线 | PSF-based（BSD 兼容） |
+| meshio | VTK/VTU I/O | MIT |
+| Flask | 本地 Web API | BSD-3-Clause |
+| Pillow (PIL) | 图像处理 | HPND |
+| pyvista / VTK | 可视化辅助 | MIT / BSD-3-Clause |
+| manifold3d | 实体布尔（占位体） | Apache-2.0 |
+| fast-simplification | 可选网格简化 | MIT |
+
+### 前端（vendored）
+
+| 组件 | 位置 | 许可证 |
+|---|---|---|
+| three.js (`three.min.js`) | `code/pipeline/webapp/vendor/` | MIT |
+| GLTFLoader.js / OrbitControls.js | `code/pipeline/webapp/vendor/` | MIT |
+
+### Rust
+
+自研求解器 `code/solver/` 的 `Cargo.toml` 当前**无第三方 crate 依赖**
+（纯 Rust 标准库实现），因此不引入额外 Rust 许可义务。
+
+## 4. 数据与模型
+
+患者 DICOM、派生掩码（`*.npz`）、CFD 场（`*.vtk/*.vtu`）、单文件查看器数据
+不属于本仓库的代码许可面；其使用受数据授权与 `code/data-governance/` 约束。
+本仓库不包含任何患者数据。
+
+## 5. 联系
+
+许可与商用咨询：仓库 Licensor（见 `LICENSE`）。

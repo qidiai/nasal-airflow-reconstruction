@@ -12,8 +12,10 @@
                                                   # （逐件 Test-Path + md5；未指定则不回传）
 
 求解模式：
-  local   本机 OpenFOAM 探测；无环境即停工报错（exit 3）；有环境且 --result-dir
-          给出已回传结果目录则进入后处理+step5
+  local   走求解后端抽象（--backend auto|custom|openfoam，默认 auto）：
+          custom=自研 FlowScope（Run-A；无需 WSL/OpenFOAM）；
+          openfoam=保留的对拍基准（WSL Allrun/simpleFoam）。
+          已给出 --result-dir（含 后处理/metrics.json）则直接进入后处理+step5
   laptop  生成交接文档-笔记本执行-<prefix>-<case>.md + 算例包 zip（沿用 v5E-ext
           交接模式）；后处理/step5 标记"待解算后补导出"
   skip    只到算例+断言（自测/隔离比对用）
@@ -55,6 +57,8 @@ import zipfile
 
 import numpy as np
 import pydicom
+
+import solver_backend as SB  # M3：求解后端抽象（custom / openfoam / auto）
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
@@ -547,6 +551,9 @@ def main():
     ap.add_argument("--case", default="v1", help="算例名（默认 v1；pA 回归基线用 v5）")
     ap.add_argument("--solve", choices=["local", "laptop", "skip"], default="skip",
                     help="求解模式（默认 skip：只到算例+断言）")
+    ap.add_argument("--backend", choices=["auto", "custom", "openfoam"], default="auto",
+                    help="求解后端（M3；默认 auto=custom 可用即用，否则 openfoam）。"
+                         "custom=自研 FlowScope；openfoam=WSL 对拍基准")
     ap.add_argument("--out-root", default=None,
                     help="输出根目录（默认 pipeline/out；自测隔离用）")
     ap.add_argument("--patient-label", default=None,
@@ -837,23 +844,77 @@ def main():
         manifest["stages"]["S5_solve"] = {"mode": "skip", "note": "只到算例+断言（自测/隔离比对）"}
         log("  skip：跳过求解/后处理/step5")
     elif SOLVE == "local":
-        probe = probe_openfoam()
-        manifest["stages"]["S5_solve"] = {"mode": "local", "probe": probe}
-        log(f"  OpenFOAM 探测：simpleFoam={'有' if probe['programs']['simpleFoam'] else '无'} "
-            f"blockMesh={'有' if probe['programs']['blockMesh'] else '无'} "
-            f"wsl={'有' if probe['wsl'] else '无'} docker={'有' if probe['docker'] else '无'}")
-        if not probe["any_present"]:
-            die(3, "本机 OpenFOAM 环境探测全 ABSENT——local 模式不可用；"
-                    "请改用 --solve laptop（生成交接文档+算例包 zip 由笔记本侧求解）")
-        # 有环境：检查结果目录是否已回传
-        result_dir = resolve_result_dir(ARGS.result_dir, OUT_ROOT, PREFIX, CASE)
-        if result_dir is None:
-            log("  本机 OpenFOAM 就绪，但未给出结果目录——请在 WSL 运行 Allrun 后，"
-                "以 --result-dir <结果目录> 重跑本脚本进入后处理+step5")
-            manifest["stages"]["S5_solve"]["status"] = "awaiting_Allrun"
-        else:
+        # ---- M3：求解后端抽象（custom=自研 FlowScope / openfoam=对拍基准）----
+        try:
+            backend = SB.resolve_backend(ARGS.backend)
+        except ValueError as e:
+            die(2, str(e))
+        status = SB.backend_status(ARGS.backend)
+        manifest["stages"]["S5_solve"] = {
+            "mode": "local", "backend": backend, "backend_status": status}
+        log(f"  求解后端 = {backend}（requested={status['requested']}；"
+            f"custom={'可用' if status['custom_available'] else '不可用'}；"
+            f"openfoam={'可用' if status['openfoam_available'] else '不可用'}）")
+        # Run-B 路由披露（行为边界：pA 满分辨率 Run-B 走 openfoam 真值）
+        try:
+            runb = SB.choose_run_b_backend(stats.get("cells", 0), ARGS.backend)
+        except Exception:  # noqa: BLE001
+            runb = backend
+        manifest["stages"]["S5_solve"]["run_b_routing"] = {
+            "cells": stats.get("cells"), "backend": runb,
+            "rule": f"cells <= {SB.RUNB_CUSTOM_MAX_CELLS} -> custom; else openfoam",
+        }
+        log(f"  Run-B 路由：cells={stats.get('cells')} -> {runb}"
+            f"（阈值 {SB.RUNB_CUSTOM_MAX_CELLS}；pA 满分辨率已知失稳，走 openfoam）")
+
+        if backend == "custom":
+            if not status["custom_available"]:
+                die(3, "backend=custom 但 FlowScope 可执行文件不存在——请先 "
+                        "cargo build --release（code/solver）或设 FLOWSCOPE_BIN，"
+                        "或改 --backend openfoam/auto")
+            result_dir = (os.path.abspath(ARGS.result_dir) if ARGS.result_dir
+                          else os.path.join(OUT_ROOT, "结果",
+                                            f"P0-result-{PREFIX}-{CASE}"))
+            metrics_json = os.path.join(result_dir, "后处理", "metrics.json")
+            if os.path.isfile(metrics_json):
+                log(f"  复用已有 custom 结果目录：{result_dir}（不重跑求解）")
+                manifest["stages"]["S5_solve"]["status"] = "reused"
+            else:
+                os.makedirs(result_dir, exist_ok=True)
+                log(f"  custom 求解：{case_dir} -> {result_dir}（1500 步上限）")
+                rc, metrics_path = SB.run_custom(
+                    case_dir, result_dir, max_iter=1500,
+                    progress=log, tag="custom " + CASE_NAME)
+                manifest["stages"]["S5_solve"].update({
+                    "status": "solved" if rc == 0 else "failed",
+                    "rc": rc,
+                    "metrics": metrics_path,
+                    "result_dir": result_dir,
+                })
+                if rc != 0:
+                    die(3 if rc in (-999, -998) else 2,
+                        f"custom 求解失败（rc={rc}）；日志："
+                        f"{os.path.join(result_dir, 'solver.log')}")
             run_postprocess_and_step5(manifest, result_dir, OUT_ROOT, PREFIX, CASE,
                                       letter, CASE_NAME, DICOM_DIR, sx, ARGS)
+        else:
+            probe = probe_openfoam()
+            manifest["stages"]["S5_solve"]["probe"] = probe
+            log(f"  OpenFOAM 探测：simpleFoam={'有' if probe['programs']['simpleFoam'] else '无'} "
+                f"blockMesh={'有' if probe['programs']['blockMesh'] else '无'} "
+                f"wsl={'有' if probe['wsl'] else '无'} docker={'有' if probe['docker'] else '无'}")
+            if not probe["any_present"]:
+                die(3, "本机 OpenFOAM 环境探测全 ABSENT——openfoam 后端不可用；"
+                        "请改用 --solve laptop（交接文档+算例包）或 --backend custom")
+            # 有环境：检查结果目录是否已回传
+            result_dir = resolve_result_dir(ARGS.result_dir, OUT_ROOT, PREFIX, CASE)
+            if result_dir is None:
+                log("  本机 OpenFOAM 就绪，但未给出结果目录——请在 WSL 运行 Allrun 后，"
+                    "以 --result-dir <结果目录> 重跑本脚本进入后处理+step5")
+                manifest["stages"]["S5_solve"]["status"] = "awaiting_Allrun"
+            else:
+                run_postprocess_and_step5(manifest, result_dir, OUT_ROOT, PREFIX, CASE,
+                                          letter, CASE_NAME, DICOM_DIR, sx, ARGS)
     else:  # laptop
         run_laptop_handover(manifest, OUT_ROOT, PREFIX, CASE, CASE_NAME, CASE_NAME_B,
                             letter, stats, survey, pii, mask, m1, sx, sy, sz,

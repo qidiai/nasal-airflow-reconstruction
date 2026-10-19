@@ -1,0 +1,23 @@
+# OpenFOAM reference files — NOTICE
+
+本目录（`code/pipeline/legacy/openfoam-reference/`）中的算例模板文件
+（`Allrun`、`0/U`、`0/p`、`system/controlDict`、`system/fvSchemes`、
+`system/fvSolution`、`constant/transportProperties`、
+`constant/turbulenceProperties`，含 Run-A `*-v1` 与 Run-B `*-v1B` 两组）
+来源于 OpenFOAM（openfoam.com，v2406）算例组织方式与公开教程约定，
+属于 OpenFOAM 衍生文件，按 **GPL-3.0**（GNU General Public License v3.0）
+分发。
+
+- 这些文件**仅作历史参考与对拍基准**（L3 回归、Run-B 大网格真值来源）；
+- 它们**不是** BSL 核心的一部分，**不随** Business Source License 1.1 的
+  核心代码分发；
+- 仓库根目录 `LICENSE` 只覆盖 BSL 核心（自研 FlowScope 求解器、pipeline、
+  查看器、API/MCP server 等）；GPL 边界以根目录 `NOTICE` 与本文件为准；
+- OpenFOAM 本身未在本仓库分发，运行 OpenFOAM 后端时由用户自行安装
+  （WSL + openfoam2406），其许可证为 GPL-3.0。
+
+`MANIFEST.json` 记录复制前后 md5（10/10 逐字节一致）；`MD5SUMS.txt` 为
+校验清单。原件位于 `code/pipeline/out/step2/`（运行时归档，未修改；该目录
+被 `.gitignore` 排除，不进入公开发布面）。
+
+默认求解后端与 Run-B 路由规则见同目录 `README.md`。
