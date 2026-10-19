@@ -11,6 +11,7 @@ use std::process::exit;
 use std::time::Instant;
 
 use flowscope_solver::simple::SimpleSolver;
+use flowscope_solver::linalg::PrecondKind;
 use flowscope_solver::{config::CaseConfig, meshio};
 
 fn usage() {
@@ -389,7 +390,7 @@ fn main() {
                 bmax_i / nx
             );
             let mut x = vec![0.0f64; pcsr.n];
-            let info = pcg(&pcsr, &pm.source, &mut x, 1e-6, 0.05, 300, true);
+            let info = pcg(&pcsr, &pm.source, &mut x, 1e-6, 0.05, 300, PrecondKind::Sgs);
             let pmax_sol = x.iter().cloned().fold(0.0f64, |a, b| a.max(b.abs()));
             println!(
                 "pcg(300 cap)       : init {:.4e} final {:.4e} iters {} conv {} breakdown {}",

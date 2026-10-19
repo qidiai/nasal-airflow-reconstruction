@@ -18,7 +18,10 @@ use crate::fvm::{
     adjust_phi, assemble_momentum, assemble_pressure, bnd_pres_fixed_flags, compile_patches,
     hbya_flux, rhie_chow_phi, FvVectorMatrix,
 };
-use crate::linalg::{pcg, sgs_solve, Csr, LinSolveInfo};
+use crate::linalg::{
+    dump_csr, ic0_reset_stats, ic0_stats, matrix_precheck, pcg, pcg_equiv_check, sgs_solve, Csr,
+    LinSolveInfo, PrecondKind,
+};
 use crate::mesh::{dot, Mesh, Patch};
 use crate::metrics::{
     dp_pa, flow_split, patch_area, patch_face_mean_p, patch_flux_sum, vtk_write,
@@ -273,6 +276,11 @@ impl SimpleSolver {
         let alpha_u = alpha_u.unwrap_or(self.cfg.params.alpha_u);
         let alpha_p = alpha_p.unwrap_or(self.cfg.params.alpha_p);
         let lu_dev = lu_dev.unwrap_or(self.cfg.params.lu_deviation);
+        // W6 A/B 开关：`FLOWSCOPE_PRECOND=sgs|ic0`（默认 sgs）。
+        // 必须同时作用于下面两处 pcg 调用点（Run-B 位势流初始化 + 主循环压力方程），
+        // 否则 A/B 对照会被初始化路径污染。
+        let precond = PrecondKind::from_env();
+        ic0_reset_stats();
         if std::env::var("FLOWSCOPE_INIT_UNIFORM").is_ok()
             && self.u.data.iter().all(|v| v == &[0.0, 0.0, 0.0])
         {
@@ -331,7 +339,7 @@ impl SimpleSolver {
             let pm = assemble_pressure(&self.mesh, &self.patches, &self.rau, &zero_phi, &self.bnd_pf);
             let pcsr = pm.to_csr(&self.mesh);
             let mut p0 = vec![0.0f64; self.mesh.n_cells()];
-            let pinfo = pcg(&pcsr, &pm.source, &mut p0, 1e-9, 1e-8, 5000, true);
+            let pinfo = pcg(&pcsr, &pm.source, &mut p0, 1e-9, 1e-8, 5000, precond);
             self.p.data = p0;
             self.refresh_p_bnd();
             self.grad_p = grad_scalar(&self.mesh, &self.p);
@@ -375,6 +383,15 @@ impl SimpleSolver {
                 alpha_p, alpha_u, self.cfg.params.residual_p, self.cfg.params.residual_u,
                 self.cfg.params.p_tol, self.cfg.params.p_reltol,
                 self.cfg.params.u_tol, self.cfg.params.u_reltol);
+            println!(
+                "linear preconditioner : {}（FLOWSCOPE_PRECOND=sgs|ic0）{}",
+                precond.tag(),
+                if precond == PrecondKind::Ic0 && crate::linalg::deflate_enabled() {
+                    " + 常数模 deflation"
+                } else {
+                    ""
+                }
+            );
         }
         for it in 1..=max_iter {
             self.iter = it;
@@ -526,6 +543,37 @@ impl SimpleSolver {
             let pm = assemble_pressure(&self.mesh, &self.patches, &self.rau, &phi_hbya, &self.bnd_pf);
             let pcsr = pm.to_csr(&self.mesh);
             let p_old = self.p.data.clone();
+            // §3.2 SPD/M-矩阵预检（首个压力矩阵，一次性；不做对称性空检查）
+            if it == 1 && std::env::var("FLOWSCOPE_DIAG_PCSR").is_ok() {
+                let c = matrix_precheck(&pcsr);
+                println!(
+                    "[spd-precheck] n {} nnz {} | diag [{:.3e}, {:.3e}] | max off-diag {:.3e}（正号 {} 个）| min row-sum {:.3e}（rel {:.3e}）",
+                    c.n, c.nnz, c.min_diag, c.max_diag, c.max_offdiag, c.n_pos_offdiag,
+                    c.min_row_sum, c.min_row_sum_rel
+                );
+                if let Ok(path) = std::env::var("FLOWSCOPE_DUMP_PCSR") {
+                    match dump_csr(&pcsr, &path) {
+                        Ok(()) => println!("[spd-precheck] CSR 已导出到 {path}"),
+                        Err(e) => println!("[spd-precheck] CSR 导出失败：{e}"),
+                    }
+                    if let Ok(rhs_path) = std::env::var("FLOWSCOPE_DUMP_PB") {
+                        match crate::linalg::dump_vec(&pm.source, &rhs_path) {
+                            Ok(()) => println!("[spd-precheck] RHS 已导出到 {rhs_path}"),
+                            Err(e) => println!("[spd-precheck] RHS 导出失败：{e}"),
+                        }
+                    }
+                }
+            }
+            // §2.A 冻结矩阵等价性：同一 A/b/初值下 SGS 与 IC(0) 各解到 1e-10 后比较解
+            if it <= 5 && std::env::var("FLOWSCOPE_PCG_AB").is_ok() {
+                pcg_equiv_check(
+                    &pcsr,
+                    &pm.source,
+                    &p_old,
+                    p_cap.max(20000),
+                    &format!("case it{it}"),
+                );
+            }
             let pinfo = pcg(
                 &pcsr,
                 &pm.source,
@@ -533,7 +581,7 @@ impl SimpleSolver {
                 self.cfg.params.p_tol,
                 self.cfg.params.p_reltol,
                 p_cap,
-                true,
+                precond,
             );
             self.lin_p.push(pinfo);
             // 刷新零梯度压力边界面值（Rhie-Chow 边界修正归零）
@@ -585,9 +633,9 @@ impl SimpleSolver {
                     .map(|v| v[0].abs().max(v[1].abs()).max(v[2].abs()))
                     .fold(0.0f64, f64::max);
                 println!(
-                    "Time = {it}  Ux {:.3e} Uy {:.3e} Uz {:.3e}  p {:.3e}  cont local {:.3e} global {:.3e}  (pLin {} it, final {:.3e}, brk {})",
+                    "Time = {it}  Ux {:.3e} Uy {:.3e} Uz {:.3e}  p {:.3e}  cont local {:.3e} global {:.3e}  (pLin {} it, final {:.3e}, conv {}, brk {})",
                     mres[0], mres[1], mres[2], pinfo.init_res, cl, cg,
-                    pinfo.iters, pinfo.final_res, pinfo.breakdown
+                    pinfo.iters, pinfo.final_res, pinfo.converged, pinfo.breakdown
                 );
                 println!(
                     "        |U|max {:.4e}  |p|max {:.4e}  |phi|max {:.4e}  |HbyA|max {:.4e}",
@@ -659,6 +707,50 @@ impl SimpleSolver {
                 self.records.last().map(|r| r.uy).unwrap_or(f64::NAN),
                 self.records.last().map(|r| r.uz).unwrap_or(f64::NAN)
             );
+        }
+        // W6 统计：pLin 全量序列 + 中位数 + 收敛/失稳/cap 命中计数 + IC(0) 开销
+        if verbose && !self.lin_p.is_empty() {
+            let mut iters: Vec<usize> = self.lin_p.iter().map(|i| i.iters).collect();
+            iters.sort_unstable();
+            let n = iters.len();
+            let med = if n % 2 == 1 {
+                iters[n / 2] as f64
+            } else {
+                0.5 * (iters[n / 2 - 1] + iters[n / 2]) as f64
+            };
+            let mean = iters.iter().sum::<usize>() as f64 / n as f64;
+            let nconv = self.lin_p.iter().filter(|i| i.converged).count();
+            let nbrk = self.lin_p.iter().filter(|i| i.breakdown).count();
+            let cap = self.lin_p.iter().filter(|i| i.iters >= p_cap).count();
+            println!(
+                "[pLin-stats] precond {} n {} min {} median {:.1} mean {:.1} max {} | converged {}/{} breakdown {} cap_hits {}",
+                precond.tag(),
+                n,
+                iters[0],
+                med,
+                mean,
+                iters[n - 1],
+                nconv,
+                n,
+                nbrk,
+                cap
+            );
+            if std::env::var("FLOWSCOPE_VERBOSE_ALL").is_ok() {
+                let seq: Vec<String> = self.lin_p.iter().map(|i| i.iters.to_string()).collect();
+                println!("[pLin-seq] {}", seq.join(" "));
+            }
+            let st = ic0_stats();
+            if st.factors > 0 || st.failures > 0 {
+                println!(
+                    "[ic0-stats] factors {} shift_restarts {} failures {} factor_secs {:.3} mem_bytes {} ({:.2} MB)",
+                    st.factors,
+                    st.shift_restarts,
+                    st.failures,
+                    st.factor_secs,
+                    st.mem_bytes,
+                    st.mem_bytes as f64 / (1024.0 * 1024.0)
+                );
+            }
         }
         Ok(())
     }
