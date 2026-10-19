@@ -80,9 +80,12 @@ def build_one(n):
 
 
 def solve_done(n):
-    vtk = os.path.join(OUT, f"l3b-{n}", "fields_1500.vtk")
+    """完成判据 = 日志含 §11 收官段（run_adv 正常返回后才会打印）。
+    2026-10-19 修订：不再要求 fields_1500.vtk——residualControl 提前满足的算例
+    （归档 026/027 亦为 182/197 步收敛）在收敛点即停、不写 1500 快照，旧判据会
+    导致每次 --solve 都无条件重跑这两个算例。"""
     lp = os.path.join(OUT, f"l3b-{n}.log")
-    if not os.path.exists(vtk):
+    if not os.path.exists(lp):
         return False
     try:
         txt = open(lp, "rb").read().decode("utf-8", errors="replace")
@@ -133,7 +136,7 @@ def do_solve(jobs, smoke):
 
 # ---------------- 对拍汇总 ----------------
 def parse_log(path):
-    d = {"dp_by_iter": {}, "flux_by_iter": {}}
+    d = {"dp_by_iter": {}, "flux_by_iter": {}, "flux_contract": {}}
     txt = open(path, "rb").read().decode("utf-8", errors="replace")
     cur = None
     import re
@@ -148,6 +151,9 @@ def parse_log(path):
         mf = re.match(r"Time = (\d+)\s+flux\((\w+)\s*\) sum\(phi\) = ([-\d.eE+]+)", ln)
         if mf:
             d["flux_by_iter"].setdefault(int(mf.group(1)), {})[mf.group(2)] = float(mf.group(3))
+        mc = re.match(r"patch\s+(\w+)\s*:\s*sum\(phi\)\s*=\s*([-\d.eE+]+)", ln)
+        if mc:
+            d["flux_contract"][mc.group(1)] = float(mc.group(2))
         if ln.startswith("iterations"):
             d["iterations"] = int(re.search(r":\s*(\d+)", ln).group(1))
         if ln.startswith("final residuals"):
@@ -188,6 +194,17 @@ def do_extract():
             row.update({"status": "NOT_RUN", "verdict": "NOT_RUN"})
             rows.append(row)
             continue
+        # 完整性闸门（2026-10-19）：求解进行中/中途失败时日志没有 §11 收官段，
+        # 若此时抽取会把 Time=3 之类的瞬态 dP 当成终态（004 +108% 误判即此因）。
+        try:
+            _txt = open(lp, "rb").read().decode("utf-8", errors="replace")
+        except Exception:
+            _txt = ""
+        if "契约 §11 口径指标" not in _txt:
+            row.update({"status": "PARTIAL_LOG", "verdict": "PARTIAL_LOG"})
+            rows.append(row)
+            log(f"extract {n}: 日志无 §11 收官段（求解未完成），跳过")
+            continue
         ld = parse_log(lp)
         it = 1500 if 1500 in ld["dp_by_iter"] else ld.get("last_iter")
         row.update({"last_iter": ld.get("last_iter"), "dp_iter": it,
@@ -195,6 +212,9 @@ def do_extract():
                     "dp_pct": r6.pct(ld["dp_by_iter"].get(it), a_dp) if ld["dp_by_iter"].get(it) is not None else None,
                     "final_residuals": ld.get("final_residuals")})
         fx = ld["flux_by_iter"].get(it, {})
+        if not fx:
+            # 提前收敛例不写快照 → 无 writeTime flux 行，回退 §11 收官段 patch 统计
+            fx = ld.get("flux_contract", {})
         if fx:
             qin = sum(-v for k, v in fx.items() if k.startswith("inlet"))
             qout = fx.get("outlet", float("nan"))
@@ -216,7 +236,9 @@ def do_extract():
                 except Exception as e:  # 网格/字段不匹配时不阻断汇总
                     row["wss_err"] = str(e)
         dp_ok = row.get("dp_pct") is not None and abs(row["dp_pct"]) < 2.0
-        complete = row.get("last_iter") == 1500
+        # 完成 = 已有 §11 收官段（上面闸门已保证）；归档中 026/027 本身也是
+        # residualControl 提前收敛（182/197 步），不能再用 "last_iter == 1500" 判完成。
+        complete = row.get("last_iter") is not None
         if not complete:
             row["verdict"] = "INCOMPLETE"
         else:
