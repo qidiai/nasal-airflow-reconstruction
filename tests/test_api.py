@@ -93,7 +93,8 @@ class TestAPIContract:
         r = client.get("/")
         assert r.status_code == 200
         t = r.get_data(as_text=True)
-        assert "P0 鼻腔气流分析工作台" in t
+        assert "鼻腔气流分析工作台" in t  # T16 改版后标题（2026-10-19 开源验收修正：旧断言带 "P0 " 前缀，页面已有意去除）
+        assert "数据授权确认" in t  # 患者三问同意区（consent 核心，防回归）
         assert "边界与已知局限" in t  # 了解 ENS 页签内 h3 保留
         for tab in ("查看气道", "了解 ENS", "上传分析", "关于本项目"):
             assert tab in t
