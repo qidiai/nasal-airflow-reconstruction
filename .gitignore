@@ -61,6 +61,10 @@ Thumbs.db
 **/webapp/models/airway_pA.glb
 **/webapp/models/airway_pB.glb
 
+# ---- M3：OpenFOAM 对拍归档值边界（2026-10-19）----
+# pipeline/out/结果/（归档 metrics）、pipeline/out/step2/P0-OF-case-*（运行时算例字典）
+# 已由上方 **/out/ 规则覆盖（git check-ignore 逐路径验证）。此处仅显式声明：
+# 它们既含 GPL-3.0 OpenFOAM 衍生字典，也含患者派生指标，二者均不入库、不随 BSL 核心分发。
 # ---- 构建产物与临时物（2026-10-18 夜班检查点追加）----
 code/solver/target/
 code/pipeline/.playwright-mcp/

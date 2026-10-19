@@ -32,6 +32,13 @@ Change License: Apache-2.0，Additional Use Grant: 非商用全功能免费）�
 仅供 OpenFOAM 后端与历史对拍使用；`out/` 被 `.gitignore` 排除，不进入本
 仓库的公开发布面，也不属于 BSL 核心分发内容。
 
+M3 回归使用的**对拍归档值**同样位于 `code/pipeline/out/`：
+`结果/P0-result-*/后处理/metrics.json`（OpenFOAM 指标归档）与
+`step2/P0-OF-case-*`（生成算例）。它们已被根 `.gitignore` 的 `**/out/` 规则
+覆盖（`git check-ignore` 对上述三类路径逐一验证，2026-10-19）；原因有二：
+① 算例字典是 OpenFOAM 衍生数据（GPL-3.0），② 归档指标由患者数据派生。
+二者均不入库、不进入 BSL 核心分发；文档中只引用聚合数值（如 dP）作为回归阈值。
+
 ## 3. 第三方依赖许可谱（宽松许可）
 
 本仓库不 vendor 下列组件（`three.js` 除外，见 `code/pipeline/webapp/vendor/`）。

@@ -26,6 +26,9 @@
 - **Run-B（等压）**：按网格规模路由——
   - `cells <= 50,000` → custom（pN-v6B 26,884 cells 已验证通过）；
   - `cells > 50,000` → openfoam（若可用；否则如实回退 custom 并标注风险）。
+  - 实现口径：流水线不自动发起 Run-B 求解（沿用交接/手工流程）；
+    `solver_backend.choose_run_b_backend()` 提供判定，`run_all` 将其写入
+    manifest `stages.S5_solve.run_b_routing` 作为披露。
 - **已知失稳边界**：custom Run-B 在 pA 满分辨率网格（269,913 cells）上发散——
   鼻阀高 Péclet 速度峰经 HbyA→压力→速度指数放大，斜坡/强松弛/一阶迎风/clamp/
   potential 初场等六种方案均不能阻止（机制表征见

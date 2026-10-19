@@ -85,14 +85,6 @@ python code/pipeline/run_all.py --dicom-dir <CT目录>  # 一键总控编排（s
 `step1_airway_segment.py` 与 `step2_make_ofcase.py` 支持 `--dicom-dir`（覆盖 `P0_DICOM_DIR`）；`step2_make_ofcase.py` 支持 `--case/--ext/--iso` 等选项（延长段、去窦对照）。
 裸跑（无 DICOM）时 step1/step2 给出中文可操作报错并中止，不产生 IndexError 裸崩。
 
-> **求解后端（M3 起）**：`run_all.py --solve local --backend auto`（默认）优先调用
-> 自研求解器 `code/solver/target/release/flowscope`（先 `cargo build --release`），
-> **无需 WSL/OpenFOAM**；可执行文件缺失时回退 OpenFOAM（WSL `Allrun`，保留为
-> L3 回归与 Run-B 大网格的对拍基准）。Run-A 一律优先 custom；Run-B 按网格规模
-> 路由（`cells <= 50,000` 走 custom，更大网格走 OpenFOAM）。已知边界：custom
-> 的 Run-B 在 pA 满分辨率网格（269,913 cells）上失稳，故 OpenFOAM 后端保留不删。
-> 细节见 `code/pipeline/legacy/openfoam-reference/README.md` 与根目录 `NOTICE`。
-
 ### 3. 验证与审计工具
 
 `code/verify/` 收录施工期的验证/审计工具（网格校验、左右符号链、查看器
@@ -112,6 +104,57 @@ python code/pipeline/run_all.py --dicom-dir <CT目录>  # 一键总控编排（s
 - `code/pipeline/server.py` + `code/pipeline/webapp/`：多患者 Web 工作台（Flask 后端 + 前端；CT 根经 `P0_CT_BASE` 注入，不含患者数据）。
 - 工作台默认仅监听本机（`--host` 默认 `127.0.0.1`，演示安全）；同网投屏 / 多机访问可显式 `--host 0.0.0.0`。
 - `code/pipeline/标注协议-KHub鼻腔气道-20261009.md`：KHub 标注协议 v1（出口标志写死 / 冻结参数表）。
+
+## 求解后端（M3 起）
+
+流水线的 CFD 环节（`run_all.py --solve local`、Web 工作台的 `/api/solve` 与
+`/api/full`）统一经 `code/pipeline/solver_backend.py` 选择后端，默认 `auto`：
+
+| backend | 行为 |
+|---|---|
+| `custom` | 自研 FlowScope（`code/solver/target/release/flowscope[.exe]`，M2 产物）直接求解；**无需 WSL/OpenFOAM** |
+| `openfoam` | 生成算例后在 WSL 运行 `Allrun`（`simpleFoam`）；保留为对拍基准 |
+| `auto`（默认） | 找到 FlowScope 可执行文件即用 `custom`，否则回退 `openfoam` |
+
+### auto 的路由规则
+
+- **Run-A（定流量入口，15 L/min）**：一律优先 `custom`。L1 契约对拍 pA `dP` +1.61%、
+  pB −0.63%（`code/solver/docs/equivalence-report.md` §2.1），均在 ±2% 容差内。
+- **Run-B（等压入口，自然分流）**：流水线**不自动发起** Run-B 求解（沿用交接/手工
+  流程）；需要时由 `solver_backend.choose_run_b_backend(cells)` 判定路由——
+  `cells <= 50,000` 建议 `custom`，更大网格建议 `openfoam`。`run_all` 已把该建议写入
+  manifest 的 `stages.S5_solve.run_b_routing`，便于审计复现。依据
+  `equivalence-report.md` §2.2：自研求解器的 Run-B 在 pA 满分辨率网格（269,913 cells）
+  上因鼻阀高 Péclet 速度峰失稳（斜坡/启动松弛/势流初场/限示器/一阶迎风均不能阻止，
+  conditions-ledger G-C3b）；pN-v6B（26,884 cells）已收敛验证。阈值常量见
+  `solver_backend.RUNB_CUSTOM_MAX_CELLS`。
+- 显式指定 `custom` 时仍按用户要求尝试；失败如实报错（exit 3），不静默改后端。
+
+### 如何手动指定
+
+```bash
+# 一键管线
+python code/pipeline/run_all.py --dicom-dir <CT目录> --solve local --backend auto|custom|openfoam
+
+# Web 工作台：server.py 无 --backend 参数，经环境变量注入后启动
+#   PowerShell: $env:FLOWSCOPE_BACKEND="custom"
+set FLOWSCOPE_BACKEND=custom
+python code/pipeline/server.py
+
+# 自定义 FlowScope 可执行文件位置（可选）
+set FLOWSCOPE_BIN=D:\tools\flowscope.exe
+```
+
+- `run_all.py`：`--backend auto|custom|openfoam`（默认 `auto`）。
+- `server.py`：无命令行参数；启动前设 `FLOWSCOPE_BACKEND`（未设则 `auto`）。
+
+### OpenFOAM 后端的定位（为什么保留）
+
+OpenFOAM 后端**不删除**，作为对拍真值源：L3 批量回归（baseline27）与 Run-B 大网格
+仍需它提供归档指标；`code/pipeline/legacy/openfoam-reference/` 只保存 GPL-3.0 算例
+模板作历史参考与对拍基准，**不随 BSL 核心分发**（见根 `NOTICE` 第 2 节）；OpenFOAM
+本体不随仓库分发，用户自行安装（GPL-3.0）。细节见
+`code/pipeline/legacy/openfoam-reference/README.md`。
 
 ## 仓库剔除说明
 
