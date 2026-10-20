@@ -448,11 +448,110 @@ body[data-role="patient"] #badge-role{display:inline-block;color:var(--coral);
   background:var(--panel);padding:14px 16px;font-size:14.5px;box-shadow:var(--shadow)}
 .guide-card .gc-head{font-weight:700;color:var(--mint);margin-bottom:4px}
 .guide-card .gc-body{color:var(--ink-soft)}
+/* ---------- T54 首屏着陆页（程序化 3D 背景 · 三角色入口） ---------- */
+#landing{
+  position:fixed;inset:0;z-index:99990;display:flex;align-items:center;justify-content:center;
+  overflow:hidden;padding:32px 20px;
+  background:radial-gradient(1200px 820px at 50% 16%,#14242e 0%,#0d151d 44%,#070c11 100%);
+  opacity:1;transition:opacity .3s ease;
+}
+#landing[hidden]{display:none}
+#landing.is-hiding{opacity:0;pointer-events:none}
+#landing-canvas{position:absolute;inset:0;z-index:0;display:block;width:100%;height:100%}
+.landing-scrim{position:absolute;inset:0;z-index:1;pointer-events:none;
+  background:linear-gradient(180deg,rgba(7,12,17,.42),rgba(7,12,17,.06) 38%,rgba(7,12,17,.62))}
+.landing-fallback{position:absolute;inset:0;z-index:0;display:none;overflow:hidden;pointer-events:none}
+.landing-fallback::before,.landing-fallback::after{content:"";position:absolute;border-radius:50%;filter:blur(72px)}
+.landing-fallback::before{width:52vw;height:52vw;left:6%;top:4%;
+  background:radial-gradient(circle,rgba(47,168,150,.34),transparent 70%)}
+.landing-fallback::after{width:46vw;height:46vw;right:4%;bottom:0;
+  background:radial-gradient(circle,rgba(79,127,174,.28),transparent 70%)}
+#landing.no-webgl .landing-fallback{display:block}
+.landing-inner{position:relative;z-index:2;width:min(1120px,100%);text-align:center;
+  display:flex;flex-direction:column;align-items:center;pointer-events:none}
+.landing-kicker{margin:0 0 6px;color:var(--text-2);font-size:13.5px;letter-spacing:.22em}
+.landing-title{margin:0;font-size:clamp(30px,5vw,52px);line-height:1.16;font-weight:800;
+  letter-spacing:.04em;color:var(--text-0);text-shadow:0 6px 34px rgba(0,0,0,.55)}
+.landing-tagline{margin:12px 0 0;color:var(--mint);font-size:clamp(15px,1.8vw,19px)}
+.landing-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;
+  width:100%;margin-top:30px}
+.landing-card{
+  pointer-events:auto;display:flex;flex-direction:column;gap:5px;text-align:left;
+  padding:22px 20px 18px;border-radius:16px;cursor:pointer;font-family:inherit;font-size:16px;
+  color:var(--text-0);border:1px solid #2a3a49;line-height:1.5;
+  background:linear-gradient(160deg,rgba(23,35,46,.88),rgba(12,20,28,.88));
+  box-shadow:0 12px 34px rgba(0,0,0,.38);
+  transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease;
+}
+.landing-card:hover,.landing-card:focus-visible{
+  transform:translateY(-4px);border-color:var(--mint);outline:none;
+  box-shadow:0 16px 42px rgba(0,0,0,.45),0 0 0 1px rgba(103,213,189,.35)
+}
+.landing-card .lc-ico{font-size:30px;line-height:1}
+.landing-card .lc-role{font-size:20px;font-weight:700}
+.landing-card .lc-desc{color:var(--mint);font-size:15px}
+.landing-card .lc-note{color:var(--text-2);font-size:13px}
+.landing-card .lc-go{margin-top:auto;padding-top:12px;color:var(--mint);font-size:14px;font-weight:600}
+.landing-direct{pointer-events:auto;margin-top:24px;color:var(--text-2);font-size:13.5px;
+  text-decoration:none;border-bottom:1px dashed #3b5566;padding-bottom:2px}
+.landing-direct:hover,.landing-direct:focus-visible{color:var(--mint);border-bottom-color:var(--mint);outline:none}
+body.landing-open{overflow:hidden}
+body.landing-open #btn-page-fs{display:none}
+#brand-home{cursor:pointer}
+#brand-home:hover,#brand-home:focus-visible{color:var(--mint);outline:none}
+@media (max-width:760px){
+  #landing{padding:24px 16px;align-items:flex-start;overflow-y:auto}
+  .landing-cards{grid-template-columns:1fr;gap:10px;max-width:460px;margin-top:20px}
+  .landing-card{flex-direction:row;flex-wrap:wrap;align-items:center;padding:14px 16px;gap:2px 12px}
+  .landing-card .lc-ico{font-size:24px}
+  .landing-card .lc-role{font-size:17px}
+  .landing-card .lc-desc{font-size:14px}
+  .landing-card .lc-note{flex-basis:100%;padding-left:36px}
+  .landing-card .lc-go{margin:0 0 0 auto;padding-top:0;font-size:13px}
+}
+@media (prefers-reduced-motion: reduce){
+  #landing{transition:none}
+  .landing-card{transition:none}
+}
 </style>
 </head>
 <body>
+<div id="landing" role="region" aria-label="选择使用身份">
+  <canvas id="landing-canvas" aria-hidden="true"></canvas>
+  <div class="landing-fallback" aria-hidden="true"></div>
+  <div class="landing-scrim" aria-hidden="true"></div>
+  <div class="landing-inner">
+    <p class="landing-kicker">罕见病气道随访 · 看得见的呼吸</p>
+    <h2 class="landing-title">鼻腔气流分析工作台</h2>
+    <p class="landing-tagline">把"喘不上气"变成看得见的数据</p>
+    <div class="landing-cards" role="group" aria-label="选择进入身份">
+      <button type="button" class="landing-card" data-landing-role="patient">
+        <span class="lc-ico" aria-hidden="true">🫁</span>
+        <span class="lc-role">我是患者</span>
+        <span class="lc-desc">看看我的气道气流</span>
+        <span class="lc-note">教育与自己的结果 · 一步一步看懂</span>
+        <span class="lc-go">进入 →</span>
+      </button>
+      <button type="button" class="landing-card" data-landing-role="clinical">
+        <span class="lc-ico" aria-hidden="true">🩺</span>
+        <span class="lc-role">我是医务人员 / 研究者</span>
+        <span class="lc-desc">完整指标与证据</span>
+        <span class="lc-note">专业视图 · 指标、对比与质控</span>
+        <span class="lc-go">进入 →</span>
+      </button>
+      <button type="button" class="landing-card" data-landing-role="operator">
+        <span class="lc-ico" aria-hidden="true">🛠️</span>
+        <span class="lc-role">我是操作员</span>
+        <span class="lc-desc">上传分析与运行管理</span>
+        <span class="lc-note">运维视图 · 病例、解算与运行状态</span>
+        <span class="lc-go">进入 →</span>
+      </button>
+    </div>
+    <a class="landing-direct" href="#" data-landing-role="operator">以完整模式直接进入 →</a>
+  </div>
+</div>
 <header>
-  <h1>鼻腔气流分析工作台</h1>
+  <h1 id="brand-home" tabindex="0" role="button" title="返回首页（重新选择使用身份）">鼻腔气流分析工作台</h1>
   <span class="sub">把"喘不上气"变成看得见的数据 · <span id="role-sub">患者视角</span></span>
   <span id="badge-mode" class="badge">形态检测中…</span>
   <span id="badge-presenter" class="badge presenter" style="display:none">定向演示模式</span>
@@ -3643,5 +3742,6 @@ body.hero-takeover-on{overflow:hidden}
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',bind); else bind();
   })();
   </script>
+  <script src="/static/landing.js"></script>
 </body>
 </html>
