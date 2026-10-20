@@ -29,7 +29,7 @@
 | E15 | `结果/P0-result-pA-v1/log.simpleFoam` | `a94b3d4ff1b5acffef287a3accfbd3c4` | 运行期实证：收敛判据回显、末步残差、通量写出 |
 | E16 | `结果/P0-result-pA-v1/log.checkMesh` | `508be063ec87d08befc0ea04bf23c52d` | Mesh OK、cells=269913、域包围盒 |
 | E17 | `结果/P0-result-pA-v1/allrun.log` | `1449efff2ea68c9b26410f55435e2636` | ExecutionTime = 1437.68 s（末行） |
-| E18 | `结果/P0-result-pA-v1/后处理/metrics.json` | `49f7ee36caab14d6943f971ecc06c837` | pA 后处理全量指标（dP/split/WSS） |
+| E18 | \结果/P0-result-pA-v1/后处理/metrics.json\ | 9f7ee36caab14d6943f971ecc06c837\ | pA 后处理全量指标（dP/split/WSS） |
 | E19 | `结果/P0-result-pB-v1/后处理/metrics.json` | `c0bbb99f13dbb6d74628ad2799698dc5` | pB 后处理全量指标（**D1 基线载体**） |
 | E20 | `结果/P0-result-pB-v1/后处理/report.md` | `96560f0b97835526092fcbd6b392b2fa` | pB 后处理口径与公式说明 |
 | E21 | `postprocess/contract-pA-v1.json` | `a0b3ec4806920da6bcfe61004321f9e1` | pA 契约取值（L1 门） |
@@ -447,7 +447,7 @@ echo "== 完成。把整个case目录拷回共享文件夹即可 =="
 - 面积 `A = Σ_f A_f`；流量 `Q = Σ_f |U_f·n_f|·A_f`（mm²→m² 乘 1e-6；m³/s→L/min 乘 60000）。
 - 压强 `p_mean = rho · Σ_f p_f / N_f`（**入口 patch 面数平均——非质量加权**；M1 门控审计 GLM 复算实证：(56·pL+62·pR)/118 = 44.90667058007191 与 metrics.json 逐位吻合；原契约『质量加权』描述有误，以归档 metrics 为 ground truth 修正；generator 脚本不在仓库（M1C3），本口径系输出反推，M2 后处理 harness 必须同构实现此平均）。
 - **dP = p_in − p_out**，p_out = 0（outlet patch fixedValue 0）→ dP 即入口质量加权总压。
-- WSS：一阶体素估计 `tau = mu·|(I−nnᵀ)U_i| / d_n`（报告原文自述带 O(dx) 偏差；真值需算例内 wallShearStress functionObject——controlDict 已开 `wss`，M2 需同构开启）。
+- WSS 二阶口径（2026-10-20 W8 修订）：壁面法向三点二次重构（含 U_w=0 约束）	au = mu*(9*u1 - u2)/(3*Delta)，u1/u2=贴壁/第二层 cell 切向速度、Delta=层距；守卫（层距比 [2,4]±eps、方向对齐 >0.9、sliver）不满足回退一阶 mu*|(I-nn^T)U_i|/d_n 并计数。原一阶口径保留为回退路径与对照基线；归档值为 OF wallShearStress functionObject（controlDict 已挂 wss），M2 等同口径说明见 equivalence-report D-7。
 - 入口为均匀速度 BC（非充分发展剖面）——报告原文明示 dP 含入口发展段效应（Caveat 3）。
 
 ---
@@ -479,3 +479,7 @@ echo "== 完成。把整个case目录拷回共享文件夹即可 =="
 ## 修订记录
 
 - **2026-10-20（W6 收官）**：线性求解器预条件子默认值 SGS → **IC(0)+常数模 deflation**（`FLOWSCOPE_PRECOND`/`FLOWSCOPE_DEFLATE` 可覆盖回退）。判据不受影响——"同等残差水平"语义不变（relTol/absTol 未动，仅收敛路径改变）；L0-L3 全门重验 7/7（证据：`solver/docs/W6-验收.md` v3 章节）。附带修复求解器提前收敛跳过最终写出的路径缺陷（simple.rs 兜底写）。
+
+## 修订记录
+
+- **2026-10-20（W8）**：§5 divSchemes 的 `div((nuEff*dev2(T(grad U)))) Gauss linear` 显式源**已实现**（D-6 关闭）；§11 WSS 口径行修订为二阶三点重构（D-7 关闭，L0 解析门 ny=41 1.42%）；evidence 指向 solver/docs/W8-验收.md。

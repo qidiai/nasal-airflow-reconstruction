@@ -64,7 +64,7 @@ def parse_log(path):
             d["dp_final"] = float(re.search(r"=\s*([-\d.eE+]+)", ln).group(1))
         if ln.startswith("iterations"):
             d["iterations"] = int(re.search(r":\s*(\d+)", ln).group(1))
-        if ln.startswith("WSS (1st-order voxel est)"):
+        if ln.startswith("WSS (") and "mean" in ln:  # W8: 标签宽容
             mm = re.search(r"mean ([\d.eE+-]+) Pa, max ([\d.eE+-]+) Pa", ln)
             if mm:
                 d["wss_mean_log"] = float(mm.group(1))

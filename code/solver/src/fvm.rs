@@ -183,6 +183,50 @@ pub fn interp_face(mesh: &Mesh, data: &[f64], f: usize) -> f64 {
 }
 
 /// 非正交修正：返回 nu·(Sf·corr)（逐分量），corr = ½(grad_P+grad_N) − Δ(Δ·½(grad_P+grad_N))/|Δ|²
+/// dev2(T(∇U)) 显式源项（W8 合规项，numerical-contract §5 divSchemes）。
+///
+/// 数学：张量恒等式 `dev2(A) = A − (2/3)·tr(A)·I`，其中 `A = T(∇U)`（速度梯度张量之转置）。
+/// 面通量 `F_f = ν·dev2_f·S_f`（Gauss linear：dev2_f 为两 cell 张量的线性平均）。
+/// 常 ν 不可压缩恒等式：`div(ν·dev2(T(∇U))) = (ν/3)·∇(∇·U) ≈ 0`——故该项在近正交
+/// 网格上量级极小，实现主体价值为合同合规 + D-6 残差平台假设的证伪数据。
+/// 与 nonorth_source 同架构：显式 source 累加，隐式矩阵不动（保对称）。
+fn dev2_face_source(
+    sf: [f64; 3],
+    go: &[[f64; 3]; 3],
+    gn: &[[f64; 3]; 3],
+    nu: f64,
+) -> [f64; 3] {
+    // 面处梯度张量（Gauss linear 平均）
+    let mut g = [[0.0f64; 3]; 3];
+    for i in 0..3 {
+        for j in 0..3 {
+            g[i][j] = 0.5 * (go[i][j] + gn[i][j]);
+        }
+    }
+    // A = T(∇U)（转置）
+    let mut a = [[0.0f64; 3]; 3];
+    for i in 0..3 {
+        for j in 0..3 {
+            a[i][j] = g[j][i];
+        }
+    }
+    // dev2(A) = A − (2/3)tr(A)I
+    let tr = a[0][0] + a[1][1] + a[2][2];
+    let mut dev = [[0.0f64; 3]; 3];
+    for i in 0..3 {
+        for j in 0..3 {
+            let eye = if i == j { 1.0 } else { 0.0 };
+            dev[i][j] = a[i][j] - (2.0 / 3.0) * tr * eye;
+        }
+    }
+    // F_f = ν·dev·S_f
+    let mut out = [0.0f64; 3];
+    for i in 0..3 {
+        out[i] = nu * (dev[i][0] * sf[0] + dev[i][1] * sf[1] + dev[i][2] * sf[2]);
+    }
+    out
+}
+
 fn nonorth_source(
     sf: [f64; 3],
     go: &[[f64; 3]; 3],
@@ -312,6 +356,10 @@ pub fn assemble_momentum(
         let cf = nonorth_source(sf, &grad_u[o], &grad_u[nb], delta, nu);
         m.source[o] = add3(m.source[o], cf);
         m.source[nb] = add3(m.source[nb], scale3(cf, -1.0));
+        // dev2(T(∇U)) 显式源（W8 合规项；常 ν 不可压缩下 ≈0）
+        let dv = dev2_face_source(sf, &grad_u[o], &grad_u[nb], nu);
+        m.source[o] = add3(m.source[o], dv);
+        m.source[nb] = add3(m.source[nb], scale3(dv, -1.0));
         // 对流（隐式 upwind + 二阶外插的显式延迟修正）
         //
         // 两种稳态形式（第四棒按用户指南 §4.5.3 更正）：
@@ -368,6 +416,8 @@ pub fn assemble_momentum(
                 let delta = sub(mesh.face_cf[f], mesh.cell_cc[c]);
                 let cf = nonorth_source(sf, &grad_u[c], &grad_u[c], delta, nu);
                 m.source[c] = add3(m.source[c], cf);
+                let dv = dev2_face_source(sf, &grad_u[c], &grad_u[c], nu);
+                m.source[c] = add3(m.source[c], dv);
             }
             // 对流：C_P 边界面贡献 φ_f(u_f − u_P)
             if phi_f != 0.0 {
@@ -517,4 +567,55 @@ pub fn rhie_chow_phi(
         phi[f] = phi_hbya[f] - d;
     }
     phi
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// W8-C2：dev2 制造场——张量恒等式 dev2(A)=A-(2/3)tr(A)I, A=T(∇U) 的
+    /// 面级算子精确性（三例手算期望值，错实现必挂）。
+    #[test]
+    fn t14_dev2_manufactured() {
+        // (a) U=(x^2,0,0) @ x0=2, ν=1.5, S_f=(1,0,0)：
+        // ∇u0=(2x0,0,0)；A=T(∇U)=diag(2x0,0,0)；tr=2x0=4；
+        // dev2=diag(4/3,-8/3,-8/3)；F=ν·dev2·S_f 取 dev 第一列=(2,0,0)
+        let g = [[4.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]];
+        let f = dev2_face_source([1.0, 0.0, 0.0], &g, &g, 1.5);
+        assert!((f[0] - 2.0).abs() < 1e-12 && f[1].abs() < 1e-12 && f[2].abs() < 1e-12,
+            "dev2 (a) got {f:?}");
+
+        // (b) 纯剪切 U=(y,0,0)：A=[[0,0,0],[1,0,0],[0,0,0]], tr=0, dev2=A；
+        // S_f=(1,0,0) → F=ν·(A00,A10,A20)=ν·(0,1,0)
+        let gs = [[0.0, 1.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]];
+        let f2 = dev2_face_source([1.0, 0.0, 0.0], &gs, &gs, 2.0);
+        assert!((f2[0]).abs() < 1e-12 && (f2[1] - 2.0).abs() < 1e-12 && (f2[2]).abs() < 1e-12,
+            "dev2 (b) got {f2:?}");
+
+        // (c) 各向同性膨胀 U=(x,y,z)：A=I, tr=3, dev2=I-2I=-I；
+        // S_f=(1,0,0) → F=ν·(-1,0,0)
+        let gi = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+        let f3 = dev2_face_source([1.0, 0.0, 0.0], &gi, &gi, 0.5);
+        assert!((f3[0] + 0.5).abs() < 1e-12 && (f3[1]).abs() < 1e-12 && (f3[2]).abs() < 1e-12,
+            "dev2 (c) got {f3:?}");
+
+        // (d) 常 ν 不可压缩恒等式 div(ν·dev2)=(ν/3)∇(∇·U)：div-free 线性场的
+        // 常数张量 → 闭合立方六面合量 Σ_f ν·dev2_f·S_f = ν·dev2·ΣS_f = 0。
+        let gc = [[0.0, 1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 0.0]];
+        let faces = [
+            [1.0, 0.0, 0.0], [-1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0], [0.0, -1.0, 0.0],
+            [0.0, 0.0, 1.0], [0.0, 0.0, -1.0],
+        ];
+        let mut sum = [0.0f64; 3];
+        for sf in faces {
+            let ff = dev2_face_source(sf, &gc, &gc, 1.3);
+            for k in 0..3 {
+                sum[k] += ff[k];
+            }
+        }
+        assert!(sum[0].abs() < 1e-12 && sum[1].abs() < 1e-12 && sum[2].abs() < 1e-12,
+            "dev2 (d) closed-sum got {sum:?}");
+    }
 }

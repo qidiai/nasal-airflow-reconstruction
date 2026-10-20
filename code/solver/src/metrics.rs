@@ -97,6 +97,137 @@ pub fn wall_shear_stress(mesh: &Mesh, u: &crate::fields::VolVector, mu: f64, wal
     out
 }
 
+/// WSS 统计（W8 二阶新增：回退面占比暴露守卫触发频率）
+#[derive(Debug, Clone, Copy, Default)]
+pub struct WssStats {
+    pub total_faces: usize,
+    pub fallback_faces: usize,
+}
+
+/// WSS 二阶：壁面法向三点二次重构（含 U_w=0 约束）。
+///
+/// 形体素堆叠显式系数（抛物线自验通过）：`tau_w = mu*(9*u1 - u2)/(3*Delta)`，
+/// u1=贴壁 cell 切向速度、u2=第二层 cell 切向速度、Delta=层距 |C2-C1|
+/// （壁面无滑移 U_w=0 作为约束嵌入）。切向分量逐分量施用，报告 |tau| 幅值（Pa）。
+///
+/// 守卫（任一不满足 -> 回退一阶并计数）：
+/// 1. 第二层存在：c1 的"对层面"（外法向与壁面法向最反平行的内面）另一侧 cell
+/// 2. 几何嵌套：Delta/d1 ∈ [2,4]（d1=|C_f-C1|）
+/// 3. 方向对齐：C2-C1 与 -nhat 夹角余弦 > 0.9
+pub fn wall_shear_stress_ex(
+    mesh: &Mesh,
+    u: &crate::fields::VolVector,
+    mu: f64,
+    walls: usize,
+) -> (Vec<f64>, WssStats) {
+    let p = &mesh.patches[walls];
+    let mut out = Vec::with_capacity(p.n_faces);
+    let mut fallback = 0usize;
+    for f in p.start..p.start + p.n_faces {
+        let c1 = mesh.face_owner[f] as usize;
+        let n = mesh.face_sf[f];
+        let nn = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+        if nn <= 0.0 || mesh.face_mag[f] <= 0.0 {
+            out.push(0.0);
+            fallback += 1;
+            continue;
+        }
+        let nhat = [n[0] / nn, n[1] / nn, n[2] / nn];
+        let uc = u.data[c1];
+        let un = uc[0] * nhat[0] + uc[1] * nhat[1] + uc[2] * nhat[2];
+        let tang1 = [uc[0] - un * nhat[0], uc[1] - un * nhat[1], uc[2] - un * nhat[2]];
+        let dvec = crate::mesh::sub(mesh.face_cf[f], mesh.cell_cc[c1]);
+        let d1 = crate::mesh::dot(dvec, dvec).sqrt();
+        if d1 <= 0.0 {
+            out.push(0.0);
+            fallback += 1;
+            continue;
+        }
+        let first_order = mu * crate::mesh::norm(tang1) / d1;
+        // 找对层面（鲁棒判据，不依赖墙面法向朝里/朝外）：
+        // away = 墙面质心 -> c1 中心方向（恒指向流体内部）；对层面 = c1 的外法向
+        // 与 away 最平行的面。
+        let away = crate::mesh::sub(mesh.cell_cc[c1], mesh.face_cf[f]);
+        let away_n = crate::mesh::norm(away);
+        let ah = if away_n > 0.0 {
+            [away[0] / away_n, away[1] / away_n, away[2] / away_n]
+        } else {
+            [0.0f64; 3]
+        };
+        let mut best: Option<(usize, f64)> = None;
+        if away_n > 0.0 {
+            let s0 = mesh.cell_start[c1] as usize;
+            let s1 = mesh.cell_start[c1 + 1] as usize;
+            for k in s0..s1 {
+                let f2 = mesh.cell_faces[k] as usize;
+                if f2 == f {
+                    continue;
+                }
+                let s2v = mesh.face_sf[f2];
+                let m2 = (s2v[0] * s2v[0] + s2v[1] * s2v[1] + s2v[2] * s2v[2]).sqrt();
+                if m2 <= 0.0 {
+                    continue;
+                }
+                let sgn = if mesh.face_owner[f2] as usize == c1 { 1.0 } else { -1.0 };
+                let dota = (s2v[0] * ah[0] + s2v[1] * ah[1] + s2v[2] * ah[2]) * sgn / m2;
+                match best {
+                    Some((_, bd)) if dota <= bd => {}
+                    _ => best = Some((f2, dota)),
+                }
+            }
+        }
+        let mut value = first_order;
+        let mut used = false;
+        if let Some((f2, dota)) = best {
+            if dota > 0.9 && f2 < mesh.n_internal as usize {
+                let c2 = if mesh.face_owner[f2] as usize == c1 {
+                    mesh.face_neigh[f2] as usize
+                } else {
+                    mesh.face_owner[f2] as usize
+                };
+                if c2 != c1 {
+                    let dvec2 = crate::mesh::sub(mesh.cell_cc[c2], mesh.cell_cc[c1]);
+                    let d2 = crate::mesh::dot(dvec2, dvec2).sqrt();
+                    let ratio = if d1 > 0.0 { d2 / d1 } else { 0.0 };
+                    // 守卫：层距/壁距 ∈ [2,4]（FP epsilon 防边界排除——
+                    // 体素堆叠 ratio 恰为 2.0，浮点舍入可致 1.9999999999999998 被硬边界误拒）
+                    let geo_ok = d2 > 0.0 && ratio >= 2.0 - 1e-6 && ratio <= 4.0 + 1e-6;
+                    if geo_ok {
+                        let inv = 1.0 / d2;
+                        let dir = [dvec2[0] * inv, dvec2[1] * inv, dvec2[2] * inv];
+                        let align = dir[0] * ah[0] + dir[1] * ah[1] + dir[2] * ah[2];
+                        if align > 0.9 {
+                            let u2c = u.data[c2];
+                            let un2 = u2c[0] * nhat[0] + u2c[1] * nhat[1] + u2c[2] * nhat[2];
+                            let tang2 = [
+                                u2c[0] - un2 * nhat[0],
+                                u2c[1] - un2 * nhat[1],
+                                u2c[2] - un2 * nhat[2],
+                            ];
+                            let k = mu / (3.0 * d2);
+                            let tv = [
+                                k * (9.0 * tang1[0] - tang2[0]),
+                                k * (9.0 * tang1[1] - tang2[1]),
+                                k * (9.0 * tang1[2] - tang2[2]),
+                            ];
+                            let mag = crate::mesh::norm(tv);
+                            if mag.is_finite() {
+                                value = mag;
+                                used = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if !used {
+            fallback += 1;
+        }
+        out.push(value);
+    }
+    (out, WssStats { total_faces: p.n_faces, fallback_faces: fallback })
+}
+
 /// 向量场 Pearson 相关（3n 分量拼接；用于 L2 对拍）
 pub fn vector_correlation(a: &[[f64; 3]], b: &[[f64; 3]]) -> f64 {
     assert_eq!(a.len(), b.len(), "向量场长度不一致");
@@ -200,4 +331,59 @@ pub fn vtk_write(path: &std::path::Path, mesh: &Mesh, u: &crate::fields::VolVect
     }
     f.write_all(s.as_bytes())
         .map_err(|e| format!("写 {} 失败: {e}", path.display()))
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::fields::VolVector;
+    use crate::simple::build_box_mesh;
+
+    /// W8-C3a：三点二次重构对二次剖面精确（体素堆叠显式系数的抛物线自验）。
+    #[test]
+    fn t15_wss_three_point_exact_quadratic() {
+        let (dx, dy, dz) = (0.01f64, 0.01f64, 0.01f64);
+        let mesh = build_box_mesh(4, 8, 1, dx, dy, dz);
+        let mu = 2.0e-5f64;
+        // 通道流（半高 a=ly/2）：u_x(y)=2*u_max*(y/a)-u_max*(y/a)^2，壁面无滑移
+        let ly = 8.0 * dy;
+        let a = ly / 2.0;
+        let u_max = 0.03f64;
+        let mut u = VolVector::zeros(&mesh);
+        for c in 0..mesh.n_cells() {
+            let y = mesh.cell_cc[c][1];
+            u.data[c] = [2.0 * u_max * (y / a) - u_max * (y / a) * (y / a), 0.0, 0.0];
+        }
+        let w = mesh.patches.iter().position(|p| p.name == "yMin").unwrap();
+        let (wss, st) = wall_shear_stress_ex(&mesh, &u, mu, w);
+        // 解析：τ_w = μ·du/dy(0) = μ·2*u_max/a
+        let tau_exact = mu * 2.0 * u_max / a;
+        let mean = wss.iter().sum::<f64>() / wss.len() as f64;
+        let rel = (mean / tau_exact - 1.0).abs();
+        assert!(st.fallback_faces == 0, "二次剖面不应回退：{:?}", st);
+        assert!(rel < 1e-12, "三点重构对二次剖面应精确：mean={mean:e} exact={tau_exact:e} rel={rel:e}");
+    }
+
+    /// W8-C3b：回退路径——单层网格（ny=1）对层面即对面墙（无第二层）→ 全回退一阶。
+    #[test]
+    fn t16_wss_fallback_single_layer() {
+        let mesh = build_box_mesh(3, 1, 1, 0.01, 0.01, 0.01);
+        let mut u = VolVector::zeros(&mesh);
+        for c in 0..mesh.n_cells() {
+            u.data[c] = [0.005, 0.0, 0.0];
+        }
+        let w = mesh.patches.iter().position(|p| p.name == "yMin").unwrap();
+        let (wss, st) = wall_shear_stress_ex(&mesh, &u, 2.0e-5, w);
+        assert_eq!(st.fallback_faces, st.total_faces, "ny=1 应全部回退");
+        // 回退值=一阶：mu*|u_tan|/d1
+        let p = &mesh.patches[w];
+        let c1 = mesh.face_owner[p.start] as usize;
+        let d1 = {
+            let d = crate::mesh::sub(mesh.face_cf[p.start], mesh.cell_cc[c1]);
+            crate::mesh::dot(d, d).sqrt()
+        };
+        let expect = 2.0e-5 * 0.005 / d1;
+        assert!((wss[0] - expect).abs() < 1e-15, "回退值应等于一阶：{} vs {}", wss[0], expect);
+    }
 }

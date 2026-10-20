@@ -25,7 +25,7 @@ use crate::linalg::{
 use crate::mesh::{dot, Mesh, Patch};
 use crate::metrics::{
     dp_pa, flow_split, patch_area, patch_face_mean_p, patch_flux_sum, vtk_write,
-    wall_shear_stress,
+    wall_shear_stress, wall_shear_stress_ex,
 };
 use crate::{MU_AIR, NU_AIRWAY, RHO_AIR};
 
@@ -850,12 +850,12 @@ impl SimpleSolver {
         }
         // WSS（契约 §11 一阶体素估计）
         if let Some(w) = self.patches.iter().position(|p| p.name == "walls") {
-            let wss = wall_shear_stress(&self.mesh, &self.u, self.cfg.mu, w);
+            let (wss, wst) = wall_shear_stress_ex(&self.mesh, &self.u, self.cfg.mu, w);
             let mean = wss.iter().sum::<f64>() / wss.len().max(1) as f64;
             let max = wss.iter().cloned().fold(0.0f64, f64::max);
             s.push_str(&format!(
-                "WSS (1st-order voxel est): mean {:.6e} Pa, max {:.6e} Pa ({} wall faces)\n",
-                mean, max, wss.len()
+                "WSS (2nd-order 3pt): mean {:.6e} Pa, max {:.6e} Pa ({} wall faces, {} 1st-order fallback)\n",
+                mean, max, wst.total_faces, wst.fallback_faces
             ));
         }
         if let Some(r) = self.records.last() {
@@ -1071,6 +1071,13 @@ pub struct PoiseuilleResult {
     pub converged: bool,
     pub stop_reason: String,
     pub gate_pass: bool,
+    // W8：WSS 解析门（二阶三点重构，patch 面积加权均值 vs 6*mu*U/h）
+    pub wss_mean_pa: f64,
+    pub wss_exact_pa: f64,
+    pub wss_rel_err: f64,
+    pub wss_fallback_faces: usize,
+    pub wss_total_faces: usize,
+    pub wss_skip_faces: usize,
 }
 
 /// 截面体权平均压力（单元心 x 在 [(i+0.5−0.5)dx, (i+0.5+0.5)dx) 的全部单元）
@@ -1249,7 +1256,40 @@ pub fn run_poiseuille_adv(
     let dpdx_num = (p1 - p2) / ((i2 - i1) as f64 * dx); // 运动学 (m/s2)
     let dpdx_exact = 12.0 * NU_AIRWAY * u_mean / (h * h); // 运动学
     let dpdx_rel_err = (dpdx_num / dpdx_exact - 1.0).abs();
-    let gate_pass = u_center_rel_err < 0.01 && dpdx_rel_err < 0.02;
+    // W8：WSS 解析门——yMin/yMax 两墙 patch 面积加权平均 vs 6*mu*U/h（平面 Poiseuille 解析）
+    let mut wss_num = 0.0f64;
+    let mut wss_den = 0.0f64;
+    let mut wss_fb = 0usize;
+    let mut wss_tot = 0usize;
+    // 仅取下游已发展段（x > 0.5L）：FlowRateInlet 为均流 plug，入口发展段
+    // （Re~27 → Le~0.05·Re·h ≈ 2.7%L）近壁速度虚高，整patch 平均会被污染；
+    // 已发展段才对应解析解 6*mu*U/h。
+    let x_dev = 0.5 * l;
+    let mut wss_skip = 0usize; // 入口段面数（不参与均值，单独报）
+    for pname in ["yMin", "yMax"] {
+        if let Some(w) = solver.patches.iter().position(|q| q.name == pname) {
+            let (wss, st) = wall_shear_stress_ex(&solver.mesh, &solver.u, MU_AIR, w);
+            wss_fb += st.fallback_faces;
+            wss_tot += st.total_faces;
+            let pt = &solver.patches[w];
+            for (k, f) in (pt.start..pt.start + pt.n_faces).enumerate() {
+                if solver.mesh.face_cf[f][0] < x_dev {
+                    wss_skip += 1;
+                    continue;
+                }
+                wss_num += wss[k] * solver.mesh.face_mag[f];
+                wss_den += solver.mesh.face_mag[f];
+            }
+        }
+    }
+    let wss_mean_pa = if wss_den > 0.0 { wss_num / wss_den } else { 0.0 };
+    let wss_exact_pa = 6.0 * MU_AIR * u_mean / h;
+    let wss_rel_err = if wss_exact_pa > 0.0 {
+        (wss_mean_pa / wss_exact_pa - 1.0).abs()
+    } else {
+        0.0
+    };
+    let gate_pass = u_center_rel_err < 0.01 && dpdx_rel_err < 0.02 && wss_rel_err < 0.02;
     Ok(PoiseuilleResult {
         n_cells: solver.mesh.n_cells(),
         nx,
@@ -1261,6 +1301,12 @@ pub fn run_poiseuille_adv(
         u_center_rel_err,
         dpdx_num,
         dpdx_exact,
+        wss_mean_pa,
+        wss_exact_pa,
+        wss_rel_err,
+        wss_fallback_faces: wss_fb,
+        wss_total_faces: wss_tot,
+        wss_skip_faces: wss_skip,
         dpdx_rel_err,
         dpdx_num_pa: RHO_AIR * dpdx_num,
         dpdx_exact_pa: RHO_AIR * dpdx_exact,

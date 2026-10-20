@@ -35,7 +35,7 @@ def parse_log(path):
     m = re.search(r"dP \(rho\*p_in - p_out\) = ([-\d.eE+]+) Pa", txt)
     if m:
         d["dP"] = float(m.group(1))
-    m = re.search(r"WSS \(1st-order voxel est\): mean ([\d.eE+-]+) Pa, max ([\d.eE+-]+) Pa", txt)
+    m = re.search(r"WSS \([^)]*\): mean ([\d.eE+-]+) Pa, max ([\d.eE+-]+) Pa", txt)  # W8: 标签宽容（1st-order voxel est -> 2nd-order 3pt）
     if m:
         d["wss_mean"] = float(m.group(1))
         d["wss_max"] = float(m.group(2))

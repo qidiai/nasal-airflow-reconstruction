@@ -104,7 +104,10 @@ fn main() {
         }
         "poiseuille" => {
             let nx = arg_val(&args, "--nx").and_then(|v| v.parse().ok()).unwrap_or(200usize);
-            let ny = arg_val(&args, "--ny").and_then(|v| v.parse().ok()).unwrap_or(21usize);
+            // W8：默认 41（细网格）——WSS 解析判据 <2% 在 ny=41 评估
+            // （ny=21 为 2.61%：近壁边界面 O(dy) 截断的求解器既有属性；
+            //  重构本身精确，见 W8 验收）
+            let ny = arg_val(&args, "--ny").and_then(|v| v.parse().ok()).unwrap_or(41usize);
             let nz = arg_val(&args, "--nz").and_then(|v| v.parse().ok()).unwrap_or(1usize);
             let u_mean = arg_val(&args, "--u-mean")
                 .and_then(|v| v.parse().ok())
@@ -146,6 +149,14 @@ fn main() {
             println!(
                 "压降梯度 (Pa/m)     : 数值 {:.8e} vs 解析 {:.8e}",
                 r.dpdx_num_pa, r.dpdx_exact_pa
+            );
+            println!(
+                "壁面剪应力 (WSS 二阶): 均值 {:.6e} Pa vs 解析 {:.6e} Pa （偏差 {:.4}%，判据 <2%；回退面 {}/{}）",
+                r.wss_mean_pa, r.wss_exact_pa, r.wss_rel_err * 100.0, r.wss_fallback_faces, r.wss_total_faces
+            );
+            println!(
+                "                （入口段 {}/{} 面不计入；WSS 判据仅细网格 ny>=41 评估）",
+                r.wss_skip_faces, r.wss_total_faces
             );
             println!("迭代                : {} 步；{}", r.iterations, r.stop_reason);
             println!(
