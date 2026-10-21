@@ -42,6 +42,18 @@ _ap5.add_argument("--ph-dir", default=os.path.expandvars(r"%DATA_ROOT%\项目\P0
 _ap5.add_argument("--skin-data-js", default=os.path.expandvars(r"%DATA_ROOT%\项目\P0-鼻塞设计工具\阶段5-交互查看器\skin_data.js"),
                   help="皮肤层数据（帧校验用；默认患者A skin_data.js）")
 _ap5.add_argument("--out-dir", default=None, help="输出目录（默认 pipeline/out/step5）")
+# [T-P1.5] 单算例模式：患者快速档 / 单算例病例只跑了一次求解，没有三档占位体
+#   算例，故 dP_1/2/3mm 与 pressure-flow curve 天然缺失。此时仍导出 viewer 数据
+#   （"看见自己的气道"是患者版核心需求），但三条纪律：
+#     ① 绝不伪造三档数字——缺失字段不写入，meta.partial=true + meta.missing 列清单；
+#     ② viewer 据此隐藏对应区块并标"本次未做"，不报错、不回落演示数据；
+#     ③ 占位档完备的病例（pA 等）不传本开关 → 走原闸门，产物逐字节不变。
+_ap5.add_argument("--single-case", action="store_true",
+                  help="单算例模式：三档占位字段可缺（最小必需集齐备即导出；"
+                       "缺失项写入 meta.partial/meta.missing，供 viewer 隐藏）")
+_ap5.add_argument("--mask-npz", default=None,
+                  help="覆盖 mask npz 路径（默认按 --case-prefix/--case 推导；"
+                       "重导既有病例时可显式指定）")
 _ap5.add_argument("--write-mode", choices=("surgical", "full"), default="surgical",
                   help="写盘模式：surgical=外科手术式（患者A 回归基线）；full=全量构建（新病例）")
 ARGS5 = _ap5.parse_args()
@@ -53,7 +65,7 @@ if ARGS5.case_prefix == "pA":
     _mask_name = "mask_full.npz" if ARGS5.case == "v5" else f"mask_full-{ARGS5.case}.npz"
 else:
     _mask_name = f"mask_full-{ARGS5.case_prefix}-{ARGS5.case}.npz"
-MASK_NPZ = os.path.join(HERE, "out", "step2", _mask_name)
+MASK_NPZ = ARGS5.mask_npz or os.path.join(HERE, "out", "step2", _mask_name)  # [T-P1.5] 可显式覆盖
 VTU = ARGS5.vtu
 PH_DIR = ARGS5.ph_dir
 
@@ -147,6 +159,28 @@ def taubin_smooth(mesh, lamb=TAUBIN_LAMBDA, mu=TAUBIN_MU, iters=SMOOTH_ITERS):
     return mesh
 
 
+def taubin_probe_displacement(mesh):
+    """[T-P1.5] "如果执行平滑会有多大"的实测探针：在**副本**上真跑一次 Taubin，
+    量位移投影到原顶点法向（与 F3 板① 同口径），随后丢弃副本——原网格一个字节不动。
+
+    返回 {mean, peak, signed_mean, vertices, iters, lambda, mu, metric}（单位 mm）。
+    """
+    import trimesh as _tm
+    _probe = _tm.Trimesh(vertices=np.asarray(mesh.vertices, dtype=np.float64).copy(),
+                         faces=np.asarray(mesh.faces, dtype=np.int64).copy(),
+                         process=False)
+    _n0 = np.asarray(_probe.vertex_normals, dtype=np.float64).copy()
+    _before = _probe.vertices.copy()
+    taubin_smooth(_probe)
+    _d = np.asarray(_probe.vertices, dtype=np.float64) - _before
+    _proj = np.einsum("ij,ij->i", _d, _n0)
+    return {"mean": float(np.abs(_proj).mean()), "peak": float(np.abs(_proj).max()),
+            "signed_mean": float(_proj.mean()), "vertices": int(len(_before)),
+            "iters": int(SMOOTH_ITERS), "lambda": float(TAUBIN_LAMBDA),
+            "mu": float(TAUBIN_MU),
+            "metric": "位移投影到原顶点法向的绝对值（与 F3 板① 同口径），mm"}
+
+
 
 # ----------------------------------------------------------------------------
 # 0. 读掩码
@@ -202,9 +236,22 @@ if len(air.faces) > FACE_TARGET_AIR:
 log(f"  airwayMesh 面 {len(air.faces)}（模式 {DECIMATE_MODE}）")
 
 # [F3] Taubin 视觉平滑（仅 airwayMesh 显示壳顶点；indices 不动）
+_SMOOTH_PROBE = {}          # [T-P1.5] 单算例：平滑"若执行会有多大"的实测位移统计
 _F3_air_before = air.vertices.copy()
-taubin_smooth(air)
-log(f"  [F3] airwayMesh Taubin 平滑完成（{SMOOTH_ITERS} 迭代, λ={TAUBIN_LAMBDA}, μ={TAUBIN_MU}）")
+if ARGS5.single_case:
+    # [T-P1.5] 单算例（快速档）跳过视觉平滑：快速档网格粗（3× 降采样 ≈1.5mm），冻结
+    #   参数（λ=0.5/μ=-0.53/20 迭代）在该网格上的位移与体素同量级——可能扭曲最窄截面，
+    #   属几何保真问题而非美化问题。故保留 marching_cubes 原始等值面；但**实测**"如果
+    #   执行会是多大"留档（板④ 由 PASS 改 SKIP，绝不假装通过）。
+    _SMOOTH_PROBE["voxel_mm"] = round(float(spx), 4)
+    _SMOOTH_PROBE["airwayMesh"] = taubin_probe_displacement(air)
+    _sp = _SMOOTH_PROBE["airwayMesh"]
+    log("  [T-P1.5] 单算例模式：跳过 airwayMesh Taubin 平滑（保留原始等值面）；"
+        f"实测若执行的位移 均值 {_sp['mean']:.2f}mm / 峰值 {_sp['peak']:.2f}mm"
+        f"（体素 {_SMOOTH_PROBE['voxel_mm']:.2f}mm）")
+else:
+    taubin_smooth(air)
+    log(f"  [F3] airwayMesh Taubin 平滑完成（{SMOOTH_ITERS} 迭代, λ={TAUBIN_LAMBDA}, μ={TAUBIN_MU}）")
 
 
 # 全局质心（居中偏移量）—— 以 airwayMesh 顶点质心为准，airway/placeholders/streamlines/slices 通用
@@ -497,8 +544,15 @@ for z_nom in (35.0, 45.0, 55.0, 65.0):
 # ----------------------------------------------------------------------------
 log("placeholders ...")
 placeholders = []
+_PH_TIERS_MISSING = []   # [T-P1.5] 本例无占位体的档位（写入 meta.missing 供 viewer 标注）
 for mm in (1, 2, 3):
     files = sorted(glob.glob(os.path.join(PH_DIR, f"virtual-placeholder-{mm}mm*.stl")))
+    if not files:
+        # [T-P1.5] 单算例/快速档没有该档占位体 → 整档缺省：不拼空 mesh、不拿其他病例的
+        #   占位体顶替；viewer 侧该档复选框自动禁用并标"本次未做"。
+        _PH_TIERS_MISSING.append(mm)
+        log(f"  {mm}mm: 无占位体 STL（{PH_DIR}）——本次未做该档")
+        continue
     parts = [trimesh.load(f, force="mesh") for f in files]
     merged = trimesh.util.concatenate(parts)
     nf0 = len(merged.faces)
@@ -583,9 +637,15 @@ log(f"  airwayCavity 面 {len(cavity_mesh.faces)}（模式 {cav_mode}）; airway
 #   鼻窦壳在演示中为 ⓘ 次要展示层。顶点原样保留，一个字节不动。
 _F3_cav_before = cavity_mesh.vertices.copy()
 _F3_sin_before = sinus_mesh.vertices.copy()   # 豁免：仅捕获用于报表 before==after 验证
-taubin_smooth(cavity_mesh)
-log(f"  [F3] airwayCavity Taubin 平滑完成（{SMOOTH_ITERS} 迭代, λ={TAUBIN_LAMBDA}, "
-    f"μ={TAUBIN_MU}）；airwaySinus 豁免平滑（顶点原样保留）")
+if ARGS5.single_case:
+    _SMOOTH_PROBE["airwayCavity"] = taubin_probe_displacement(cavity_mesh)
+    _c = _SMOOTH_PROBE["airwayCavity"]
+    log("  [T-P1.5] 单算例模式：跳过 airwayCavity Taubin 平滑（保留原始等值面）；"
+        f"实测若执行的位移 均值 {_c['mean']:.2f}mm / 峰值 {_c['peak']:.2f}mm")
+else:
+    taubin_smooth(cavity_mesh)
+    log(f"  [F3] airwayCavity Taubin 平滑完成（{SMOOTH_ITERS} 迭代, λ={TAUBIN_LAMBDA}, "
+        f"μ={TAUBIN_MU}）；airwaySinus 豁免平滑（顶点原样保留）")
 
 
 # 同一 CENTER 居中（沿用 v1，不重算）
@@ -864,13 +924,32 @@ for tag, mesh, before in (("airwayMesh", air, _F3_air_before),
 
 # 板④ 门禁：比率变化 >0.1% 即停（[裁决1] 仅对参与平滑的壳判定；airwaySinus 豁免）
 _SMOOTHED_SHELLS = ("airwayMesh", "airwayCavity")
-b4_bad = {k: v["board4_lr_half_volumes_mm3"]["ratio_rel_change_pct"]
-          for k, v in shells_report.items()
-          if k in _SMOOTHED_SHELLS
-          and v["board4_lr_half_volumes_mm3"]["ratio_rel_change_pct"] > F3_LR_RATIO_TOL * 100.0}
-gates["board4_lr_ratio_change_le_0.1pct"] = {"pass": not b4_bad, "bad": b4_bad,
-                                              "tol_pct": F3_LR_RATIO_TOL * 100.0,
-                                              "scope": "仅参与平滑的壳（裁决1：airwaySinus 豁免平滑）"}
+if ARGS5.single_case:
+    # [T-P1.5] 单算例不做视觉平滑 → 板④ 记为"未执行"（pass=None，与 A4/A7 同一处理），
+    #   绝不因为"没做"而恒真 PASS。量化依据来自平滑探针实测（同一算法在副本上真跑）。
+    _spA4 = _SMOOTH_PROBE.get("airwayMesh") or {}
+    _reason4 = ("未执行：本模式不做视觉平滑（测得位移均值 %.2fmm/峰值 %.2fmm，"
+                "与 %.1fmm 体素同量级，平滑可能扭曲最窄截面）"
+                % (float(_spA4.get("mean", float("nan"))),
+                   float(_spA4.get("peak", float("nan"))),
+                   float(_SMOOTH_PROBE.get("voxel_mm", float("nan")))))
+    gates["board4_lr_ratio_change_le_0.1pct"] = {
+        "pass": None, "skipped": True, "reason": _reason4,
+        "tol_pct": F3_LR_RATIO_TOL * 100.0,
+        "scope": "仅参与平滑的壳（裁决1：airwaySinus 豁免平滑）",
+        "smoothing_displacement_mm": {
+            k: {"mean": round(v["mean"], 4), "peak": round(v["peak"], 4)}
+            for k, v in _SMOOTH_PROBE.items() if isinstance(v, dict) and "mean" in v},
+        "note": "本模式未执行平滑 → 板①-④ 不存在 before/after 差异；此 SKIP 不等于质量通过，"
+                "质量依据是位移探针实测 + 板⑥ 流线-壳间隙"}
+else:
+    b4_bad = {k: v["board4_lr_half_volumes_mm3"]["ratio_rel_change_pct"]
+              for k, v in shells_report.items()
+              if k in _SMOOTHED_SHELLS
+              and v["board4_lr_half_volumes_mm3"]["ratio_rel_change_pct"] > F3_LR_RATIO_TOL * 100.0}
+    gates["board4_lr_ratio_change_le_0.1pct"] = {"pass": not b4_bad, "bad": b4_bad,
+                                                 "tol_pct": F3_LR_RATIO_TOL * 100.0,
+                                                 "scope": "仅参与平滑的壳（裁决1：airwaySinus 豁免平滑）"}
 
 # [裁决1] airwaySinus 豁免平滑：各板 before==after（顶点原样保留），记 exempted
 _ExemptReason = ("裁决1 豁免平滑：鼻窦壳 558 连通分量/688 非流形边，Taubin 冻结参数下"
@@ -883,7 +962,19 @@ shells_report["airwaySinus"]["vertices_unchanged_exact"] = bool(
     np.array_equal(np.asarray(sinus_mesh.vertices, dtype=np.float64),
                    _F3_sin_before))
 
-# 板⑤ 气道 bbox vs skin_data.js bbox 帧校验（复跑 viewer.html initSkin 同口径：
+# [T-P1.5] 单算例：平滑未执行 → 各壳板①-④ 的 before/after 差恒 0。
+#   必须写明"不是平滑无影响"，否则报表会被误读成"平滑后完全没形变"。
+if ARGS5.single_case:
+    for _sh in _SMOOTHED_SHELLS:
+        _pv = _SMOOTH_PROBE.get(_sh) or {}
+        shells_report[_sh]["smoothing_skipped"] = True
+        shells_report[_sh]["smoothing_probe_displacement_mm"] = {
+            "mean": round(float(_pv.get("mean", 0.0)), 4),
+            "peak": round(float(_pv.get("peak", 0.0)), 4)}
+        shells_report[_sh]["board1_4_note"] = (
+            "本模式未执行平滑：板①-④ 的 before/after 差恒 0（不代表'平滑无影响'）；"
+            "若执行，位移量见 smoothing_probe_displacement_mm")
+
 #   参考网格 = cavity || airway → airwayCavity 在位故取 cavity；容差 2.0mm）
 log("[F3] 板⑤ 帧校验（skin free bbox vs 气道壳 bbox）...")
 skin_min, skin_max = _f3_skin_bbox()
@@ -1096,6 +1187,27 @@ boards = {
     "all_gates_pass": bool(all(g["pass"] for g in gates.values() if g["pass"] is not None)),
 }
 
+if ARGS5.single_case:
+    # [T-P1.5] 单算例（快速档）跳过 Taubin 视觉平滑。口径一致性：algorithm 写 skip，
+    #   板④ 也必须是 SKIP（pass=None）——绝不一处 skip、一处 pass 自相矛盾。
+    _sp0 = _SMOOTH_PROBE.get("airwayMesh") or {}
+    boards["algorithm"]["single_case_skip_smoothing"] = True
+    boards["algorithm"]["single_case_probe_displacement_mm"] = {
+        k: {"mean": round(v["mean"], 4), "peak": round(v["peak"], 4)}
+        for k, v in _SMOOTH_PROBE.items() if isinstance(v, dict) and "mean" in v}
+    boards["algorithm"]["single_case_note"] = (
+        "单算例模式跳过 Taubin 视觉平滑：快速档网格粗（3× 降采样 ≈%.1fmm），冻结参数"
+        "（λ=%.2f/μ=%.2f/%d 迭代）在其上位移均值 %.2fmm/峰值 %.2fmm，与体素同量级、"
+        "可能扭曲最窄截面——属几何保真问题而非美化问题。故保留 marching_cubes 原始"
+        "等值面；板④ 相应记 SKIP/未执行（pass=None），不记为通过。"
+        % (float(_SMOOTH_PROBE.get("voxel_mm", float("nan"))),
+           TAUBIN_LAMBDA, TAUBIN_MU, SMOOTH_ITERS,
+           float(_sp0.get("mean", float("nan"))), float(_sp0.get("peak", float("nan")))))
+    boards["gates_evaluated"] = [k for k, g in gates.items() if g.get("pass") is not None]
+    boards["gates_skipped"] = [k for k, g in gates.items() if g.get("pass") is None]
+    boards["all_gates_pass_note"] = ("all_gates_pass = 无 FAIL；SKIP 不计入通过"
+                                     "（板④/板⑤ 为 SKIP）")
+
 os.makedirs(os.path.dirname(F3_BOARDS_JSON), exist_ok=True)
 with open(F3_BOARDS_JSON, "w", encoding="utf-8", newline="\n") as _f:
     json.dump(boards, _f, ensure_ascii=False, indent=2)
@@ -1107,7 +1219,13 @@ for _tag, _g in gates.items():
 if not boards["all_gates_pass"]:
     log("[F3] 门禁越限 —— 停工：不写盘新 viewer_data.js，等指挥官裁决")
     sys.exit(3)
-log("[F3] 六板门禁全过 → 放行写盘 viewer_data.js")
+_gskip = [k for k, g in gates.items() if g["pass"] is None]
+if _gskip:
+    # [T-P1.5] SKIP ≠ PASS：放行日志必须说清"无 FAIL + N 项未执行"，不许写成"全过"
+    log("[F3] 门禁无 FAIL（%d 项未执行：%s）→ 放行写盘 viewer_data.js"
+        % (len(_gskip), "、".join(_gskip)))
+else:
+    log("[F3] 六板门禁全过 → 放行写盘 viewer_data.js")
 
 
 # ----------------------------------------------------------------------------
@@ -1122,18 +1240,48 @@ _META_REQ = ["title", "caseBaseline", "units", "metrics", "curve"]
 _METRICS_REQ = ["dP_baseline_Pa", "dP_1mm_Pa", "dP_2mm_Pa", "dP_3mm_Pa", "dP_note",
                 "split_L_pct", "split_R_pct", "wss_mean_Pa", "wss_p95_Pa", "resistance_total"]
 _CURVE_REQ = ["volumes_cm3", "dP_Pa", "band_Pa"]
+_PLACEHOLDER_ONLY = ("dP_1mm_Pa", "dP_2mm_Pa", "dP_3mm_Pa",
+                     "volumes_cm3", "dP_Pa", "band_Pa",
+                     # meta 顶层 curve 整块缺失，单算例下视同"占位曲线未做"
+                     "curve")
 _missing = [k for k in _META_REQ if k not in _contract]
 _missing += [k for k in _METRICS_REQ if k not in _contract.get("metrics", {})]
 _missing += [k for k in _CURVE_REQ if k not in _contract.get("curve", {})]
-if _missing:
+_hard = [k for k in _missing if k not in _PLACEHOLDER_ONLY]
+if _hard or (_missing and not ARGS5.single_case):
+    # 红线不变：核心字段缺失（或非单算例模式）→ 一律中止，严禁套用其他患者数字
     raise SystemExit(f"!!! meta 契约字段缺失：{_missing} —— 中止导出（严禁套用其他患者数字）")
+_PARTIAL_MISSING = list(_missing)   # [T-P1.5] 单算例可缺项：只可能是占位档三档/曲线
 meta = {
     "title": _contract["title"],
     "caseBaseline": _contract["caseBaseline"],
     "units": _contract["units"],
-    "metrics": {k: _contract["metrics"][k] for k in _METRICS_REQ},
+    "metrics": {k: _contract["metrics"][k] for k in _METRICS_REQ
+                if k in _contract.get("metrics", {})},
 }
-curve = {k: _contract["curve"][k] for k in _CURVE_REQ}
+curve = {k: _contract["curve"][k] for k in _CURVE_REQ
+         if k in _contract.get("curve", {})}
+if ARGS5.single_case:
+    # [T-P1.5] 单算例：本模式不做视觉平滑（几何=原始等值面），并把"如果执行会有多大"
+    #   的实测位移随 meta 下发（不硬编码；探针 = 同一 Taubin 在副本上真跑一次后量位移）
+    _spA = _SMOOTH_PROBE.get("airwayMesh") or {}
+    meta["smoothing_skipped"] = True
+    meta["smoothing_displacement_mm"] = {
+        "mean": round(float(_spA.get("mean", 0.0)), 2),
+        "peak": round(float(_spA.get("peak", 0.0)), 2),
+    }
+    meta["smoothing_displacement_mm_by_shell"] = {
+        k: {"mean": round(v["mean"], 2), "peak": round(v["peak"], 2)}
+        for k, v in _SMOOTH_PROBE.items() if isinstance(v, dict) and "mean" in v}
+    meta["smoothing_note"] = ("本模式未执行 Taubin 视觉平滑（快速档网格粗，平滑位移与体素"
+                              "同量级、可能扭曲最窄截面）——几何为 marching_cubes 原始等值面")
+if _PARTIAL_MISSING or (ARGS5.single_case and _PH_TIERS_MISSING):
+    # [T-P1.5] 单算例部分导出：缺失区块清单随 meta 下发
+    #   （viewer 据此隐藏对应区块并标"本次未做"；不伪造任何数字、不回落演示数据）
+    meta["partial"] = True
+    meta["missing"] = _PARTIAL_MISSING + [f"placeholder_{m}mm" for m in _PH_TIERS_MISSING]
+    log("  [T-P1.5] 单算例部分导出：missing="
+        + json.dumps(meta["missing"], ensure_ascii=False))
 log(f"meta 契约: {ARGS5.metrics_json}")
 log(f"  title={meta['title']!r}  caseBaseline={meta['caseBaseline']!r}")
 
@@ -1193,6 +1341,11 @@ counts = {
 # ----------------------------------------------------------------------------
 js_path = os.path.join(OUT_STEP5, "viewer_data.js")
 _tail_expected = "console.log('VIEWER_DATA loaded', " + json.dumps(counts, ensure_ascii=False) + ");\n"
+if ARGS5.single_case and ARGS5.write_mode == "surgical":
+    # [T-P1.5] 外科手术式写盘要求存在"患者A 冻结基底"（共享 viewer_data.js）且契约
+    #   字段完全一致；单算例没有该基底 → 强制全量模式（pA 回归路径不受影响）
+    ARGS5.write_mode = "full"
+    log("[T-P1.5] 单算例模式：写盘方式强制 full（外科手术式只适用 pA 回归基底）")
 if ARGS5.write_mode == "surgical":
     # [裁决（本轮）] 外科手术式写盘（患者A 回归基线）：
     #   新文件 = 旧 viewer_data.js（共享目录 09-30 未平滑原版）逐字节搬运
@@ -1329,10 +1482,16 @@ qc["A3_streamlines"] = {"pass": bool(a3), "count": len(stream_out),
                         "lens_min": int(min(lens)) if lens else 0, "lens_max": int(max(lens)) if lens else 0}
 
 # A4 placeholders
+# [T-P1.5] 单算例无占位体算例 → 三档占位壳层"本次未做"（pass=None，不计入 all_pass）
 ph_faces = [len(p["indices"])//3 for p in placeholders]
 a4 = (len(placeholders) == 3) and all(f <= 15000 for f in ph_faces) and [p["mm"] for p in placeholders] == [1, 2, 3]
-qc["A4_placeholders"] = {"pass": bool(a4), "count": len(placeholders), "faces": ph_faces,
+_a4_not_done = bool(_PH_TIERS_MISSING) and not (len(placeholders) == 3)
+qc["A4_placeholders"] = {"pass": (None if _a4_not_done else bool(a4)),
+                         "count": len(placeholders), "faces": ph_faces,
                          "mm": [p["mm"] for p in placeholders]}
+if _a4_not_done:
+    qc["A4_placeholders"]["not_done"] = "本例无占位体算例（单算例/快速档）——三档占位壳层与三档对比本次未做"
+    qc["A4_placeholders"]["missing_tiers_mm"] = list(_PH_TIERS_MISSING)
 
 # A5 文件大小
 a5 = size <= 15*1024*1024
@@ -1347,23 +1506,33 @@ for arr in [posA] + [np.array(s["points"]) for s in stream_out] + [np.array(s["p
 qc["A6_coord_bounds"] = {"pass": bool(a6), "max_abs_mm": round(maxabs, 3), "speed_unit": "m/s"}
 
 # A7 curve vs meta
-meta_dP = [meta["metrics"]["dP_baseline_Pa"], meta["metrics"]["dP_1mm_Pa"],
-           meta["metrics"]["dP_2mm_Pa"], meta["metrics"]["dP_3mm_Pa"]]
-cv = curve["dP_Pa"]
-# 契约字面：meta 为 1 位小数展示（28.6/47.3/52.4），curve 为 2 位小数（28.55/47.32/52.40）；
-# T3 明确『meta.metrics 数值直接展示，不得改写或拔高精度』=> 两者均按字面输出。
-# 故 A7 以展示精度（±0.05，即 meta 末位半格）判定一致，并记录原始差。
-diffs = [abs(cv[t] - meta_dP[t]) for t in range(4)]
-round_consistent = [d <= 0.0500001 for d in diffs]
-a7 = all(round_consistent)
-qc["A7_curve_vs_meta"] = {
-    "pass": bool(a7),
-    "meta_dP": meta_dP, "curve_dP": cv,
-    "abs_diff": [round(d, 4) for d in diffs],
-    "consistent_within_meta_display_precision(±0.05)": round_consistent,
-    "note": "契约字面 meta=1位小数(18.45/28.6/47.3/52.4) 与 curve=2位小数(18.45/28.55/47.32/52.40) "
-            "不完全逐位相等；T3 禁止改写 meta 精度，故两者均按契约字面输出，A7 以展示精度一致判定。",
-}
+# [T-P1.5] 单算例没有三档占位压降 / 占位曲线 → 本项"本次未做"（pass=None，不计入 all_pass）
+_a7_keys = ("dP_1mm_Pa", "dP_2mm_Pa", "dP_3mm_Pa")
+if all(kk in meta["metrics"] for kk in _a7_keys) and curve.get("dP_Pa"):
+    meta_dP = [meta["metrics"]["dP_baseline_Pa"], meta["metrics"]["dP_1mm_Pa"],
+               meta["metrics"]["dP_2mm_Pa"], meta["metrics"]["dP_3mm_Pa"]]
+    cv = curve["dP_Pa"]
+    # 契约字面：meta 为 1 位小数展示（28.6/47.3/52.4），curve 为 2 位小数（28.55/47.32/52.40）；
+    # T3 明确『meta.metrics 数值直接展示，不得改写或拔高精度』=> 两者均按字面输出。
+    # 故 A7 以展示精度（±0.05，即 meta 末位半格）判定一致，并记录原始差。
+    diffs = [abs(cv[t] - meta_dP[t]) for t in range(4)]
+    round_consistent = [d <= 0.0500001 for d in diffs]
+    a7 = all(round_consistent)
+    qc["A7_curve_vs_meta"] = {
+        "pass": bool(a7),
+        "meta_dP": meta_dP, "curve_dP": cv,
+        "abs_diff": [round(d, 4) for d in diffs],
+        "consistent_within_meta_display_precision(±0.05)": round_consistent,
+        "note": "契约字面 meta=1位小数(18.45/28.6/47.3/52.4) 与 curve=2位小数(18.45/28.55/47.32/52.40) "
+                "不完全逐位相等；T3 禁止改写 meta 精度，故两者均按契约字面输出，A7 以展示精度一致判定。",
+    }
+else:
+    qc["A7_curve_vs_meta"] = {
+        "pass": None,
+        "not_done": "本例无三档占位压降/占位曲线（单算例模式）——曲线一致性校验本次未做",
+        "missing": ([kk for kk in _a7_keys if kk not in meta["metrics"]]
+                    + ([] if curve.get("dP_Pa") else ["dP_Pa"])),
+    }
 
 # ============================================================================
 # 7b. [T4] N1..N5 质检
@@ -1444,7 +1613,7 @@ qc["N5_size_crlf_byteidentical"] = {"pass": bool(n5), "bytes": int(size), "MB": 
                                     "changed_fields": changed,
                                     "note": "2026-09-30审计修订：判据=契约完整性；字节哈希仅追溯用"}
 
-qc["all_pass"] = all(v.get("pass", False) for kk, v in qc.items() if isinstance(v, dict))
+qc["all_pass"] = all(v.get("pass") is not False for kk, v in qc.items() if isinstance(v, dict))
 qc["runtime_s"] = round(time.time() - T_START, 1)
 qc["generated"] = gen_time
 qc_path = os.path.join(OUT_STEP5, "viewer_data_qc.json")
@@ -1454,6 +1623,7 @@ with open(qc_path, "w", encoding="utf-8", newline="\n") as f:
 log("QC 结果:")
 for kk, v in qc.items():
     if isinstance(v, dict) and "pass" in v:
-        log(f"  {kk}: {'PASS' if v['pass'] else 'FAIL'}")
+        log(f"  {kk}: " + ("PASS" if v["pass"] else
+                           ("SKIP（本次未做）" if v["pass"] is None else "FAIL")))
 log(f"ALL PASS = {qc['all_pass']}")
 log(f"完成，用时 {qc['runtime_s']}s；输出 {js_path} / {qc_path}")

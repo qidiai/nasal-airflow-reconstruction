@@ -1238,6 +1238,44 @@ return LineSegments2;
   var resUnit = (meta.units && meta.units.resistance) ? ' ' + meta.units.resistance : '';
   set('m-res', fmt(M.resistance_total) + resUnit);
 
+  /* ---------- 3b. [T-P1.5] 单算例部分导出：缺失区块标"本次未做" ----------
+     仅当 viewer_data.js 的 meta.partial=true（本例只跑了一次求解、无三档占位体算例）
+     时生效。原则：不报错、不回落演示数据、不显示假数字——缺什么就标什么。
+     占位档完备的病例（meta.partial 不存在）走原逻辑，一字未改。 */
+  if (meta.partial) {
+    var missList = (meta.missing || []);
+    var triBox = document.querySelector('.tri');
+    if (triBox) {
+      triBox.style.opacity = '0.45';
+      triBox.title = '本例只跑了一次求解，没有三档占位体算例——三档压降本次未做';
+    }
+    if (triBox && triBox.nextElementSibling) {
+      triBox.nextElementSibling.textContent = '三档仿真工况 ΔP（本次未做）';
+    }
+    /* 占位壳层：本来就没有网格（下面 phMeshes 为空 → 复选框自动禁用），这里补文字标注 */
+    ['1', '2', '3'].forEach(function (mm) {
+      var cb = document.getElementById('cb-ph-' + mm);
+      if (!cb) { return; }
+      var lab = cb.parentNode;
+      if (lab && !lab.querySelector('.ph-notdone')) {
+        var tag = document.createElement('span');
+        tag.className = 'ph-notdone';
+        tag.textContent = '（本次未做）';
+        tag.style.color = '#d29922';
+        lab.appendChild(tag);
+      }
+    });
+    var pbadge = document.createElement('div');
+    pbadge.id = 'partial-badge';
+    pbadge.textContent = '本次仅显示气道与流场（未做三档占位体对比）';
+    pbadge.style.cssText = 'position:fixed;top:10px;left:50%;transform:translateX(-50%);' +
+      'z-index:999;padding:5px 14px;border-radius:999px;font-size:13px;' +
+      'color:#ffe6b8;background:rgba(64,40,20,.86);border:1px solid #d29922aa;' +
+      'box-shadow:0 2px 8px rgba(0,0,0,.45);pointer-events:none';
+    document.body.appendChild(pbadge);
+    console.info('[viewer] 单算例部分导出：未做区块 = ' + (missList.join('、') || '（未列出）'));
+  }
+
   /* ---------- 4. 手绘 SVG 曲线（无图表库）：x=占位体积cm³，y=ΔP Pa（Y轴 0-80） ---------- */
   (function drawCurve() {
     var curve = DATA.curve;
@@ -2098,11 +2136,19 @@ return LineSegments2;
     if (!isFinite(n)) { return fmt(v); }
     return (n * flowK).toFixed(2);
   }
+  /* [T-P1.5] 单算例部分导出：三档压降本来就不存在 → 标"本次未做"
+     （不写 0、不借用别的病例数字，也不显示假的 "— Pa"）。占位档完备的病例
+     PARTIAL_VIEW=false → 与改版前逐字一致。 */
+  var PARTIAL_VIEW = !!(meta.partial);
+  function dpCell(v) {
+    if (PARTIAL_VIEW && (v === undefined || v === null)) { return '本次未做'; }
+    return dpDisp(v) + ' Pa';
+  }
   function updateMetricsFlow() {
-    set('m-dp-base', dpDisp(M.dP_baseline_Pa) + ' Pa');
-    set('m-dp1', dpDisp(M.dP_1mm_Pa) + ' Pa');
-    set('m-dp2', dpDisp(M.dP_2mm_Pa) + ' Pa');
-    set('m-dp3', dpDisp(M.dP_3mm_Pa) + ' Pa');
+    set('m-dp-base', dpCell(M.dP_baseline_Pa));
+    set('m-dp1', dpCell(M.dP_1mm_Pa));
+    set('m-dp2', dpCell(M.dP_2mm_Pa));
+    set('m-dp3', dpCell(M.dP_3mm_Pa));
     /* V5：分侧压降（Run-A 口径）同随 Q/15 缩放；侧向语义见方法学面板 */
     if (VOL && VOL.metrics_deltaP) {
       set('m-splitdp', 'R ' + dpDisp(VOL.metrics_deltaP.dP_L_Pa) + ' / L ' + dpDisp(VOL.metrics_deltaP.dP_R_Pa) + ' Pa');

@@ -215,20 +215,15 @@ def digest_pii_fail(f):
 
 # run_all 的 FATAL 行把 scan_pii 的 fails 元组 repr 原样带出（含原始值）。
 # 前端"拦截原因"卡片要展示该行，因此展示前把元组第 3 个元素（值字段）摘要化。
+# 元素级：单引号/双引号均可，且支持 \' \" 转义——覆盖 scan_pii 的两种 repr 形态，
+# 以及值里带撇号的姓名（如 'O\'BRIEN'，旧式 [^']* 会在此截断并留下尾部残片）。
+_PII_SQ = r"'(?:[^'\\]|\\.)*'"
+_PII_DQ = r'"(?:[^"\\]|\\.)*"'
+_PII_ELEM = "(?:" + _PII_SQ + "|" + _PII_DQ + ")"
 _PII_TUPLE_RE = re.compile(
-    r"(\(\s*'(?:[^'\\]|\\.)*'\s*,\s*'(?:[^'\\]|\\.)*'\s*,\s*)('[^']*'|\"[^\"]*\")")
+    r"(\(" + r"\s*" + _PII_ELEM + r"\s*,\s*" + _PII_ELEM + r"\s*,\s*" + ")"
+    + r"(" + _PII_ELEM + ")")
 
-
-def mask_fatal_pii_values(text):
-    """把 FATAL 行里 PII 元组的"值"字段摘要化（只影响展示，不动日志/数据）。"""
-    s = str(text or "")
-    if "PatientName" not in s and "PatientID" not in s and "AccessionNumber" not in s \
-            and "InstitutionName" not in s:
-        return s
-    try:
-        return _PII_TUPLE_RE.sub(lambda m: m.group(1) + "'<值已隐藏>'", s)
-    except Exception:  # noqa: BLE001
-        return s
 
 
 def case_results_metrics_path(case_id):
@@ -486,6 +481,129 @@ def append_progress(out_dir, msg):
         pass
 
 
+# ------------------------------------------------------- 患者自助快速档（T-P1）
+# 决策 3（2026-10-20 用户裁定）：快速档产物一律落 <out_dir>/quick/。只把
+# --result-dir 指到子目录**不够**——step5 仍写 <out_dir>/step5、契约仍写
+# <out_dir>/postprocess/，会把 standard 产物覆盖掉；因此整条链 --out-root 换到
+# quick 子目录。mode 缺省 = standard = 读原路径（既有病例零影响）。
+QUICK_SUBDIR = "quick"
+
+
+def run_out_root(rec, mode="standard"):
+    """本例**运行产物根**：standard=<out_dir>；quick=<out_dir>/quick。"""
+    base = (rec or {}).get("out_dir") or ""
+    if not base:
+        return ""
+    return os.path.join(base, QUICK_SUBDIR) if mode == "quick" else base
+
+
+def case_run_mode(rec):
+    """注册表记录的运行模式（缺省 standard：老病例/未标 mode 一律读原路径）。"""
+    run = (rec or {}).get("run") or {}
+    return "quick" if run.get("mode") == "quick" else "standard"
+
+
+def case_slice_dz(rec):
+    """源序列层厚 dz（mm）→ float 或 None（读不到 = None → 快速档回退只降步数）。
+
+    实测层间距优先：SliceThickness 头在重叠重建序列上不可靠，
+    survey_dicom 的 slice_gap_measured 就是为此存在（run_all.py:177）。
+    """
+    s = ((rec or {}).get("survey") or {}).get("slice_gap_measured")
+    try:
+        if s is not None and float(s) > 0:
+            return float(s)
+    except (TypeError, ValueError):
+        pass
+    d = (rec or {}).get("dicom_dir") or ""
+    if not d or not os.path.isdir(d):
+        return None
+    try:
+        files = sorted(f for f in os.listdir(d) if f.lower().endswith(".dcm"))
+        if not files:
+            return None
+        ds0 = RA.pydicom.dcmread(os.path.join(d, files[0]), stop_before_pixels=True)
+        st = getattr(ds0, "SliceThickness", None)
+        if st is not None and float(st) > 0:
+            return float(st)
+        zs = []
+        for fn in files[:2]:
+            ds = RA.pydicom.dcmread(os.path.join(d, fn), stop_before_pixels=True)
+            ipp = getattr(ds, "ImagePositionPatient", None)
+            if ipp is None or len(ipp) < 3:
+                return None
+            zs.append(float(ipp[2]))
+        dz = abs(zs[1] - zs[0]) if len(zs) == 2 else 0.0
+        return dz if dz > 0 else None
+    except Exception:  # noqa: BLE001  # 头读取失败一律按「读不到」处理（不反噬主链）
+        return None
+
+
+# 人话四阶段（brief §2）：[S0-S2] 识别气道 / [S3-S4] 建网格 / [S5] 算气流 /
+# [S6-S8] 出结果。只做换算，不改任何既有字段、不参与任何闸门判定。
+HUMAN_STAGES = (
+    ("S0", "S1", "S2"),
+    ("S3", "S4"),
+    ("S5",),
+    ("S6", "S7", "S8"),
+)
+HUMAN_STAGE_NAMES = ("识别气道", "建网格", "算气流", "出结果")
+# 阶段耗时权重（经验值）+ 模式预期总时长（秒）：ETA 允许粗糙（brief 明文）
+HUMAN_STAGE_WEIGHTS = {
+    "quick": (0.14, 0.22, 0.56, 0.08),
+    "standard": (0.04, 0.05, 0.87, 0.04),
+}
+EXPECTED_TOTAL_SEC = {"quick": 600, "standard": 3600}
+_STOPPED_STATUS = ("blocked", "failed", "failed_env", "failed_solve_stalled")
+
+
+def human_stage_index(stages_seen):
+    """已见阶段里最靠后的那个人话阶段下标（0..3）；一个都没见 → -1。"""
+    idx = -1
+    seen = set(stages_seen or ())
+    for i, group in enumerate(HUMAN_STAGES):
+        if any(s in seen for s in group):
+            idx = i
+    return idx
+
+
+def human_progress(stages_seen, status, mode, elapsed_sec):
+    """→ {stage_zh, stage_index, stage_count, eta_hint_zh, progress_pct}。
+
+    ETA 口径 = 阶段权重 × 模式预期总时长 − 已用时间（下限 1 分钟）；
+    超出预期时如实说「比预估久」，绝不假装精确（brief §2 允许粗糙）。
+    """
+    mode_key = "quick" if mode == "quick" else "standard"
+    idx = human_stage_index(stages_seen)
+    n = len(HUMAN_STAGE_NAMES)
+    weights = HUMAN_STAGE_WEIGHTS[mode_key]
+    total = EXPECTED_TOTAL_SEC[mode_key]
+    if status == "done":
+        idx, done = n - 1, 1.0
+    elif idx >= 0:
+        done = sum(weights[:idx]) + 0.5 * weights[idx]
+    else:
+        done = 0.0
+    pct = int(round(min(1.0, done) * 100))
+    if status == "done":
+        stage_zh, eta = "分析完成", "已完成"
+    elif status in _STOPPED_STATUS:
+        stage_zh = HUMAN_STAGE_NAMES[idx] if idx >= 0 else "准备中"
+        eta = "已停止（原因见下方）"
+    elif idx < 0:
+        stage_zh = "准备中"
+        eta = "大概还需要 %d 分钟" % max(1, int(total // 60))
+    else:
+        stage_zh = HUMAN_STAGE_NAMES[idx]
+        rem = total * (1.0 - done) - max(0.0, float(elapsed_sec or 0.0))
+        if rem <= 60:
+            eta = "可能还需要几分钟（已接近预估时长）"
+        else:
+            eta = "大概还需要 %d 分钟" % max(1, int(rem // 60))
+    return {"stage_zh": stage_zh, "stage_index": idx, "stage_count": n,
+            "eta_hint_zh": eta, "progress_pct": pct}
+
+
 # ---------------------------------------------------------------- 病例记录解析
 def builtin_dicom_dir(cfg, cid):
     d = BUILTIN_DEFS[cid]
@@ -556,6 +674,12 @@ CONSENT_DISCLAIMER = "分析结果仅供科研与康复参考，非诊断依据�
 DATA_SUBJECTS = ("self", "authorized_third_party", "demo")
 PROCESSING_SCOPES = ("local_only", "cloud_optin")
 RETENTION_DAYS = (1, 7, 30)
+# [T-P1.5] 患者自助链的保留策略**定死 days:1**（前端 webapp/index.html 上传时
+#   consent.retention="days:1"，服务端 parse_consent_fields 照常校验）。
+#   为什么不是 session_only：后者会在链结束时由 _session_purge() 把刚算好的
+#   out_dir（含 step5/viewer_data.js = 患者要看的那份 3D）整目录删掉——等于
+#   "分析完立刻看不见结果"。days:1 既不让数据长期滞留，也保证患者当场能看到
+#   自己的气道与数字；超期清理走 days:N 语义（见 purge_expired_*）。
 # 弹窗三问的中文选项文案 ↔ 规范枚举（前端文案与落档字段解耦；两种写法都收）
 _DATA_SUBJECT_ALIASES = {
     "self": "self", "本人ct": "self", "本人": "self", "自身": "self",
@@ -919,7 +1043,7 @@ def metrics_from_viewer_meta(case_id, meta, source_label):
     dP = mm.get("dP_baseline_Pa")
     R = parse_resistance(mm.get("resistance_total"))
     is_synthetic_demo = case_id == "demo"
-    return {
+    d = {
         "case_id": case_id,
         "source": source_label,
         "dP": {
@@ -952,6 +1076,12 @@ def metrics_from_viewer_meta(case_id, meta, source_label):
                      "常人对照带为文献量级对照，非同机制对照",
         "disclaimer": DISCLOSURE,
     }
+    if isinstance(meta, dict) and meta.get("partial"):
+        # [T-P1.5] 单算例部分导出：把"本次未做"的区块清单透给前端（仅 partial 时新增
+        #   字段——占位档完备病例的响应逐字节不变）
+        d["partial"] = True
+        d["missing"] = list(meta.get("missing") or [])
+    return d
 
 
 def metrics_from_postcfd_json(case_id, metrics_path, source_label):
@@ -988,6 +1118,10 @@ def metrics_from_postcfd_json(case_id, metrics_path, source_label):
         },
         "口径_note": "ΔP 与 R 同为定流量口径（本例）；等压口径需 Run-B 等压迭代，"
                      "两口径数值不可互换（R-10 双口径标签）",
+        # 停车判据三元组：本例 metrics.json totals 原样透出（新增字段；旧字段一个不改）
+        "stop_reason_code": totals.get("stop_reason_code"),
+        "stop_iter": totals.get("stop_iter"),
+        "dp_band_pct": totals.get("dp_band_pct"),
         "disclaimer": DISCLOSURE,
     }
 
@@ -1152,9 +1286,12 @@ def extract_fatal_reason(out_dir):
     return reason
 
 
-def stage_viewer_if_exported(cfg, rec):
-    """run_all 链完成后：step5 导出就绪 → 舞台化 viewer（模板+数据+单文件构建）。"""
-    out_dir = rec.get("out_dir") or ""
+def stage_viewer_if_exported(cfg, rec, mode="standard"):
+    """run_all 链完成后：step5 导出就绪 → 舞台化 viewer（模板+数据+单文件构建）。
+
+    mode=quick 时读 <out_dir>/quick/step5/（决策 3：器数据源与运行产物根一致）。
+    """
+    out_dir = run_out_root(rec, mode) or (rec.get("out_dir") or "")
     vd = os.path.join(out_dir, "step5", "viewer_data.js")
     if not os.path.isfile(vd):
         return False
@@ -1176,28 +1313,48 @@ def stage_viewer_if_exported(cfg, rec):
     return True
 
 
-def run_chain_thread(cfg, case_id, solve, result_dir):
+def run_chain_thread(cfg, case_id, solve, result_dir, mode="standard"):
     rec = get_case_record(cfg, case_id)
     out_dir = rec.get("out_dir") or ""
-    append_progress(out_dir, f"[W] server：后台链启动（run_all --solve {solve}）")
+    # 决策 3：quick 的整条链产物根 = <out_dir>/quick（standard 产物逐字节不动）
+    out_root = run_out_root(rec, mode) or out_dir
+    append_progress(out_root, f"[W] server：后台链启动（run_all --solve {solve}"
+                             + (" --quick" if mode == "quick" else "") + "）")
     cmd = [sys.executable, RUN_ALL,
            "--dicom-dir", rec.get("dicom_dir") or "",
            "--case-prefix", rec.get("prefix") or "",
            "--case", rec.get("case_name") or "v1",
            "--solve", solve,
-           "--out-root", out_dir]
+           "--out-root", out_root]
+    if mode == "quick":
+        # 决策 1（相对口径）：voxel-z = max(2, round(3.0/dz))*dz，dz 从 DICOM 头读；
+        # 读不到 dz → 不传 --voxel-z（run_all 回退「只降步数」并如实打日志）
+        cmd.append("--quick")
+        dz = case_slice_dz(rec)
+        qz = RA.quick_voxel_z(dz) if dz else None
+        # [T-P1.5] 快速档只有一次求解，天然没有三档占位体字段——允许 step5
+        #   单算例部分导出（meta.partial + missing），否则患者只看得到数字、没有 3D。
+        #   standard 路径不传本开关：占位档完备病例的闸门与产物逐字节不变。
+        cmd.append("--allow-partial-viewer")
+        if qz:
+            cmd += ["--voxel-z", "%g" % qz]
+            append_progress(out_root, "[W] 快速档：voxel-z=%gmm"
+                                      "（源层厚 %gmm 的整数倍）" % (qz, dz))
+        else:
+            append_progress(out_root, "[W] 快速档：读不到源层厚——网格不降采样，"
+                                      "只降步数，预计更慢")
     if result_dir:
         cmd += ["--result-dir", result_dir]
     if rec.get("anatomy_inclusion"):
         cmd += ["--allow-anatomy-inclusion"]
-    append_progress(out_dir, "[W] $ " + " ".join(cmd))
+    append_progress(out_root, "[W] $ " + " ".join(cmd))
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True,
                             encoding="utf-8", errors="replace")
         rc = proc.returncode
     except Exception as e:  # noqa: BLE001
         rc = -999
-        append_progress(out_dir, f"[W] !!! 后台链异常：{e!r}")
+        append_progress(out_root, f"[W] !!! 后台链异常：{e!r}")
     reg = load_registry(cfg)
     r = reg.get(case_id)
     if r is None:
@@ -1208,27 +1365,27 @@ def run_chain_thread(cfg, case_id, solve, result_dir):
     if rc == 0 and solve == "laptop":
         # 交接模式：算例包+交接文档就绪，等笔记本侧 WSL 求解
         mapped = "handover"
-        append_progress(out_dir,
+        append_progress(out_root,
                         "[W] 交接文档已生成（run_all --solve laptop）："
                         "算例包+交接文档就绪，待笔记本侧 WSL 求解（POST /api/solve 启动）")
     elif rc == 0:
-        append_progress(out_dir, "[W] run_all 完成（exit 0）")
-        if stage_viewer_if_exported(cfg, r):
-            append_progress(out_dir, "[W] 查看器数据已舞台化（webapp/cases/"
+        append_progress(out_root, "[W] run_all 完成（exit 0）")
+        if stage_viewer_if_exported(cfg, r, mode):
+            append_progress(out_root, "[W] 查看器数据已舞台化（webapp/cases/"
                                        + case_id + "/viewer_single.html）")
     elif mapped == "blocked":
         r["gate"] = "run_all 断言闸门"
-        r["gate_failures"] = [mask_fatal_pii_values(extract_fatal_reason(out_dir))
+        r["gate_failures"] = [mask_text(extract_fatal_reason(out_root))
                               or "断言停工（exit 2），详见进度日志"]
-        append_progress(out_dir, f"[W] ⛔ 门禁拦截（exit 2）：{r['gate_failures'][0]}")
+        append_progress(out_root, f"[W] ⛔ 门禁拦截（exit 2）：{r['gate_failures'][0]}")
     elif mapped == "failed_env":
         r["gate_failures"] = [f"求解环境缺失（exit 3，backend={SB.resolve_backend()}）："
                               "local 模式不可用；可改 --solve laptop 生成交接文档，"
                               "或 --backend custom/openfoam"]
-        append_progress(out_dir, "[W] 环境缺失（exit 3）：" + r["gate_failures"][0])
+        append_progress(out_root, "[W] 环境缺失（exit 3）：" + r["gate_failures"][0])
     else:
         r["gate_failures"] = [f"后台链失败（exit {rc}），详见进度日志"]
-        append_progress(out_dir, r["gate_failures"][0])
+        append_progress(out_root, r["gate_failures"][0])
     r["status"] = mapped
     reg[case_id] = r
     save_registry(cfg, reg)
@@ -1901,7 +2058,7 @@ def _register_case(cfg, dicom_dir, prefix, case_name, label, kind, case_id_val,
         tail = "step1 超时（>900 s，R-11 上传契约）"
     if rc1 != 0:
         rec.update(status="blocked", gate="step1 气道分割",
-                   gate_failures=[tail.strip()[-1500:]], exit_code=rc1)
+                   gate_failures=[mask_text(tail.strip()[-1500:]) or "step1 失败（无输出）"], exit_code=rc1)
         reg[rec["case_id"]] = rec
         save_registry(cfg, reg)
         append_progress(out_dir, f"[W] ⛔ 门禁拦截：step1 失败（exit {rc1}）")
@@ -2115,11 +2272,38 @@ def _register_path_case(cfg, dicom_dir, source_label="服务器目录导入", ex
 _PATH_RE = re.compile(r'[A-Za-z]:\\[^\s"\',;)}\]\[]+|[A-Za-z]:/[^\s"\',;)}\]\[]+')
 
 def mask_fatal_pii_values(text):
-    """oplog/bugreport 写盘前必过：把本机绝对路径替换为 <path>。返回 (masked, n_hits)。
-    只掩码路径——不猜姓名；患者数据宪法下宁少掩不多猜。"""
+    """唯一实现（合并原先重复定义的两份：PII 值掩码 + 路径掩码）。
+
+    两件事一起做：
+      1) 本机绝对路径 → <path>（oplog/bugreport 写盘前必过）
+      2) FATAL 行里 PII 元组（文件名, 字段名, 原始值, 判定语）的"值"字段 → '<值已隐藏>'
+    返回 (masked, n_hits)；n_hits = 路径命中数 + PII 值命中数。
+    取向不变：只在能识别的 PII 元组结构上掩值，不猜姓名（患者数据宪法下宁少掩不多猜）。
+    """
     s = str(text or "")
-    out, n = _PATH_RE.subn("<path>", s)
-    return out, n
+    try:
+        out, n_path = _PATH_RE.subn("<path>", s)
+    except Exception:  # noqa: BLE001
+        out, n_path = s, 0
+    n_pii = 0
+    if ("PatientName" in out or "PatientID" in out
+            or "AccessionNumber" in out or "InstitutionName" in out):
+        def _repl_pii(m):
+            nonlocal n_pii
+            if m.group(2) == "'<值已隐藏>'":   # 已掩码过：不改内容、不重复计数（幂等）
+                return m.group(0)
+            n_pii += 1
+            return m.group(1) + "'<值已隐藏>'"
+        try:
+            out = _PII_TUPLE_RE.sub(_repl_pii, out)
+        except Exception:  # noqa: BLE001
+            n_pii = 0
+    return out, n_path + n_pii
+
+
+def mask_text(text):
+    """脱敏后的字符串（gate_failures 等 list[str] 字段用；需要命中数用 mask_fatal_pii_values）。"""
+    return mask_fatal_pii_values(text)[0]
 
 def _state_subdir(cfg, name):
     d = os.path.join(cfg.state_dir, name)
@@ -2684,16 +2868,29 @@ def build_app(cfg):
             return jsonify({"error": f"病例 {case_id} 正在运行中"}), 409
         body = request.get_json(silent=True) or {}
         solve = body.get("solve", cfg.solve_default)
+        # 患者自助快速档（T-P1）：mode 缺省 standard = 现状路径逐字节不变
+        mode = str(body.get("mode") or "standard").strip().lower()
+        if mode not in ("quick", "standard"):
+            return jsonify({"error": "mode 须为 quick|standard（缺省 standard）"}), 400
         if solve not in ("skip", "laptop", "local"):
             return jsonify({"error": "solve 须为 skip|laptop|local"
                                     "（skip=只到算例+断言；laptop=交接文档待 WSL 求解；"
                                     "local=本机求解/后处理，需 WSL+OpenFOAM 环境）"}), 400
         # 结果回传区：操作员把已回传结果放到 <state>/results/P0-result-<prefix>-<case>/
-        result_dir = os.path.join(
-            cfg.results_dir,
-            f"P0-result-{rec.get('prefix')}-{rec.get('case_name')}")
-        if not os.path.isdir(result_dir):
-            result_dir = None
+        if mode == "quick":
+            # 决策 3：quick 结果只在 <out_dir>/quick/结果/ 里找（有 metrics 才复用，
+            # 否则重跑）；standard 的结果目录一律不参与——更不覆盖
+            _qres = os.path.join(
+                run_out_root(rec, "quick"), "结果",
+                f"P0-result-{rec.get('prefix')}-{rec.get('case_name')}")
+            result_dir = _qres if os.path.isfile(
+                os.path.join(_qres, "后处理", "metrics.json")) else None
+        else:
+            result_dir = os.path.join(
+                cfg.results_dir,
+                f"P0-result-{rec.get('prefix')}-{rec.get('case_name')}")
+            if not os.path.isdir(result_dir):
+                result_dir = None
         if solve == "local" and result_dir is None:
             # 无已回传结果 → 本机需求解：先探测后端（run_all exit 3 契约前置化）
             backend = SB.resolve_backend()
@@ -2718,16 +2915,17 @@ def build_app(cfg):
         reg = load_registry(cfg)
         r = reg.get(case_id) or rec
         r.update(status="running", updated=now_iso(),
-                 run={"solve": solve, "started": now_iso(),
+                 run={"solve": solve, "mode": mode, "started": now_iso(),
                       "result_dir": result_dir or ""})
         reg[case_id] = r
         save_registry(cfg, reg)
         t = threading.Thread(target=run_chain_thread,
-                             args=(cfg, case_id, solve, result_dir), daemon=True)
+                             args=(cfg, case_id, solve, result_dir),
+                             kwargs={"mode": mode}, daemon=True)
         RUNNING[case_id] = t
         t.start()
         return jsonify({"case_id": case_id, "status": "running",
-                        "solve": solve,
+                        "solve": solve, "mode": mode,
                         "message": "后台链已启动：轮询 GET /api/progress/" + case_id}), 202
 
     @app.route("/api/progress/<case_id>")
@@ -2738,7 +2936,10 @@ def build_app(cfg):
         ok, code, msg = gate_case_access(cfg, rec)
         if not ok:
             return jsonify({"error": msg}), code
-        out_dir = rec.get("out_dir") or ""
+        # 决策 3：quick 跑批的进度写在 <out_dir>/quick/ 下——standard 的进度文件
+        # 因此逐字节不变；mode 缺省 standard 时读原路径（老病例零影响）
+        mode = case_run_mode(rec)
+        out_dir = run_out_root(rec, mode) or (rec.get("out_dir") or "")
         p = os.path.join(out_dir, "manifest-progress.json")
         lines = []
         if os.path.isfile(p):
@@ -2759,6 +2960,11 @@ def build_app(cfg):
             m = re.match(r"\[(S\d)\]", l.get("msg", ""))
             if m and m.group(1) not in stages:
                 stages.append(m.group(1))
+        # 已用时间（首条进度的时间戳起算；无时间戳按 0 计，ETA 退化为全网预估）
+        elapsed = 0.0
+        if lines and isinstance(lines[0].get("ts"), (int, float)):
+            elapsed = max(0.0, time.time() - float(lines[0]["ts"]))
+        human = human_progress(stages, rec.get("status"), mode, elapsed)
         current = stages[-1] if stages else "—"
         return jsonify({
             "case_id": case_id, "status": rec.get("status"),
@@ -2767,6 +2973,14 @@ def build_app(cfg):
             "gate_failures": rec.get("gate_failures") or [],
             "consent": rec.get("consent") or consent_summary(rec),
             "current_stage": current, "stages_seen": stages,
+            # T-P1 人话进度（brief §2：只新增字段，既有字段一个不改）
+            "mode": mode,
+            "stage_zh": human["stage_zh"],
+            "eta_hint_zh": human["eta_hint_zh"],
+            "stage_index": human["stage_index"],
+            "stage_count": human["stage_count"],
+            "progress_pct": human["progress_pct"],
+            "elapsed_sec": round(elapsed, 1),
             "n_lines": len(lines),
             "full_chain": rec.get("full_chain"),  # T16：占位链进度（cases_done/total、stage）
             "updated": now_iso(),
@@ -2913,19 +3127,31 @@ def build_app(cfg):
                     "pC", sp, "解剖结构验证/case_stats-pC-v4.json（只读复用副本）"))
             return jsonify({"error": "pC case_stats 副本缺失（部署件未执行）"}), 500
         # 上传病例：优先 step5 导出 meta，其次后处理契约
-        out_dir = rec.get("out_dir") or ""
+        # 决策 2/3：mode 决定读哪个产物根（quick → <out_dir>/quick/），响应打
+        # "mode" 标记（新增字段；既有字段一个不改）
+        mode = case_run_mode(rec)
+        out_dir = run_out_root(rec, mode) or (rec.get("out_dir") or "")
         vd = os.path.join(out_dir, "step5", "viewer_data.js")
         meta = extract_viewer_meta(vd)
         if meta:
-            return jsonify(metrics_from_viewer_meta(
-                case_id, meta, os.path.join(out_dir, "step5", "viewer_data.js")))
+            d = metrics_from_viewer_meta(
+                case_id, meta, os.path.join(out_dir, "step5", "viewer_data.js"))
+            d["mode"] = mode
+            return jsonify(d)
         contract = os.path.join(out_dir, "postprocess",
                                 f"contract-{rec.get('prefix')}-{rec.get('case_name')}.json")
         if os.path.isfile(contract):
             with open(contract, encoding="utf-8") as f:
                 c = json.load(f)
-            return jsonify(metrics_from_viewer_meta(
-                case_id, c, os.path.relpath(contract, HERE)))
+            # relpath 在 state_dir 与仓库不同盘时会抛 ValueError（实测：state 在 G:、
+            # 仓库在 F: → HTTP 500）。跨盘时回退到绝对路径展示（仅用于 source 标注）。
+            try:
+                _src = os.path.relpath(contract, HERE)
+            except ValueError:
+                _src = contract
+            d = metrics_from_viewer_meta(case_id, c, _src)
+            d["mode"] = mode
+            return jsonify(d)
         return jsonify({"error": "指标未就绪：需先完成 run_all 链（含后处理契约汇编）"}), 404
 
     @app.route("/viewer/<case_id>")
@@ -3016,12 +3242,19 @@ code{{background:#0d1117;padding:2px 6px;border-radius:4px;font-size:12px}}
             # T16（2026-10-16）：占位档接线补齐后,本分支退役为档案驱动判据——
             # 与上传病例同一闸门（step5 viewer_data.js / 舞台化单文件存在才 True）。
             # 档案不齐 → 文件不存在 → False；run_all/step5 契约红线一行未动。
-            vd = os.path.join(rec.get("out_dir") or "", "step5", "viewer_data.js")
+            vd = os.path.join(run_out_root(rec, case_run_mode(rec))
+                           or (rec.get("out_dir") or ""),
+                           "step5", "viewer_data.js")
             single = os.path.join(WEBAPP_DIR, "cases", cid, "viewer_single.html")
             return os.path.isfile(vd) or os.path.isfile(single)
         if cid == "pC":
             return False  # CFD 结果待笔记本侧回传
-        vd = os.path.join(rec.get("out_dir") or "", "step5", "viewer_data.js")
+        # [T-P1.5] 按 mode 取本例产物根：quick 的 viewer_data.js 在 <out_dir>/quick/step5/，
+        #   单算例部分导出（meta.partial）同样落这里，故 partial 也返回 True
+        #   （standard 病例路径与此前一致，行为零变化）。
+        vd = os.path.join(run_out_root(rec, case_run_mode(rec))
+                          or (rec.get("out_dir") or ""),
+                          "step5", "viewer_data.js")
         single = os.path.join(WEBAPP_DIR, "cases", cid, "viewer_single.html")
         return os.path.isfile(vd) or os.path.isfile(single)
 
@@ -3144,7 +3377,8 @@ code{{background:#0d1117;padding:2px 6px;border-radius:4px;font-size:12px}}
             "case_id": (str(body.get("case_id"))[:64] if body.get("case_id") else None),
             "result": str(body.get("result") or "ok")[:32],
             "detail": detail[:500],
-            "masked_paths": n_mask,
+            "masked_hits": n_mask,   # 路径命中 + PII 值命中（旧名 masked_paths 语义已不符）
+            "masked_paths_legacy": n_mask,
             "client": str(body.get("client") or "")[:200],
         }
         d = _state_subdir(cfg, "oplog")
@@ -3177,10 +3411,11 @@ code{{background:#0d1117;padding:2px 6px;border-radius:4px;font-size:12px}}
                 "page": bool(body.get("attach_page")),
                 "rawlog": bool(body.get("attach_log")),
             },
-            "masked_paths": n1 + n2,
+            "masked_hits": n1 + n2,   # 路径命中 + PII 值命中（旧名 masked_paths 语义已不符）
+            "masked_paths_legacy": n1 + n2,
         }
         if rec["attach"]["manifest"]:
-            rec["manifest_tail"] = _read_manifest_tail(cfg, 200)
+            rec["manifest_tail"] = mask_text(_read_manifest_tail(cfg, 200) or "")
         d = _state_subdir(cfg, "bugreports")
         with io.open(os.path.join(d, rid + ".json"), "w", encoding="utf-8") as f:
             json.dump(rec, f, ensure_ascii=False, indent=1)

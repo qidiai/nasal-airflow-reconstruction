@@ -19,7 +19,7 @@ fn usage() {
         "用法:\n  \
          flowscope check-mesh <caseDir>\n  \
          flowscope case-info  <caseDir>\n  \
-         flowscope run <caseDir> [--max-iter N] [--out DIR] [--quiet]\n  \
+         flowscope run <caseDir> [--max-iter N] [--out DIR] [--quiet] [--no-dp-stop]\n  \
          flowscope poiseuille [--nx N --ny N --nz N --u-mean V --max-iter N]"
     );
 }
@@ -84,11 +84,14 @@ fn main() {
             } else {
                 None
             };
+            // 结果稳定性早停开关（默认开；等价环境变量 FLOWSCOPE_DP_STOP=0）
+            let no_dp_stop = args.iter().any(|a| a == "--no-dp-stop");
             let t0 = Instant::now();
             let mut solver = SimpleSolver::from_case_dir(Path::new(&args[2])).unwrap_or_else(|e| {
                 eprintln!("错误: {e}");
                 exit(1);
             });
+            if no_dp_stop { solver.dp_stop = false; }
             if let Some(path) = init_csv { solver.load_init_csv(Path::new(&path)).unwrap_or_else(|e| { eprintln!("错误: {e}"); exit(1); }); }
             if let Some(w) = write_every { solver.cfg.params.write_interval = w; }
             if let Some(rt) = p_reltol { solver.cfg.params.p_reltol = rt; solver.cfg.params.p_tol = 1e-9; }

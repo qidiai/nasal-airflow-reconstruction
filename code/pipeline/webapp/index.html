@@ -178,6 +178,9 @@ iframe.hero-frame{
   overflow:hidden}
 .hero3d canvas{display:block;width:100%;height:100%;cursor:grab;touch-action:none}
 .hero3d canvas:active{cursor:grabbing}
+.hero-partial-badge{position:absolute;top:12px;left:14px;z-index:6;padding:4px 12px;
+border-radius:999px;font-size:12.5px;color:#ffe6b8;background:rgba(64,40,20,.72);
+border:1px solid #d2992266;pointer-events:none;max-width:calc(100% - 160px)}
 .hero3d-badge{position:absolute;top:12px;left:14px;padding:4px 12px;border-radius:999px;
   font-size:12.5px;color:#bfefff;background:rgba(20,40,64,.55);border:1px solid #3d6f8f66;
   backdrop-filter:blur(4px);letter-spacing:.4px}
@@ -448,6 +451,30 @@ body[data-role="patient"] #badge-role{display:inline-block;color:var(--coral);
   background:var(--panel);padding:14px 16px;font-size:14.5px;box-shadow:var(--shadow)}
 .guide-card .gc-head{font-weight:700;color:var(--mint);margin-bottom:4px}
 .guide-card .gc-body{color:var(--ink-soft)}
+/* ---------- T-P1 患者自助入口（上传 → 初看结果） ---------- */
+#pt-card{border:1px solid #2A9D8F55}
+#pt-card h2{margin-top:0}
+#pt-panel{margin-top:12px;border-top:1px solid var(--line);padding-top:12px}
+#pt-drop{border:2px dashed var(--line-new);border-radius:var(--radius);padding:22px 14px;
+  text-align:center;color:var(--text-2);background:var(--bg-2);cursor:pointer;margin:8px 0}
+#pt-drop.over{border-color:var(--teal)}
+.pt-badge{display:inline-block;background:#F4A26122;border:1px solid #F4A261;
+  color:#F4A261;border-radius:999px;padding:4px 12px;font-size:13.5px;font-weight:700}
+.pt-consent{display:flex;gap:8px;align-items:flex-start;margin:10px 0;font-size:14.5px;
+  line-height:1.5}
+.pt-consent input{margin-top:3px}
+#pt-steps{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:10px 0}
+#pt-steps .step{background:var(--bg-2);border:1px solid var(--line);border-radius:8px;
+  padding:8px 6px;text-align:center;font-size:13px}
+#pt-steps .step.done{border-color:var(--teal);color:var(--mint)}
+#pt-steps .step.current{border-color:#F4A261;color:#F4A261;font-weight:700}
+#pt-steps .dot{font-weight:700;margin-bottom:2px}
+.pt-nums{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px}
+.pt-num{background:var(--bg-2);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.pt-num .pn-k{display:block;font-size:12.5px;color:var(--ink-soft)}
+.pt-num .pn-v{font-size:20px;font-weight:700;color:var(--mint)}
+.pt-num .pn-u{font-size:12px;color:var(--ink-soft);margin-left:4px}
+.pt-num .pn-n{display:block;font-size:11.5px;color:var(--ink-soft);margin-top:2px}
 /* ---------- T54 首屏着陆页（程序化 3D 背景 · 三角色入口） ---------- */
 #landing{
   position:fixed;inset:0;z-index:99990;display:flex;align-items:center;justify-content:center;
@@ -514,6 +541,7 @@ body.landing-open #btn-page-fs{display:none}
   .landing-card{transition:none}
 }
 </style>
+<link rel="stylesheet" href="/static/patient-viewer.css">
 </head>
 <body>
 <div id="landing" role="region" aria-label="选择使用身份">
@@ -579,6 +607,48 @@ body.landing-open #btn-page-fs{display:none}
 
 <!-- ================= 页签 1：查看气道 ================= -->
 <section class="tab active" id="tab-airway">
+
+  <!-- ============ 患者自助入口（T-P1：上传自己的 CT → 初看结果，全程无人工） ============ -->
+  <div class="card" id="pt-card" data-region="pt.selfup">
+    <h2>想看看自己的鼻子堵在哪？</h2>
+    <div class="lead">把这次 CT 的文件夹（DICOM 序列）拖进来，我们就在<b>这台电脑上</b>把它变成
+      3D 气道和一版看得见的气流数据。</div>
+    <div class="btnrow">
+      <button class="btn primary" id="pt-open" type="button">上传我的 CT，看看堵在哪</button>
+      <button class="btn" id="pt-example" type="button">先看看示例</button>
+    </div>
+    <div class="hint">不需要找工作人员帮忙。影像只在这台电脑上处理，不上传外网。</div>
+
+    <div id="pt-panel" style="display:none">
+      <input type="file" id="pt-files" multiple accept=".dcm" webkitdirectory directory style="display:none">
+      <input type="file" id="pt-files-plain" multiple accept=".dcm" style="display:none">
+      <div id="pt-drop">📁 <b>点这里选择 CT 文件夹</b>，或把文件夹拖到这里<br>
+        <span class="muted" style="font-size:13px">只接受 .dcm 影像文件；至少 2 张；整批不超过 2048 MB</span>
+      </div>
+      <div class="btnrow"><button class="btn" id="pt-pick-plain" type="button">没有"选择文件夹"？逐个选文件</button></div>
+      <div class="hint" id="pt-pick">还没有选择影像。</div>
+      <label class="pt-consent" for="pt-consent">
+        <input type="checkbox" id="pt-consent">
+        <span>我确认这些影像是<b>我本人的</b>（或我已获得本人授权），并且同意<b>只在这台电脑上处理、不上传外网</b>。
+          分析完成后结果在这台电脑上保留 1 天。</span>
+      </label>
+      <div class="btnrow">
+        <button class="btn primary" id="pt-go" type="button" disabled>开始分析</button>
+        <button class="btn" id="pt-cancel" type="button">收起来</button>
+      </div>
+      <div class="up-track" id="pt-track" style="display:none"><div class="up-bar" id="pt-bar"></div></div>
+      <div class="hint" id="pt-line"></div>
+      <div id="pt-steps"></div>
+      <div id="pt-result"></div>
+      <div id="pt-done" style="display:none">
+        <div id="pt-summary" style="margin:8px 0"></div>
+        <div class="pt-badge" id="pt-badge">初看版 · 快速估算（未完全收敛）</div>
+        <div class="hint" style="margin-top:8px">想看更准的，点这里精算（约 45–60 分钟）
+          <button class="btn" id="pt-precise" type="button" style="margin-left:8px">精算一次</button></div>
+      </div>
+    </div>
+  </div>
+
   <div class="card">
     <h2>您的鼻腔气道</h2>
     <div class="lead">基于您的 CT 三维重建 —— 大气道模型在下方"呼吸"（拖拽旋转 / 呼吸粒子 / 流线 / 探针读数）。</div>
@@ -1110,7 +1180,10 @@ const ROLE_DEFAULT = "operator";
 const ROLE_LABEL = { patient:"患者视角", clinical:"专业视角", operator:"运维视角" };
 const ROLE_MODE  = { patient:"患者模式", clinical:"专业模式", operator:"完整模式" };
 const CAPS = {
-  patient : ["own_case","patient_words","ens_first","consent_self","bugform"],
+  /* T-P1：self_upload = 患者自助入口独有能力。有意不放进 clinical/operator——
+     医生/操作员走既有"上传分析"页签（回归红线：他们的屏幕逐屏不变）。 */
+  patient : ["own_case","patient_words","ens_first","consent_self","bugform",
+             "self_upload"],
   clinical: ["all_cases","all_metrics","qc","figures","upload","consent","full_hero",
              "compare","bugform","case_ctx","tech_all"],
   operator: ["all_cases","all_metrics","qc","figures","upload","consent","full_hero",
@@ -1125,6 +1198,7 @@ const REGIONS = {                 /* region → 所需能力；不满足则隐�
   "hero.demo":["all_cases"],
   "ia.qc":["qc"], "ia.figures":["figures"], "ia.compare":["compare"],
   "ens.tech":["tech_all"],
+  "pt.selfup":["self_upload"],
   "up.register":["upload"], "up.pathreg":["server_dir_register"], "up.qccard":["qc"],
   "up.progress":["upload"],
   "tech.log":["tech_all"], "tech.stage":["tech_all"], "tech.adv":["solve_mode"],
@@ -1143,7 +1217,10 @@ function regionAllowed(region){
 /* 患者档文案替换（禁词 + 系统术语整表翻译）；非患者档原样返回（operator 逐字不变） */
 const LEX_PATIENT = [
   [/[⛔⚠️]+\s*/g, ""],
-  [/未收敛/g, "需要重新生成"],
+  /* 决策 2（2026-10-20 用户裁定）：患者档不得把「未收敛」读成「出错」——
+     初看版本就是快速估算，如实说清「精算会更准」即可。
+     本表只在 role()==="patient" 时生效，专业/操作员档逐字不变。 */
+  [/未收敛/g, "这是快速估算，精算会更准"],
   [/已拦截/g, "还没算出来"],
   [/已收敛/g, "已算好"],
   [/闸门/g, "检查关卡"],
@@ -1204,7 +1281,8 @@ function renderMyCasesGuide(hasMine){
   el.innerHTML = '<div class="gc-head">还没有您的病例</div>' +
     '<div class="gc-body">上传您自己的 CT 后，这里会显示属于您的病例。' +
     '下面列出的是<b>示例病例（演示数据）</b>，不是您的影像。<br>' +
-    '不知道怎么上传 / 结果看不懂 / 想删除自己的数据 → 请找现场工作人员。</div>';
+    '想上传自己的？点上面的「上传我的 CT，看看堵在哪」就能自己开始。<br>' +
+    '结果看不懂 / 想删除自己的数据 → 请找现场工作人员。</div>';
 }
 /* 容器显隐统一入口：只隐不属本角色的容器，并记住原 inline display 以便切回时还原。
    操作员档全部允许 → 不写任何 display，DOM 可见集合与今天逐屏一致。 */
@@ -2287,7 +2365,29 @@ function setHeroFrame(src,title){
   frame.title=title || "病例查看器";
   if(src.indexOf("viewer_plus") !== -1 && src.indexOf("v=T52") === -1) src += (src.indexOf("?") !== -1 ? "&" : "?") + "v=T52";
   if(frame.src !== new URL(src, window.location.href).href) frame.src=src;
+  /* 患者/医务/操作员：右侧面板改写（patient-viewer.js 内按 body[data-role] 判定；
+     任何异常都由该模块吞掉——注入失败就保持查看器原样） */
+  try{ if(window.NasalPatientViewer) window.NasalPatientViewer.hookFrame(frame); }catch(e){}
   return frame;
+}
+
+/* [T-P1.5] 单算例部分导出的 3D 区角标：仅当 /api/metrics 回 partial 时挂一角标，
+   不报错、不改 3D 本身；占位档完备的病例（无 partial 字段）完全不受影响。 */
+async function heroPartialBadge(cid){
+  const hero = $("hero-box");
+  if(!hero) return;
+  const oldBadge = document.getElementById("hero-partial-badge");
+  if(oldBadge) oldBadge.remove();
+  if(!cid) return;
+  let m = null;
+  try{ m = await api("/api/metrics/" + encodeURIComponent(cid)); }catch(e){ m = null; }
+  const b = (m && m.ok && m.body) ? m.body : null;
+  if(!b || !b.partial) return;
+  const d = document.createElement("div");
+  d.id = "hero-partial-badge";
+  d.className = "hero-partial-badge";
+  d.textContent = "本次仅显示气道与流场（未做三档占位体对比）";
+  hero.appendChild(d);
 }
 
 /* ================= 查看气道（Hero + 量表 + QC） ================= */
@@ -2349,6 +2449,8 @@ async function selectCase(cid){
   // Hero 视图切换：3D 模型（three.js+图层勾选）/ 气流动画（查看器 iframe）互斥标签。
   // 默认视图：3D 模型（用户指令 2026-10-15 晚）；气流动画为可切换的第二视图。
   renderHeroWithToggle(cid, c);
+  /* [T-P1.5] 单算例部分导出 → 3D 区角标（异步，失败静默：绝不打断 3D 渲染） */
+  try{ await heroPartialBadge(cid); }catch(e){}
 }
 
 function renderHeroPlaceholder(c, cid){
@@ -2899,9 +3001,12 @@ async function renderCompare(c, cid){
   }
   if(CMP_CACHE === null){
     const r = await api("/api/compare");
-    CMP_CACHE = (r.ok && r.body)
-      ? {ok:true, data:r.body}
-      : {ok:false, status:r.status, body:r.body};
+    if(!(r.ok && r.body)){
+      /* P1 修复：失败不写缓存——一次 501/403/反代错误不该让本会话永久报错，下次进入重试 */
+      renderCompareBody({ok:false, status:r.status, body:r.body});
+      return;
+    }
+    CMP_CACHE = {ok:true, data:r.body};
   }
   renderCompareBody(CMP_CACHE);
 }
@@ -3048,6 +3153,464 @@ if($("up-pick-dir")) $("up-pick-dir").addEventListener("click", ()=>$("up-files"
 if($("up-pick-files")) $("up-pick-files").addEventListener("click", ()=>$("up-files-plain").click());
 $("up-go").addEventListener("click", uploadCT);
 
+/* ================= 患者自助闭环（T-P1：上传 CT → 初看结果，全程无人工） =================
+   红线（brief §4）：
+   ① 医生/操作员既有上传与批量流程一行未改——本块只服务患者档（region=pt.selfup）；
+   ② PII 闸与 consent 校验不绕过：上传仍带 consent 字段，服务端同一把闸门复验；
+      勾选框只决定 consent 三问的取值（数据主体=本人 / 仅本机处理 / 保留 1 天），
+      不替代任何后端校验。
+   ③ 所有网络与解析异常都 try/catch；轮询有 60 分钟上限与连续失败退避上限，
+      并能「页面切走再回来续上」（localStorage），绝不允许挂在永不结束的轮询上。 */
+const PT_LS_KEY = "nasal_patient_run_v1";
+const PT_POLL_MS = 2000;                       /* 轮询间隔 */
+const PT_TIMEOUT_MS = 60 * 60 * 1000;          /* brief §4：轮询上限 60 分钟 */
+const PT_MAX_NET_ERRS = 5;                     /* 连续网络失败上限（到顶转「可恢复」态） */
+const PT_STAGE_NAMES = ["识别气道", "建网格", "算气流", "出结果"];
+const PT = {files: [], caseId: null, mode: null, startedAt: 0, timer: null,
+            netErrs: 0, running: false, uploading: false};
+
+function ptSaveLS(){
+  try{ localStorage.setItem(PT_LS_KEY, JSON.stringify(
+    {caseId: PT.caseId, mode: PT.mode, startedAt: PT.startedAt})); }catch(e){}
+}
+function ptClearLS(){ try{ localStorage.removeItem(PT_LS_KEY); }catch(e){} }
+function ptBar(pct, show){
+  const tr = $("pt-track"), ba = $("pt-bar");
+  if(!tr || !ba) return;
+  if(show) tr.style.display = "";
+  ba.style.width = Math.max(0, Math.min(100, Number(pct) || 0)).toFixed(1) + "%";
+}
+function ptLine(txt){ const el = $("pt-line"); if(el) el.textContent = txt || ""; }
+function ptResult(html){ const el = $("pt-result"); if(el) el.innerHTML = html || ""; }
+function ptStages(html){ const el = $("pt-steps"); if(el) el.innerHTML = html || ""; }
+
+/* ---- 选择/拖拽（文件夹拖入走 webkitGetAsEntry 递归，Chrome/Edge 支持） ---- */
+async function ptDropRead(dt){
+  const out = [];
+  const walk = async (entry)=>{
+    if(!entry) return;
+    if(entry.isFile){
+      await new Promise(res=>entry.file(f=>{ out.push(f); res(); }, ()=>res()));
+    }else if(entry.isDirectory){
+      const reader = entry.createReader();
+      const next = ()=>new Promise(res=>{
+        try{ reader.readEntries(es=>res(es), ()=>res([])); }catch(e){ res([]); }
+      });
+      let batch = await next();
+      let guard = 0;
+      while(batch && batch.length && guard++ < 200){
+        for(const e of batch) await walk(e);
+        batch = await next();
+      }
+    }
+  };
+  try{
+    for(const it of Array.from(dt.items || [])){
+      const entry = it.webkitGetAsEntry ? it.webkitGetAsEntry() : null;
+      if(entry) await walk(entry);
+    }
+  }catch(e){ /* 递归失败回落扁平 files 列表 */ }
+  if(!out.length) out.push(...Array.from(dt.files || []));
+  return out;
+}
+
+/* ---- 校验（人话：说清「哪里不对 + 怎么改」） ---- */
+function ptSetFiles(list){
+  const all = Array.from(list || []);
+  PT.files = all.filter(f=>/\.dcm$/i.test(f.name || ""));
+  const skipped = all.length - PT.files.length;
+  const mb = PT.files.reduce((s,f)=>s + (f.size || 0), 0) / 1048576;
+  const skipTxt = skipped ? "（另有 " + skipped + " 个不是 .dcm 的文件，已自动跳过）" : "";
+  ptValidate(false);
+  if(!PT.files.length){
+    ptPickMsg('<span class="warn">这个文件夹里没找到 .dcm 影像。CT 序列一般是一堆 .dcm 文件——请选中装它们的那个文件夹。</span>');
+  }else if(PT.files.length < 2){
+    ptPickMsg('<span class="warn">只认到 1 张 .dcm。重建气道至少要 2 张——请确认选的是<b>整个 CT 序列文件夹</b>，不是单个文件。</span>');
+  }else if(mb > 2048){
+    ptPickMsg('<span class="warn">这批影像约 ' + mb.toFixed(0) + ' MB，超过 2048 MB 上限。请只选这一次检查的序列（或请工作人员先精简）。</span>');
+  }else{
+    ptPickMsg("已选好 <b>" + PT.files.length + "</b> 张影像，共约 " + mb.toFixed(1) + " MB" + skipTxt +
+      "。请勾选下面的同意项，然后点「开始分析」。");
+  }
+}
+function ptPickMsg(html){ const el = $("pt-pick"); if(el) el.innerHTML = html || ""; }
+function ptValidate(strict){
+  const mb = PT.files.reduce((s,f)=>s + (f.size || 0), 0) / 1048576;
+  const okFiles = PT.files.length >= 2 && mb <= 2048;
+  const cons = $("pt-consent");
+  const okConsent = !!(cons && cons.checked);
+  const btn = $("pt-go");
+  if(btn) btn.disabled = !(okFiles && okConsent);
+  if(strict){
+    if(!okFiles) return false;
+    if(!okConsent){ toast("请先勾选同意项：只在这台电脑上处理、不上传外网"); return false; }
+  }
+  return okFiles && okConsent;
+}
+
+/* ---- 上传（XHR 只为拿到上传进度；失败一律人话 + 诊断码） ---- */
+function ptGo(){
+  if(PT.uploading) return;
+  if(!ptValidate(true)) return;
+  PT.uploading = true;
+  const btn = $("pt-go"); if(btn) btn.disabled = true;
+  ptResult(""); ptStages("");
+  const done = $("pt-done"); if(done) done.style.display = "none";
+  ptBar(0, true);
+  ptLine("正在上传…");
+  const fd = new FormData();
+  for(const f of PT.files) fd.append("files", f, f.name);
+  /* consent 三问取值：本人 CT / 仅本机处理 / 保留 1 天（勾选框即这组声明的载体，
+     后端 parse_consent_fields 照常校验，不通过就 400） */
+  fd.append("consent", JSON.stringify({
+    data_subject: "self",
+    processing_scope: "local_only",
+    retention: "days:1",
+    source_declaration: "患者本人自助上传（勾选：仅本机处理、不上传外网）"}));
+  const xhr = new XMLHttpRequest();
+  xhr.open("POST", "/api/upload");
+  xhr.upload.onprogress = ev=>{
+    if(ev.lengthComputable && ev.total){
+      const p = ev.loaded / ev.total * 100;
+      ptLine("正在上传… " + p.toFixed(0) + "%");
+      ptBar(p * 0.35);          /* 上传占总进度 35%，其余 65% 给管线 */
+    }
+  };
+  xhr.upload.onload = ()=>{
+    ptBar(35);
+    ptLine("上传完成，正在做隐私检查和气道重建（可能要 1–2 分钟，别关页面）…");
+  };
+  xhr.onerror = ()=>{ PT.uploading = false; pad();
+    ptFail("连不上这台电脑上的分析服务（网络断开或服务没开）", "upload-network"); };
+  xhr.onload = ()=>{ try{ ptAfterUpload(xhr); }catch(e){ ptFail("上传结果解析失败：" + e.message, "upload-parse"); } };
+  try{ xhr.send(fd); }catch(e){ PT.uploading = false; ptFail("上传没能发出：" + e.message, "upload-send"); }
+  function pad(){ const b = $("pt-go"); if(b) b.disabled = false; }
+}
+
+async function ptAfterUpload(xhr){
+  const btn = $("pt-go");
+  PT.uploading = false;
+  if(btn) btn.disabled = false;
+  let b = null;
+  try{ b = JSON.parse(xhr.responseText); }catch(e){ b = null; }
+  const code = xhr.status;
+  const err = (b && b.error) || ("HTTP " + code);
+  if(code === 503){
+    ptFail("这台服务现在只接受演示数据，不接受真实影像（云形态限制）", "upload-503", b); return;
+  }
+  if(code === 413){ ptFail("影像体积超上限（2048 MB）", "upload-413", b); return; }
+  if(code === 400){ ptFail(err, "upload-400", b); return; }
+  if(code !== 200 || !b){ ptFail(err, "upload-" + code, b); return; }
+  ptBar(35);
+  if(b.status === "blocked"){
+    const fails = (b.gate_failures || []).map(x=>Array.isArray(x) ? x.join(" | ") : String(x));
+    ptFail((fails[0] || b.gate || "数据没通过质量检查"), "gate-blocked",
+      Object.assign({}, b, {gate_failures: fails}));
+    return;
+  }
+  const nfiles = (b.pii && b.pii.files != null) ? b.pii.files : "—";
+  ptLine("影像检查通过（" + nfiles + " 张）——开始分析。");
+  await ptStartRun(b.case_id, "quick");
+}
+
+/* ---- 启动分析（quick=初看版；standard=精算） ---- */
+async function ptStartRun(cid, mode){
+  PT.caseId = cid; PT.mode = mode; PT.startedAt = Date.now();
+  PT.netErrs = 0; PT.running = true;
+  ptSaveLS();
+  const doneEl = $("pt-done"); if(doneEl) doneEl.style.display = "none";
+  ptResult("");
+  ptBar(35, true);
+  ptLine((mode === "quick" ? "初看版" : "精算版") + "：正在启动…");
+  let r = null;
+  try{
+    r = await api("/api/run/" + encodeURIComponent(cid), {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({solve: "local", mode: mode})});
+  }catch(e){
+    ptFail("启动分析时网络出错：" + e.message, "run-exception"); return;
+  }
+  if(!r || !r.ok){
+    ptFail((r && r.body && r.body.error) || ("启动分析失败（HTTP " + (r ? r.status : "?") + "）"),
+      "run-" + (r ? r.status : "net"));
+    return;
+  }
+  ptPoll();
+}
+
+/* ---- 轮询（2s；60min 上限；连续网络失败退避到上限后转「点这里继续」） ---- */
+async function ptPoll(){
+  const cid = PT.caseId;
+  if(!cid) return;
+  if(PT.timer){ clearTimeout(PT.timer); PT.timer = null; }
+  let r = null;
+  try{ r = await api("/api/progress/" + encodeURIComponent(cid)); }
+  catch(e){ ptNetErr("读进度时网络出错：" + e.message); return; }
+  if(!r){ ptNetErr("读进度没有返回内容"); return; }
+  if(!r.ok){
+    if(r.status === 404){
+      PT.nf404 = (PT.nf404 || 0) + 1;
+      if(PT.nf404 <= 2){ ptLine("正在接通分析进度…"); PT.timer = setTimeout(ptPoll, 2000); return; }
+      ptFail("服务端已经找不到这个病例（可能被清理了）", "progress-404"); return;
+    }
+    ptNetErr("读进度失败（HTTP " + r.status + "）"); return;
+  }
+  PT.nf404 = 0;
+  PT.netErrs = 0;
+  const b = r.body || {};
+  ptRenderProgress(b);
+  const st = String(b.status || "");
+  if(st === "done"){ ptDone(b); return; }
+  if(st === "blocked" || st === "failed" || st === "failed_env" || st === "failed_solve_stalled"){
+    const fails = (b.gate_failures || []).map(x=>Array.isArray(x) ? x.join(" | ") : String(x));
+    ptFail(fails[0] || "分析没有完成", "status-" + st,
+      Object.assign({}, b, {gate_failures: fails}));
+    return;
+  }
+  if(Date.now() - (PT.startedAt || Date.now()) > PT_TIMEOUT_MS){
+    PT.running = false;
+    ptFail("等了超过 60 分钟还没算完", "timeout-60min", b);
+    return;
+  }
+  PT.timer = setTimeout(ptPoll, PT_POLL_MS);
+}
+
+function ptNetErr(msg){
+  PT.netErrs = (PT.netErrs || 0) + 1;
+  if(PT.netErrs >= PT_MAX_NET_ERRS){
+    ptLine("");
+    ptResult('<div class="warn">' + esc(msg) + '<br>网络一直在断——点下面按钮继续（进度不会丢）。</div>' +
+      '<div class="btnrow" style="margin-top:8px">' +
+      '<button class="btn primary" type="button" id="pt-resume">点这里继续</button></div>');
+    const b = $("pt-resume");
+    if(b) b.addEventListener("click", ()=>{ PT.netErrs = 0; ptResult(""); ptPoll(); });
+    return;
+  }
+  ptLine("网络不太稳（第 " + PT.netErrs + " 次），正在重试…");
+  PT.timer = setTimeout(ptPoll, 3000 + 2000 * PT.netErrs);
+}
+
+/* ---- 进度渲染（人话四阶段 + 大概还要几分钟） ---- */
+function ptRenderProgress(b){
+  const idx = (typeof b.stage_index === "number") ? b.stage_index : -1;
+  const finished = b.status === "done";
+  ptStages(PT_STAGE_NAMES.map((n,i)=>{
+    const cls = finished ? "done" : (i < idx ? "done" : (i === idx ? "current" : ""));
+    return '<div class="step ' + cls + '"><div class="dot">' +
+      (cls === "done" ? "✓" : (i + 1)) + '</div><div class="nm">' + esc(n) + "</div></div>";
+  }).join(""));
+  const pct = (typeof b.progress_pct === "number") ? b.progress_pct : 0;
+  ptBar(35 + pct * 0.65, true);
+  const head = (b.mode === "quick") ? "初看版（快速估算）" : "精算版";
+  ptLine([b.stage_zh || "处理中", b.eta_hint_zh || "", head].filter(Boolean).join(" · "));
+}
+
+/* ---- 完成：初看版徽标 + 精算入口 + 自动切到 3D ---- */
+async function ptDone(b){
+  PT.running = false;
+  if(PT.timer){ clearTimeout(PT.timer); PT.timer = null; }
+  ptClearLS();
+  const quick = (b && b.mode) ? (b.mode === "quick") : (PT.mode === "quick");
+  ptRenderProgress(Object.assign({}, b, {status: "done"}));
+  ptBar(100, true);
+  ptLine("完成了：这一版的数据已经算好，见下面。");
+  const doneEl = $("pt-done");
+  const badge = $("pt-badge");
+  if(badge){
+    badge.textContent = quick ? "初看版 · 快速估算（未完全收敛）" : "精算版 · 完整收敛";
+  }
+  const precise = $("pt-precise");
+  if(precise) precise.style.display = quick ? "" : "none";
+  if(doneEl) doneEl.style.display = "";
+  try{ await loadCases(); }catch(e){}
+  try{ fillCaseSelects(); }catch(e){}
+  try{ switchTab("airway"); }catch(e){}
+  await ptSummary(PT.caseId, quick);
+  /* 只有本例的 viewer 真就绪才切 3D——否则 3D 区会回落到共享演示数据，
+     那等于把别人的气道当成"你的"展示（红线：严禁套用其他患者数据）。 */
+  if(ptViewerReady(PT.caseId)){
+    try{ await selectCase(PT.caseId); }catch(e){}
+    try{
+      const hero = $("hero-box");
+      if(hero && hero.scrollIntoView) hero.scrollIntoView({block: "center", behavior: "smooth"});
+    }catch(e){}
+  }
+}
+function ptViewerReady(cid){
+  const c = (S.cases || []).find(x=>x.case_id === cid);
+  return !!(c && c.viewer_available);
+}
+/* 初看结论 = 本例自己的数字（/api/metrics 只读本例产物；缺了就如实说还在生成） */
+async function ptSummary(cid, quick){
+  const box = $("pt-summary");
+  if(!box) return;
+  box.innerHTML = '<div class="hint">正在读这一版的数据…</div>';
+  let m = null;
+  try{ m = await api("/api/metrics/" + encodeURIComponent(cid)); }catch(e){ m = null; }
+  const b = (m && m.ok && m.body) ? m.body : null;
+  if(!b){
+    box.innerHTML = '<div class="hint">数字还在生成——稍后在「查看气道」页可以看到。</div>';
+    return;
+  }
+  const dp = (b.dP && b.dP.value != null) ? Number(b.dP.value) : null;
+  const rr = (b.resistance && b.resistance.value != null) ? Number(b.resistance.value) : null;
+  const sp = (b.split && b.split.L != null && b.split.R != null) ? b.split : null;
+  const wss = (b.wss && b.wss.mean != null) ? Number(b.wss.mean) : null;
+  const row = (k, v, u, note)=>'<div class="pt-num"><span class="pn-k">' + esc(k) +
+    '</span><span class="pn-v">' + esc(v) + '</span><span class="pn-u">' + esc(u || "") +
+    '</span><span class="pn-n">' + esc(note || "") + "</span></div>";
+  let html = '<div class="pt-nums">';
+  if(dp != null) html += row("压降 ΔP", dp.toFixed(2), "Pa", "鼻腔前后压力差");
+  if(rr != null) html += row("鼻阻力 R", rr.toFixed(1), "Pa/(L/s)",
+    "文献常人带 150–500（=0.15–0.5 Pa·s/cm³）");
+  if(sp) html += row("左右分流", Number(sp.L).toFixed(0) + " : " + Number(sp.R).toFixed(0),
+    "%", "左边 : 右边");
+  if(wss != null) html += row("内壁摩擦力", wss.toFixed(4), "Pa", "太弱会觉得\"没在呼吸\"");
+  html += "</div>";
+  /* [T-P1.5] 快速档与精算结果的可见差异如实告知（实测：快速档 20.93 Pa
+     vs 完整收敛 18.379 Pa = +13.9%，故写"可能相差约 15%"），不夸大精度也不隐瞒偏差。 */
+  if(quick){
+    html += '<div class="hint" style="margin-top:6px">这一版是快速估算：' +
+      '<b>与精算结果可能相差约 15%</b>（实测快速档 vs 完整收敛 +13.9%）。' +
+      '想看更准的数字，点上面的「精算一次」。</div>';
+  }
+  /* 3D 已随初看版一起导出（T-P1.5 单算例导出）：只有真没导出时才提示"还在生成"，
+     不再把"3D 未导出"当默认说法。 */
+  if(!ptViewerReady(cid)){
+    html += '<div class="hint" style="margin-top:8px">3D 模型还在生成——几秒后刷新本页即可看到；' +
+      '急用可以点「精算一次」，或请现场工作人员看日志。</div>';
+  }
+  box.innerHTML = html;
+}
+
+/* ---- 失败：人话原因 + 复制诊断码 + 兜底文案（页面绝不卡死） ---- */
+function ptHumanReason(raw){
+  const t = String(raw || "");
+  /* 实测（2026-10-20 synth 非方阵 FOV）：step1 失败时 gate_failures 是分割器 stdout，
+     没有隐私/几何关键词 → 落到默认文案。这里补一条「重建」分支，说清是重建这一步。 */
+  if(/分割|气腔|连通域|体素|重建|segment/i.test(t))
+    return "这份影像在重建气道时没走通（常见原因：扫描层太厚、有金属伪影，或视野不完整）。换一套原始 DICOM 序列再试，或把影像交给现场工作人员。";
+  if(/PII|隐私|匿名|脱敏|PatientName|PatientID/i.test(t))
+    return "这份影像的头部信息里还带着姓名/编号之类的隐私字段，我们不接收未脱敏的数据。请在医院或请工作人员脱敏后再上传。";
+  if(/体积回归比|回归比|朝向|几何|层序|非流形|网格/i.test(t))
+    return "这份影像重建出来的气道质量没达到我们的标准（常见原因：层太厚、有金属伪影、序列不完整）。换一套原始 DICOM 序列再试一次。";
+  if(/环境缺失|FlowScope|后端不可用|WSL|OpenFOAM/i.test(t))
+    return "这台电脑上的分析程序还没准备好。请让现场工作人员启动一下分析环境，然后再点「再试一次」。";
+  if(/[.]dcm|文件|序列|DICOM 目录/i.test(t))
+    return "上传的影像文件有点问题（数量不足、格式不对或目录选错了）。请选整个 CT 序列文件夹再试。";
+  return "分析没有走完。原因已经写进下面的诊断码里——可以直接发给工作人员。";
+}
+function ptFail(reason, code, b){
+  PT.running = false;
+  if(PT.timer){ clearTimeout(PT.timer); PT.timer = null; }
+  ptBar(0);
+  ptLine("");
+  const cid = (b && b.case_id) || PT.caseId || "（未建病例）";
+  const diag = "诊断码\n病例：" + cid + "\n环节：" + code + "\n原因：" + String(reason || "").slice(0, 300);
+  PT.lastDiag = diag;
+  ptResult('<div class="warm-card"><div class="warm-head"><span class="warm-emoji">🫶</span>' +
+    '<div><h3>这一步没走通</h3>' +
+    '<div class="reason">' + esc(ptHumanReason(reason)) + "</div>" +
+    '<div class="comfort">别着急：影像还在这台电脑上，没有传到外面。' +
+    "可以把影像交给现场工作人员，或点「复制诊断码」把这段信息发给我们。</div>" +
+    '<div class="btnrow" style="margin-top:8px">' +
+    '<button class="btn" type="button" id="pt-copy">复制诊断码</button>' +
+    '<button class="btn" type="button" id="pt-retry">再试一次</button>' +
+    "</div></div></div></div>");
+  const cp = $("pt-copy");
+  if(cp) cp.addEventListener("click", ptCopyDiag);
+  const rt = $("pt-retry");
+  if(rt) rt.addEventListener("click", ()=>{
+    if(!PT.files.length){ ptResult(""); ptLine("请重新选择 CT 文件夹后再试。"); return; }
+    ptResult(""); ptValidate(false); ptGo();
+  });
+}
+function ptCopyDiag(){
+  const txt = PT.lastDiag || "诊断码：无";
+  const ok = ()=>toast("诊断码已复制——发给工作人员即可");
+  try{
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(txt).then(ok, ()=>ptCopyFallback(txt, ok));
+      return;
+    }
+  }catch(e){ /* 落到兜底 */ }
+  ptCopyFallback(txt, ok);
+}
+function ptCopyFallback(txt, ok){
+  try{
+    const ta = document.createElement("textarea");
+    ta.value = txt; ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.select();
+    document.execCommand("copy"); ta.remove(); ok();
+  }catch(e){ toast("复制失败——请手动截图这段内容"); }
+}
+
+/* ---- 面板开关 / 续跑 ---- */
+function ptOpenPanel(){
+  const p = $("pt-panel");
+  if(p) p.style.display = "";
+  const c = $("pt-consent");
+  if(c && PT.files.length) ptValidate(false);
+}
+function ptResume(){
+  let st = null;
+  try{ st = JSON.parse(localStorage.getItem(PT_LS_KEY) || "null"); }catch(e){ st = null; }
+  if(!st || !st.caseId || !st.startedAt) return;
+  if(Date.now() - st.startedAt > PT_TIMEOUT_MS){ ptClearLS(); return; }
+  PT.caseId = st.caseId; PT.mode = st.mode || "quick"; PT.startedAt = st.startedAt;
+  PT.netErrs = 0; PT.running = true;
+  ptOpenPanel();
+  ptLine("上一次的分析还在跑，已经自动接上了…");
+  ptPoll();
+}
+
+(function bindPatientSelfService(){
+  function bind(){
+    const open = $("pt-open"); if(open) open.addEventListener("click", ptOpenPanel);
+    const ex = $("pt-example");
+    if(ex) ex.addEventListener("click", ()=>{
+      const pills = $("airway-pills");
+      if(pills && pills.scrollIntoView) pills.scrollIntoView({block: "center", behavior: "smooth"});
+      toast("示例病例是演示数据，不是您的影像");
+    });
+    const cancel = $("pt-cancel");
+    if(cancel) cancel.addEventListener("click", ()=>{
+      const p = $("pt-panel"); if(p) p.style.display = "none";
+    });
+    const drop = $("pt-drop");
+    const dirIn = $("pt-files"), plainIn = $("pt-files-plain");
+    if(drop) drop.addEventListener("click", ()=>dirIn && dirIn.click());
+    const pickPlain = $("pt-pick-plain");
+    if(pickPlain) pickPlain.addEventListener("click", ev=>{
+      ev.stopPropagation(); if(plainIn) plainIn.click();
+    });
+    if(dirIn) dirIn.addEventListener("change", e=>ptSetFiles(e.target.files));
+    if(plainIn) plainIn.addEventListener("change", e=>ptSetFiles(e.target.files));
+    if(drop){
+      drop.addEventListener("dragover", ev=>{ ev.preventDefault(); drop.classList.add("over"); });
+      drop.addEventListener("dragleave", ()=>drop.classList.remove("over"));
+      drop.addEventListener("drop", async ev=>{
+        ev.preventDefault(); drop.classList.remove("over");
+        try{ ptSetFiles(await ptDropRead(ev.dataTransfer)); }
+        catch(e){ ptPickMsg('<span class="warn">文件夹读取失败——请点上面改用「选择文件夹」。</span>'); }
+      });
+    }
+    const cons = $("pt-consent");
+    if(cons) cons.addEventListener("change", ()=>ptValidate(false));
+    const go = $("pt-go"); if(go) go.addEventListener("click", ptGo);
+    const prec = $("pt-precise");
+    if(prec) prec.addEventListener("click", ()=>{
+      if(!PT.caseId) return;
+      prec.disabled = true;
+      toast("已开始精算（会更慢但更准，可以离开页面）");
+      ptStartRun(PT.caseId, "standard").finally(()=>{ prec.disabled = false; });
+    });
+  }
+  if(document.readyState === "loading") document.addEventListener("DOMContentLoaded", bind);
+  else bind();
+  window.addEventListener("load", ()=>{ try{ ptResume(); }catch(e){ console.warn("[pt-resume]", e); } });
+})();
+
 function upBar(pct){
   $("up-track").style.display = "";
   $("up-bar").style.width = Math.max(0, Math.min(100, pct)).toFixed(1) + "%";
@@ -3176,12 +3739,12 @@ async function doRegister(source, extra){
   const r = await api("/api/case", {method:"POST", body: fd});
   if(r.status === 501){
     $("nc-result").innerHTML = `<div class="warm-card"><div class="warm-head"><span class="warm-emoji">🔒</span>
-      <div><h3>云形态仅合成数据</h3><div class="reason">${esc(r.body.error)}</div></div></div></div>`;
+      <div><h3>云形态仅合成数据</h3><div class="reason">${esc((r.body && r.body.error) || ("HTTP " + r.status))}</div></div></div></div>`;
     return;
   }
   if(r.status === 403){
     $("nc-result").innerHTML = `<div class="warm-card"><div class="warm-head"><span class="warm-emoji">🔒</span>
-      <div><h3>访问受限</h3><div class="reason">${esc(r.body.error)}</div></div></div></div>`;
+      <div><h3>访问受限</h3><div class="reason">${esc((r.body && r.body.error) || ("HTTP " + r.status))}</div></div></div></div>`;
     return;
   }
   if(r.status === 400){
@@ -3720,7 +4283,7 @@ body.hero-takeover-on{overflow:hidden}
   /* T50: presenter is the source of truth; demo mode only enhances the workbench DOM. */
   (function demoPresenterEnhancement(){
     function enable(){
-      if (!window.S || !S.presenter) return;
+      if (typeof S === "undefined" || !S.presenter) return;
       document.body.classList.add('presenter-enhanced');
       document.querySelectorAll('.demo-pill').forEach(function(btn){ btn.classList.add('presenter-demo'); });
       try { var frame=document.querySelector('.hero-frame'); if(frame) frame.contentWindow.postMessage({type:'presenter-demo',on:true},'*'); } catch(e) {}
@@ -3735,6 +4298,8 @@ body.hero-takeover-on{overflow:hidden}
       if(btn){ btn.setAttribute('aria-pressed', on ? 'true' : 'false'); btn.textContent=on ? '演示模式 ✓' : '演示模式 P'; }
       var badge=document.getElementById('badge-presenter'); if(badge) badge.style.display=on ? '' : 'none';
     }
+    /* P1 修复：1402 行（另一个 IIFE 的 P 键处理）调用 setPresenter，本函数在 IIFE 内不挂 window 则 ReferenceError */
+    window.setPresenter = setPresenter;
     function bind(){
     var btn=document.getElementById('presenter-toggle');
     if(btn) btn.addEventListener('click', function(){ window.location.href = '/static/demo.html'; });
@@ -3742,6 +4307,7 @@ body.hero-takeover-on{overflow:hidden}
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',bind); else bind();
   })();
   </script>
+  <script src="/static/patient-viewer.js"></script>
   <script src="/static/landing.js"></script>
 </body>
 </html>

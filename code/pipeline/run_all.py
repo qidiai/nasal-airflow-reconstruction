@@ -27,9 +27,19 @@
   --result-dir <目录>      已回传的 CFD 结果目录（P0-result-<prefix>-<case>，
                           含 VTK/ 与 后处理/metrics.json；local/laptop 回传后用）
   --ext / --iso / --ext-l-mm / --ext-r-factor   透传 step2
+  --max-iter <int>         求解步数上限（默认 1500；患者自助快速档 300）
+  --quick                  患者自助快速档 = 步数上限 300 + z 向降采样加粗。
+                           z 口径为**相对源层厚取整**：step2 的 --voxel-z 只接受
+                           层厚整数倍（非整数倍即停工上报），绝对 3.0mm 在
+                           0.35/0.7mm 层厚下非法；故未显式给 --voxel-z 时按
+                           max(2, round(3.0/dz))*dz 计算，读不到 dz 则回退到
+                           只降步数并在进度里如实说明。质量闸门口径一行未改
   --hu-air / --hu-head                          透传 step1（默认 -400 / -300，§5.3）
   --ph-dir / --skin-data-js                     透传 step5（占位体/皮肤层；新病例
                           无占位体时不传——step5 依契约完备性自动延期）
+  --allow-partial-viewer    单算例 viewer 部分导出（患者快速档）：三档占位字段可缺，
+                          仍导出 viewer（meta.partial + missing 清单），缺失区块由
+                          viewer 隐藏并标"本次未做"；核心字段缺失仍按红线中止。
 
 内置断言（不过即停工上报，exit 2）：
   PII 头扫描（逐头 10 字段白名单 + 核心 PII 任一非空即 FAIL）
@@ -287,6 +297,12 @@ def orientation_assertions(case_stats, mask, sx, sy, sz,
 
 
 # ---------------------------------------------------------------- S6 后处理契约汇编
+# [T-P1.5] 单算例模式允许缺失的字段（与 step5 的 _PLACEHOLDER_ONLY 同口径）：
+#   仅"三档占位体"相关项；ΔP/WSS/分流/阻力等核心字段缺失一律仍按红线中止。
+PLACEHOLDER_ONLY_FIELDS = ("dP_1mm_Pa", "dP_2mm_Pa", "dP_3mm_Pa",
+                           "volumes_cm3", "dP_Pa", "band_Pa")
+
+
 def assemble_contract(result_metrics, letter, case):
     """从本例后处理 metrics.json 汇编 step5 meta 契约。
     占位档字段（dP_1/2/3mm、curve）需占位算例——单算例缺失即标记，
@@ -542,6 +558,31 @@ def probe_openfoam():
     return rec
 
 
+# ---------------------------------------------------------- 患者自助快速档口径
+# 决策 1（2026-10-20 用户裁定）= 相对口径：step2 的 --voxel-z 只接受**源层厚整数倍**
+# （step2_make_ofcase.py:88 非整数倍即 SystemExit 停工上报），因此绝对 3.0mm 在
+# 0.35mm（pA 真实 CT）/ 0.7mm（synth 栅格化）层厚下都非法。这里按目标尺寸取整后
+# 乘回层厚，保证「快速档口径一致 + 永过整数倍断言」。
+QUICK_MAX_ITER = 300            # 快速档步数上限
+QUICK_TARGET_VOXEL_Z_MM = 3.0   # 快速档目标 z 体素尺寸（取整基准）
+
+
+def quick_voxel_z(dz_mm):
+    """快速档 z 体素尺寸：max(2, round(target/dz)) * dz。
+
+    dz 不可用（None/非数/<=0/非有限）→ 返回 None，调用方回退到「只降步数」
+    （不传 --voxel-z 覆盖，保持默认 2.0 哨兵，永远合法）。
+    """
+    try:
+        dz = float(dz_mm)
+    except (TypeError, ValueError):
+        return None
+    if not (dz > 0) or dz != dz or dz > 1e6:      # <=0 / NaN / 离谱值
+        return None
+    zf = max(2, int(round(QUICK_TARGET_VOXEL_Z_MM / dz)))
+    return round(zf * dz, 6)
+
+
 # ---------------------------------------------------------------- 主流程
 def main():
     ap = argparse.ArgumentParser(
@@ -580,10 +621,27 @@ def main():
                     help="透传 step2：z 向体素尺寸 mm"
                          "（默认 2.0=现状 z 向 2 层多数表决；"
                          "1.0=不降采样，T14d/E1）")
+    # T-P1 患者自助快速档（2026-10-20）：端到端慢的根因是不收敛病例跑满 1500 步，
+    # 与网格粗细无关的「步数」才是主因（pA 269,913 单元 209 分钟 vs L3-026 收敛
+    # 195 步 8.4 分钟）。--max-iter 把这一硬编码参数化（默认 1500 = 现状逐字节不变）；
+    # --quick 只动步数上限与 z 降采样因子两处，任何质量闸门（PII/朝向/体积回归/
+    # 契约完备性）口径一行未改。
+    ap.add_argument("--max-iter", type=int, default=1500,
+                    help="求解步数上限（默认 1500=现状；快速档 300）")
+    ap.add_argument("--quick", action="store_true",
+                    help="患者自助快速档：--max-iter 300 + z 向降采样加粗"
+                         "（未显式给 --voxel-z 时按源层厚取整到 ~3mm；"
+                         "读不到层厚则回退只降步数）")
     ap.add_argument("--hu-air", type=int, default=-400, help="透传 step1：空气阈值 HU（§5.3）")
     ap.add_argument("--hu-head", type=int, default=-300, help="透传 step1：头部组织阈值 HU")
     ap.add_argument("--ph-dir", default=None, help="透传 step5：占位体 STL 目录")
     ap.add_argument("--skin-data-js", default=None, help="透传 step5：皮肤层数据")
+    # [T-P1.5] 单算例 viewer 部分导出：患者快速档 / 单算例病例只跑一次求解，三档
+    #   占位体字段（dP_1/2/3mm、pressure-flow curve）天然缺失。核心红线不变——
+    #   缺核心字段仍中止；只允许"占位档三档"缺项，缺项一律不写、由 viewer 标"本次未做"。
+    ap.add_argument("--allow-partial-viewer", action="store_true",
+                    help="单算例模式：允许三档占位字段缺失时仍导出 viewer 数据"
+                         "（meta.partial=true + missing 清单；标准档不传本开关）")
     ap.add_argument("--allow-anatomy-inclusion", action="store_true",
                     help="T14：允许真实解剖纳入（患者C 咽部 2.77cm3）——"
                          "体积回归比闸门上带 1.06->1.30（覆盖 pC 1.1728；"
@@ -595,6 +653,9 @@ def main():
                          "case_stats / manifest&deferred JSON / "
                          "viewer_single.html / 交接文档）复制到指定共享"
                          "目录并逐件 Test-Path + md5（可选）")
+    # --quick 的 z 口径只在调用方**未显式**给 --voxel-z 时才计算（显式优先）
+    _voxel_z_explicit = any(
+        a == "--voxel-z" or a.startswith("--voxel-z=") for a in sys.argv[1:])
     ARGS = ap.parse_args()
 
     t_start = time.time()
@@ -711,6 +772,39 @@ def main():
     }
     log(f"  PASS：气道 {m1['airway_volume_cm3']} cm³；最小截面积 {m1['min_axial_area_mm2']} mm²；"
         f"维度断言 {csv_rows}=={n_layers}；QC 图 {os.path.basename(step1_arts['qc_fig'])}")
+
+    # ---- 快速档：z 口径与步数上限落地（决策 1 = 相对口径）----
+    # 必须在 S3 之前：step2 的 --voxel-z 经 cmd2 透传（下方 S3）。
+    if ARGS.quick:
+        ARGS.max_iter = min(int(ARGS.max_iter), QUICK_MAX_ITER)
+        qz = None
+        if not _voxel_z_explicit:
+            qz = quick_voxel_z(sz)          # sz = S1 实测层间距（mm）
+            if qz is not None:
+                ARGS.voxel_z = qz
+        if qz is not None:
+            log(f"快速档：max_iter={ARGS.max_iter}；voxel-z={ARGS.voxel_z}mm"
+                f"（= round({QUICK_TARGET_VOXEL_Z_MM}/{sz})×{sz}，源层厚整数倍）")
+        elif _voxel_z_explicit:
+            log(f"快速档：max_iter={ARGS.max_iter}；voxel-z={ARGS.voxel_z}mm"
+                f"（调用方显式指定，原样透传）")
+        else:
+            log(f"[W] 快速档：读不到源层厚（sz={sz!r}）——回退到只降步数，"
+                f"网格 z 向不降采样（voxel-z 保持默认 {ARGS.voxel_z}mm），预计更慢")
+        manifest["quick"] = {
+            "enabled": True,
+            "max_iter": int(ARGS.max_iter),
+            "voxel_z_mm": float(ARGS.voxel_z),
+            "voxel_z_explicit": bool(_voxel_z_explicit),
+            "source_slice_dz_mm": sz,
+            "target_voxel_z_mm": QUICK_TARGET_VOXEL_Z_MM,
+            "z_fallback": bool(qz is None and not _voxel_z_explicit),
+            "note": "患者自助快速档：只动步数上限与 z 降采样因子；"
+                    "PII/朝向/体积回归/契约完备性闸门口径一行未改",
+        }
+        # args 快照在 S1 之前生成，这里回填生效值（避免 manifest 记成默认 1500/2.0）
+        manifest["args"]["max_iter"] = int(ARGS.max_iter)
+        manifest["args"]["voxel_z"] = float(ARGS.voxel_z)
 
     # ---- S3 step2 算例生成 ----
     log("[S3] step2 算例生成 ...")
@@ -881,9 +975,10 @@ def main():
                 manifest["stages"]["S5_solve"]["status"] = "reused"
             else:
                 os.makedirs(result_dir, exist_ok=True)
-                log(f"  custom 求解：{case_dir} -> {result_dir}（1500 步上限）")
+                log(f"  custom 求解：{case_dir} -> {result_dir}"
+                    f"（{ARGS.max_iter} 步上限）")
                 rc, metrics_path = SB.run_custom(
-                    case_dir, result_dir, max_iter=1500,
+                    case_dir, result_dir, max_iter=ARGS.max_iter,
                     progress=log, tag="custom " + CASE_NAME)
                 manifest["stages"]["S5_solve"].update({
                     "status": "solved" if rc == 0 else "failed",
@@ -1407,12 +1502,19 @@ def run_postprocess_and_step5(manifest, result_dir, OUT_ROOT, PREFIX, CASE,
         "resistance_total": contract["metrics"]["resistance_total"],
         "missing_fields": missing,
         "completeness": "COMPLETE" if not missing else "INCOMPLETE",
+        # 停车判据三元组（2026-10-20 新增，源自本例 metrics.json totals；
+        # 旧字段一个不改，openfoam 后端/旧归档无这些字段时为 null）
+        "stop_reason_code": (result_metrics.get("totals") or {}).get("stop_reason_code"),
+        "stop_iter": (result_metrics.get("totals") or {}).get("stop_iter"),
+        "dp_band_pct": (result_metrics.get("totals") or {}).get("dp_band_pct"),
     }
     log(f"  契约汇编 -> {os.path.relpath(contract_path, OUT_ROOT)}；"
         f"ΔP={contract['metrics']['dP_baseline_Pa']} Pa，"
         f"分流 L/R={contract['metrics']['split_L_pct']}/{contract['metrics']['split_R_pct']}%，"
         f"R={contract['metrics']['resistance_total']}")
-    if missing:
+    _hard_missing = [k for k in missing if k not in PLACEHOLDER_ONLY_FIELDS]
+    _partial = bool(ARGS.allow_partial_viewer) and not _hard_missing
+    if missing and not _partial:
         log(f"  契约不完备（缺 {missing}——占位档需占位算例，单算例无法提供）"
             "——step5 按红线中止导出（不套用其他患者数字）")
         with open(os.path.join(OUT_ROOT, f"step5_deferred-{PREFIX}-{CASE}.json"),
@@ -1428,6 +1530,11 @@ def run_postprocess_and_step5(manifest, result_dir, OUT_ROOT, PREFIX, CASE,
         manifest["stages"]["S7_step5"] = {"status": "deferred_contract_incomplete",
                                           "missing_fields": missing}
         return
+    if missing:
+        # [T-P1.5] 单算例部分导出：viewer 最小必需集（ΔP/场数据/几何）齐备 → 继续导出；
+        #   缺的只是"占位档三档"，由 viewer 隐藏并标"本次未做"。三档数字绝不伪造。
+        log(f"  [T-P1.5] 单算例部分导出：缺 {missing}"
+            "（占位档需占位算例）→ 仍导出 viewer，缺失区块标『本次未做』")
 
     # ---- S7 step5 条件导出 ----
     log("[S7] step5 查看器数据导出（full 模式）...")
@@ -1442,6 +1549,8 @@ def run_postprocess_and_step5(manifest, result_dir, OUT_ROOT, PREFIX, CASE,
             "--metrics-json", contract_path,
             "--out-dir", os.path.join(OUT_ROOT, "step5"),
             "--write-mode", "full"]
+    if _partial:
+        cmd5.append("--single-case")
     if ARGS.ph_dir:
         cmd5 += ["--ph-dir", ARGS.ph_dir]
     if ARGS.skin_data_js:
@@ -1451,7 +1560,9 @@ def run_postprocess_and_step5(manifest, result_dir, OUT_ROOT, PREFIX, CASE,
     if r.returncode != 0:
         die(2, f"step5 失败（exit {r.returncode}）")
     manifest["stages"]["S7_step5"] = {
-        "status": "exported", "vtu": vtu,
+        "status": ("exported_partial" if _partial else "exported"),
+        "partial_missing_fields": (missing if _partial else []),
+        "vtu": vtu,
         "out_dir": os.path.relpath(os.path.join(OUT_ROOT, "step5"), OUT_ROOT),
     }
     log("  PASS：step5 导出完成（full 模式）")

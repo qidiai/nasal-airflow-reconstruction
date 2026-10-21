@@ -250,6 +250,27 @@ def parse_contract_metrics(log_path):
         if m:
             d["stop_reason"] = m.group(1).strip()
             continue
+        # dP 稳定早停三元组（2026-10-20 新增；上面的人读 stop_reason 保持原样）
+        # 注意：机器行键名是下划线 `stop_reason`，人读行是空格 `stop reason`——
+        # 两条正则互不匹配（空格 vs 下划线），故可安全并存。
+        m = re.match(r"stop_reason\s*:\s*(\S+)", ln)
+        if m:
+            d["stop_reason_code"] = m.group(1).strip()
+            continue
+        m = re.match(r"stop_iter\s*:\s*(\d+)", ln)
+        if m:
+            d["stop_iter"] = int(m.group(1))
+            continue
+        m = re.match(r"dp_band_pct\s*:\s*(\S+)", ln)
+        if m:
+            # NaN（未评估过，如 residualControl 早停或 dP 判据不适用）→ None
+            # 单位 = **百分数数值**：0.1896 表示 0.19%，不是 0.1896%
+            try:
+                fv = float(m.group(1))
+            except ValueError:
+                fv = None
+            d["dp_band_pct"] = None if (fv != fv) else fv
+            continue
         m = re.match(r"run mode\s*:\s*(.+)$", ln)
         if m:
             d["run_mode"] = m.group(1).strip()
@@ -529,6 +550,12 @@ def build_metrics(case_dir, out_dir, log_path, prefix="", case="", tag=""):
             "flux_closure_pct": closure,
             "iterations": parsed.get("iterations"),
             "stop_reason": parsed.get("stop_reason"),
+            # 停车判据三元组（新增字段，供 manifest / /api/metrics 透出）
+            "stop_reason_code": parsed.get("stop_reason_code"),
+            "stop_iter": parsed.get("stop_iter"),
+            # dp_band_pct = dP 稳定性评估带宽，单位是**百分数数值**（0.1896 = 0.19%）；
+            # 判据未评估/不适用（NaN）时为 None。仅供展示与审计，不参与任何停车判定。
+            "dp_band_pct": parsed.get("dp_band_pct"),
             "final_residuals": parsed.get("final_residuals"),
             "continuity_local": parsed.get("continuity_local"),
             "continuity_global": parsed.get("continuity_global"),

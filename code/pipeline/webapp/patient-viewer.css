@@ -1,0 +1,70 @@
+/* ============================================================
+   patient-viewer.css — 3D 查看器右侧 <aside> 面板「改写层」样式
+   用法：由 patient-viewer.js 以 <link> 注入 iframe 文档（父页面 index.html 也引一份，无副作用）。
+   作用域：只覆盖注入元素 #pv-head / #pv-foot / details.pv-collapse / details.pv-expert /
+          .pv-sub / section.pv-moved —— 不改冻结资产自身的任何 CSS。
+   ============================================================ */
+
+/* ---------- 顶部一行：免责 + 高级参数开关（患者模式） ---------- */
+#pv-head{
+  display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;
+  background:var(--card,#1a222b);border:1px solid var(--line,#26313d);border-radius:6px;
+  padding:8px 10px;margin:0 0 12px;
+  font-size:12.5px;line-height:1.5;color:var(--text,#d8e0e8);
+}
+#pv-head .pv-hint{flex:1 1 auto;min-width:140px}
+#pv-head .pv-toggle{
+  flex:0 0 auto;font:inherit;font-size:12px;cursor:pointer;
+  background:#234452;color:#c9ecd6;border:1px solid #3a5a6b;border-radius:4px;padding:4px 9px;
+}
+#pv-head .pv-toggle:hover{border-color:#4d6472;color:#ffffff}
+
+/* ---------- 分块折叠（患者/医务/操作员通用；默认展开） ---------- */
+details.pv-collapse{
+  background:var(--card,#1a222b);border:1px solid var(--line,#26313d);border-radius:6px;
+  margin:0 0 12px;
+}
+details.pv-collapse > summary{
+  list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:8px;
+  padding:10px 12px;font-size:13px;font-weight:600;color:var(--accent,#7fa8b8);
+}
+details.pv-collapse > summary::-webkit-details-marker{display:none}
+details.pv-collapse > summary::marker{content:""}
+details.pv-collapse > summary::after{content:"\25B8";color:var(--dim,#8a97a5);font-weight:400}
+details.pv-collapse[open] > summary::after{content:"\25BE"}
+/* 内层卡片让位给 <details> 的外框（外观与原来的一块卡片一致） */
+details.pv-collapse > section.card,
+details.pv-collapse > .card{
+  background:transparent;border:0;border-radius:0;margin:0;padding:0 12px 10px;
+}
+
+/* ---------- 人话副标题 ---------- */
+.pv-sub{margin:0 0 8px;font-size:12px;line-height:1.55;color:var(--dim,#8a97a5)}
+
+/* ---------- 高级（工程参数）折叠组（患者模式，默认收起） ---------- */
+details.pv-expert{
+  background:#141a21;border:1px solid var(--line,#26313d);border-radius:6px;margin:0 0 12px;
+}
+details.pv-expert > summary{
+  list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:8px;
+  padding:10px 12px;font-size:12.5px;font-weight:600;color:var(--text,#d8e0e8);
+}
+details.pv-expert > summary::-webkit-details-marker{display:none}
+details.pv-expert > summary::marker{content:""}
+details.pv-expert > summary::after{content:"\25B8";color:var(--dim,#8a97a5);font-weight:400}
+details.pv-expert[open] > summary::after{content:"\25BE"}
+details.pv-expert > .pv-group{padding:0 10px}
+details.pv-expert > .pv-group > details.pv-collapse:last-child{margin-bottom:10px}
+
+/* ---------- 搬进「高级」的原文技术明细块 ---------- */
+section.pv-moved{
+  background:transparent;border:0;border-top:1px dashed var(--line,#26313d);
+  border-radius:0;margin:2px 0 10px;padding:8px 2px 0;
+}
+section.pv-moved > h3{margin:0 0 4px;font-size:12px;font-weight:600;color:var(--dim,#8a97a5)}
+
+/* ---------- 底部免责句（患者面板常驻可见） ---------- */
+#pv-foot{
+  margin:12px 0 4px;padding:8px 10px;border:1px dashed var(--line,#26313d);border-radius:6px;
+  font-size:11.5px;line-height:1.5;color:var(--dim,#8a97a5);
+}

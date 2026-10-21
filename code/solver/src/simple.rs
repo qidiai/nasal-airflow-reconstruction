@@ -9,6 +9,7 @@
 //! - 解析验证：平面 Poiseuille 层流（u(y)=u_max(1−((y−H/2)/(H/2))²)，u_max=1.5·U_mean，
 //!   −dp/dx = 12·nu·U_mean/H²）——经典 FVM 教科书基准（Versteeg & Malalasekera §4.2.2）。
 
+use std::collections::VecDeque;
 use std::path::Path;
 
 use crate::bc::{BoundaryConditions, PatchBC, PressureBC, VelocityBC};
@@ -41,6 +42,174 @@ pub struct IterRecord {
     pub cont_global: f64,
 }
 
+/// dP 稳定性早停判据参数（**写死**，见任务书「判据定义」；只换停车判据，不动物理）
+///
+/// 判据动机（实测）：质量档 1500 步里后 1000 步对 dP 无贡献——dP 早在 100~500 步
+/// 就进入 0.2% 带且不再离开，多跑只是在追 1e-4 级的线性残差；而线性容差收紧
+/// 4.1 倍时间只换来外残差 3% 改善、dP 反动 4.3%——残差不是 dP 的可靠代理。
+#[derive(Debug, Clone, Copy)]
+pub struct DpStopConfig {
+    /// 采样间隔（步）：每 20 步算一次 dP
+    pub sample_every: usize,
+    /// 参考窗口：最近 5 个采样的均值
+    pub window: usize,
+    /// 相对带（0.002 = 0.2%）
+    pub band_rel: f64,
+    /// 最小步数下限（避免入口瞬态误判）
+    pub min_iter: usize,
+    /// 最近采样的全局连续性上限（防在数值爆掉的瞬态里停）
+    pub cont_global_max: f64,
+    /// 连续满足轮数（2 = 已覆盖 5 样本窗口再加一轮确认）
+    pub confirm_rounds: usize,
+}
+
+impl Default for DpStopConfig {
+    fn default() -> Self {
+        DpStopConfig {
+            sample_every: 20,
+            window: 5,
+            band_rel: 0.002,
+            min_iter: 100,
+            cont_global_max: 1e-2,
+            confirm_rounds: 2,
+        }
+    }
+}
+
+/// 单次评估窗的判据结论（`dp_stop_decide` 的纯函数输出，无任何副作用）
+///
+/// 三道门（带内 / 最小迭代 / 连续性余量）+ 确认计数全在这里表达，求解循环只做
+/// 「取值 → 打印 → 赋值 → break」；因此判据行为可被单测直接构造输入覆盖，
+/// 不需要跑完整个 SIMPLE 迭代才能验证。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DpStopVerdict {
+    /// 采样窗是否已满（未满 → 不评估：confirm 原样返回、stop = false）
+    pub ready: bool,
+    /// 参与判定的样本数
+    pub n_samples: usize,
+    /// 窗内 dP 均值（参考值 dp_ref）；窗未满时为 NaN
+    pub dp_ref: f64,
+    /// 窗内最大相对偏差（无量纲）
+    pub band_rel: f64,
+    /// 窗内最大相对偏差的**百分数数值**（0.1896 表示 0.19%，不是 0.1896%）
+    pub band_pct: f64,
+    /// 本窗三道门是否全过：带内 && iter >= min_iter && cont_global < cont_global_max
+    pub stable: bool,
+    /// 累计确认次数：本窗稳定则 prev_confirm + 1，否则**清零**
+    pub confirm: usize,
+    /// 是否应当停车：confirm >= confirm_rounds
+    pub stop: bool,
+}
+
+/// 「是否该停车」的**纯判定**：输入采样窗 + 迭代号 + 连续性全局余量 + 判据参数 +
+/// 上一窗的确认计数，输出本窗结论。不读 `self`、不看时钟、不落盘 ——
+/// 求解循环与单测走同一条代码路径。
+///
+/// 语义与抽函数前逐字一致（三道门、confirm 递增/清零、stop 条件），仅把跨窗状态
+/// 外置为 `prev_confirm` 参数以实现纯函数化；判据参数仍全部来自 [`DpStopConfig`]。
+pub fn dp_stop_decide(
+    samples: &[f64],
+    iter: usize,
+    cg: f64,
+    cfg: &DpStopConfig,
+    prev_confirm: usize,
+) -> DpStopVerdict {
+    // 只取尾部 window 个样本（调用方已压窗；此处再兜一层，纯函数不依赖外部裁剪）
+    let window: &[f64] = if cfg.window > 0 && samples.len() > cfg.window {
+        &samples[samples.len() - cfg.window..]
+    } else {
+        samples
+    };
+    if cfg.window == 0 || window.len() < cfg.window {
+        return DpStopVerdict {
+            ready: false,
+            n_samples: window.len(),
+            dp_ref: f64::NAN,
+            band_rel: f64::NAN,
+            band_pct: f64::NAN,
+            stable: false,
+            confirm: prev_confirm,
+            stop: false,
+        };
+    }
+    let n = window.len() as f64;
+    let dp_ref = window.iter().sum::<f64>() / n;
+    let dev = window
+        .iter()
+        .map(|v| (v - dp_ref).abs())
+        .fold(0.0f64, f64::max);
+    let band_rel = if dp_ref.abs() > 1e-300 {
+        dev / dp_ref.abs()
+    } else {
+        f64::INFINITY
+    };
+    let band_pct = band_rel * 100.0;
+    // 三道门：dP 带内 + 已过最小迭代 + 连续性全局余量 —— 任一不过即不稳定（confirm 清零）
+    let stable = band_rel < cfg.band_rel && iter >= cfg.min_iter && cg < cfg.cont_global_max;
+    let confirm = if stable { prev_confirm + 1 } else { 0 };
+    DpStopVerdict {
+        ready: true,
+        n_samples: window.len(),
+        dp_ref,
+        band_rel,
+        band_pct,
+        stable,
+        confirm,
+        stop: confirm >= cfg.confirm_rounds,
+    }
+}
+
+/// dP 稳定性判据的运行模式：决定「是否评估」，也决定横幅文案
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DpStopMode {
+    /// 判据生效：residualControl OR dP-stable
+    Enabled,
+    /// 显式关闭：`--no-dp-stop` 或 `FLOWSCOPE_DP_STOP=0`
+    SwitchOff,
+    /// 不适用：入口 p 为 fixedValue 的定压驱动模式（Run-B），dP 由边界条件决定
+    InletPressureFixed,
+    /// 不适用：没有 inlet* / outlet patch 对
+    MissingPatches,
+}
+
+/// 由开关 + 入口/出口 patch 情形派生判据模式（纯函数；优先级与抽函数前一致）
+pub fn dp_stop_mode(
+    dp_stop: bool,
+    env_off: bool,
+    inlet_pres_fixed: bool,
+    n_inlets: usize,
+    has_outlet: bool,
+) -> DpStopMode {
+    if !dp_stop || env_off {
+        DpStopMode::SwitchOff
+    } else if inlet_pres_fixed {
+        DpStopMode::InletPressureFixed
+    } else if n_inlets == 0 || !has_outlet {
+        DpStopMode::MissingPatches
+    } else {
+        DpStopMode::Enabled
+    }
+}
+
+/// 判据横幅文案：**仅判据真正生效时**罗列参数元组；关闭/不适用时只给一行原因，
+/// 避免把「residualControl only」误读成「dP 判据已启用」。
+pub fn dp_stop_banner(mode: DpStopMode, cfg: &DpStopConfig) -> String {
+    match mode {
+        DpStopMode::Enabled => format!(
+            "residualControl OR dP-stable（每 {} 步采样 / {} 样本 / {:.1}% 带 / 最少 {} 步 / 连续 {} 轮确认 / 连续性 < {}）",
+            cfg.sample_every,
+            cfg.window,
+            cfg.band_rel * 100.0,
+            cfg.min_iter,
+            cfg.confirm_rounds,
+            cfg.cont_global_max
+        ),
+        DpStopMode::SwitchOff => "residualControl only —— dP 稳定性判据已关闭（--no-dp-stop / FLOWSCOPE_DP_STOP=0），本次运行不评估 dP 稳定性，也不会因 dP 停车".to_string(),
+        DpStopMode::InletPressureFixed => "residualControl only —— dP 稳定性判据不适用：入口 p 为 fixedValue 的定压驱动模式（Run-B），dP 由边界条件决定，不含判据信息".to_string(),
+        DpStopMode::MissingPatches => "residualControl only —— dP 稳定性判据不适用：未找到 inlet*/outlet patch 对".to_string(),
+    }
+}
+
 pub struct SimpleSolver {
     pub mesh: Mesh,
     pub cfg: CaseConfig,
@@ -59,7 +228,16 @@ pub struct SimpleSolver {
     pub lin_p: Vec<LinSolveInfo>,
     pub iter: usize,
     pub converged: bool,
+    /// 停车判据代码（机器可读）：`dp_stable` | `residual` | `endtime`
     pub stop_reason: String,
+    /// 停车原因的人读文本（日志 `stop reason :` 行；内容与改动前逐字节一致）
+    pub stop_detail: String,
+    /// 实际停车步（判据触发步；`endtime` 时为跑满步数）
+    pub stop_iter: usize,
+    /// 最后一次 dP 稳定性评估的带宽，**百分数数值**（0.1896 表示 0.19%，不是 0.1896%）；未评估过为 NaN
+    pub dp_band_pct: f64,
+    /// 结果稳定性早停开关（默认开；`--no-dp-stop` 或 `FLOWSCOPE_DP_STOP=0` 关闭）
+    pub dp_stop: bool,
 }
 
 impl SimpleSolver {
@@ -90,6 +268,10 @@ impl SimpleSolver {
             iter: 0,
             converged: false,
             stop_reason: String::new(),
+            stop_detail: String::new(),
+            stop_iter: 0,
+            dp_band_pct: f64::NAN,
+            dp_stop: true,
         })
     }
 
@@ -370,6 +552,39 @@ impl SimpleSolver {
                     .fold(0.0f64, f64::max),
                 self.p.data.iter().cloned().fold(0.0f64, |a, b| a.max(b.abs()))
             );
+        }
+        // ---- 结果稳定性早停（dP 稳定判据）----
+        // 只换停车判据，不动物理：离散格式/边界条件/松弛系数/线性容差一律不动。
+        // 判据（参数写死，见 DpStopConfig）：每 20 步采样 dP → 最近 5 个采样的均值为
+        // dP_ref → 5 样本全部落在 |dP−dP_ref|/|dP_ref| < 0.2% 带内 + 已跑过 100 步 +
+        // 最近采样全局连续性 < 1e-2 → 连续 2 轮满足即停。与 residualControl 并存，先到先停。
+        //
+        // 附加守卫（**只阻止误停，不放宽任何参数**）：入口压力必须不是 fixedValue。
+        // Run-B 等压模式入口 p 为 fixedValue 80、出口 fixedValue 0 → dP 恒等于 96 Pa
+        // （纯 BC 常数，与流场无关），判据在此模式下没有信息量，会在 120 步无条件误停。
+        let dp_cfg = DpStopConfig::default();
+        let dp_inlets: Vec<usize> = self
+            .patches
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| p.name.starts_with("inlet"))
+            .map(|(i, _)| i)
+            .collect();
+        let dp_outlet = self.patches.iter().position(|p| p.name == "outlet");
+        let dp_inlet_fixed = dp_inlets.iter().any(|&i| self.patches[i].pres_fixed);
+        // 判据模式（纯函数）：决定是否评估 + 横幅文案；关闭/不适用时横幅只给原因、不罗列参数
+        let dp_mode = dp_stop_mode(
+            self.dp_stop,
+            std::env::var("FLOWSCOPE_DP_STOP").as_deref() == Ok("0"),
+            dp_inlet_fixed,
+            dp_inlets.len(),
+            dp_outlet.is_some(),
+        );
+        let dp_enabled = dp_mode == DpStopMode::Enabled;
+        let mut dp_samples: VecDeque<f64> = VecDeque::with_capacity(dp_cfg.window);
+        let mut dp_confirm = 0usize;
+        if verbose {
+            println!("stop criterion : {}", dp_stop_banner(dp_mode, &dp_cfg));
         }
         if verbose {
             println!(
@@ -683,6 +898,53 @@ impl SimpleSolver {
                 let p_in = if den > 0 { num / den as f64 } else { f64::NAN };
                 println!("        dP(kin) {:.6e}  dP(Pa) {:.6e}", p_in, RHO_AIR * p_in);
             }
+            // ⑪b dP 稳定性采样与早停判据（每 sample_every 步一次）
+            if dp_enabled && it % dp_cfg.sample_every == 0 {
+                let dp = dp_pa(&self.mesh, &self.p, &dp_inlets, dp_outlet.unwrap());
+                dp_samples.push_back(dp);
+                while dp_samples.len() > dp_cfg.window {
+                    dp_samples.pop_front();
+                }
+                if verbose {
+                    // 任务书要求：dP 采样从原来的 ~80/100 步加密到每 20 步并打印
+                    println!(
+                        "[dP-stop] iter {it}  dP = {dp:.6e} Pa  (samples {}/{})",
+                        dp_samples.len(),
+                        dp_cfg.window
+                    );
+                }
+                if dp_samples.len() >= dp_cfg.window {
+                    // 判定全部下沉到纯函数 dp_stop_decide：循环只做「取值 → 打印 → 赋值 → break」
+                    let v = dp_stop_decide(dp_samples.make_contiguous(), it, cg, &dp_cfg, dp_confirm);
+                    let band_pct = v.band_pct;
+                    self.dp_band_pct = band_pct;
+                    dp_confirm = v.confirm;
+                    if verbose {
+                        println!(
+                            "[dP-stop] iter {it}  dP = {dp:.6e} Pa  dP_ref = {:.6e} Pa  band = {band_pct:.4}%  cont_global {cg:.3e}  confirm {}/{}{}",
+                            v.dp_ref,
+                            dp_confirm,
+                            dp_cfg.confirm_rounds,
+                            if v.stable { "  (stable)" } else { "" }
+                        );
+                    }
+                    if v.stop {
+                        self.converged = true;
+                        self.stop_reason = "dp_stable".to_string();
+                        self.stop_iter = it;
+                        self.stop_detail = format!(
+                            "dP 稳定早停：iter {it}，dP = {dp:.6} Pa，band = {band_pct:.4}%（{:.1}% 带 / {} 样本 / 最少 {} 步；residualControl 未双达标）",
+                            dp_cfg.band_rel * 100.0,
+                            dp_cfg.window,
+                            dp_cfg.min_iter
+                        );
+                        println!(
+                            "STOP: dP stable (<0.2% over 5 samples) at iter {it}, dP = {dp:.6} Pa, band = {band_pct:.4}%"
+                        );
+                        break;
+                    }
+                }
+            }
             // ⑫ residualControl 双达标 → 早停
             if pinfo.init_res < self.cfg.params.residual_p
                 && mres[0] < self.cfg.params.residual_u
@@ -690,13 +952,15 @@ impl SimpleSolver {
                 && mres[2] < self.cfg.params.residual_u
             {
                 self.converged = true;
-                self.stop_reason = format!(
+                self.stop_reason = "residual".to_string();
+                self.stop_iter = it;
+                self.stop_detail = format!(
                     "SIMPLE solution converged：iter {it}，p 初残差 {:.3e} < {}，U 初残差 {:.3e}/{:.3e}/{:.3e} < {}（residualControl 双口径达标）",
                     pinfo.init_res, self.cfg.params.residual_p,
                     mres[0], mres[1], mres[2], self.cfg.params.residual_u
                 );
                 if verbose {
-                    println!("{}", self.stop_reason);
+                    println!("{}", self.stop_detail);
                 }
                 break;
             }
@@ -718,7 +982,9 @@ impl SimpleSolver {
             }
         }
         if !self.converged {
-            self.stop_reason = format!(
+            self.stop_reason = "endtime".to_string();
+            self.stop_iter = self.iter;
+            self.stop_detail = format!(
                 "endTime 硬停：跑满 {} 步，residualControl 未双达标（末步 p 初残差 {:.3e}，U {:.3e}/{:.3e}/{:.3e}）",
                 max_iter,
                 self.records.last().map(|r| r.p_res).unwrap_or(f64::NAN),
@@ -814,7 +1080,13 @@ impl SimpleSolver {
         let mut s = String::new();
         s.push_str(&format!("run mode            : {}\n", self.cfg.run));
         s.push_str(&format!("iterations          : {}\n", self.iter));
-        s.push_str(&format!("stop reason         : {}\n", self.stop_reason));
+        s.push_str(&format!("stop reason         : {}\n", self.stop_detail));
+        // 机器可读停车三元组（新增；上面那行人读文本逐字节不变）
+        s.push_str(&format!("stop_reason         : {}\n", self.stop_reason));
+        s.push_str(&format!("stop_iter           : {}\n", self.stop_iter));
+        // dp_band_pct 单位 = **百分数数值**（0.1896 表示 0.19%）；判据未评估/不适用时为 NaN
+        // （下游 code/pipeline/solver_backend.py 把 NaN 归一成 None 再写 metrics.json）
+        s.push_str(&format!("dp_band_pct         : {:.6}\n", self.dp_band_pct));
         for (i, p) in self.patches.iter().enumerate() {
             let q = patch_flux_sum(&self.mesh, &self.phi, i);
             let area = patch_area(&self.mesh, i);
@@ -1312,7 +1584,7 @@ pub fn run_poiseuille_adv(
         dpdx_exact_pa: RHO_AIR * dpdx_exact,
         iterations: solver.iter,
         converged: solver.converged,
-        stop_reason: solver.stop_reason.clone(),
+        stop_reason: solver.stop_detail.clone(),
         gate_pass,
     })
 }
@@ -1321,3 +1593,297 @@ pub fn run_poiseuille_adv(
 pub const MU: f64 = MU_AIR;
 
 
+
+#[cfg(test)]
+mod dp_stop_tests {
+    //! dP 稳定性停车判据的**行为**测试（审计 [16][17] 整改）。
+    //!
+    //! 覆盖原则：
+    //! - 判据参数一律从 `DpStopConfig::default()` 取，测试只钉「行为」不改判据；
+    //!   把 `<` 改成 `<=`、confirm 不重置、删掉 min_iter 门，下面任一用例都会红。
+    //! - 日志行格式与字段契约（stop_reason/stop_iter/dp_band_pct 的解析）由
+    //!   `tests/test_dp_stop.py` 负责；本模块**不做源码字符串 grep**。
+    use super::*;
+
+    /// 带内样本：均值 1000，最大偏差 0.05 → band 0.005% ≪ 0.2%
+    const IN_BAND: [f64; 5] = [1000.0, 1000.05, 999.95, 1000.02, 999.98];
+    /// 带外样本：均值 1004，最大偏差 8 → band ≈ 0.80% > 0.2%
+    const OUT_BAND: [f64; 5] = [1000.0, 1008.0, 1000.0, 1004.0, 1008.0];
+    /// 恰好落在带边界：均值 1000，最大偏差 2 → band_rel == 0.002（等于门限，不满足严格 `>`）
+    const AT_BAND_EDGE: [f64; 5] = [998.0, 1002.0, 1000.0, 1000.0, 1000.0];
+
+    fn cfg() -> DpStopConfig {
+        DpStopConfig::default()
+    }
+
+    /// T0：判据参数钉死（语义化断言，取代原先的源码字符串 grep）
+    #[test]
+    fn t0_criterion_params_pinned() {
+        let c = cfg();
+        assert_eq!(c.sample_every, 20, "采样间隔：每 20 迭代");
+        assert_eq!(c.window, 5, "样本窗：5 个样本");
+        assert_eq!(c.band_rel, 0.002, "带：0.2%");
+        assert_eq!(c.min_iter, 100, "最小迭代：100");
+        assert_eq!(c.cont_global_max, 1e-2, "连续性全局余量上限：1e-2");
+        assert_eq!(c.confirm_rounds, 2, "确认轮数：2");
+    }
+
+    /// T1 三道门：
+    /// 带内 + iter=100 + cg=1e-3 → 稳定；同输入 iter=80 → 不稳定（最小迭代门）；
+    /// 同输入 cg=0.1 → 不稳定（连续性门）；带外样本 → 不稳定（带门）。
+    #[test]
+    fn t1_three_gates() {
+        let c = cfg();
+
+        // 三道门全过：稳定，首次确认（confirm_rounds=2 → 尚不停车）
+        let v = dp_stop_decide(&IN_BAND, 100, 1e-3, &c, 0);
+        assert!(v.ready, "窗已满应 ready");
+        assert_eq!(v.n_samples, c.window);
+        assert!(v.stable, "带内 + iter=100 + cg=1e-3 应判稳定（band {:.4}%）", v.band_pct);
+        assert!(v.band_pct < c.band_rel * 100.0);
+        assert_eq!(v.confirm, 1, "首次稳定 → 确认计数 1");
+        assert!(!v.stop, "confirm 1 < 2，不应停车");
+
+        // 最小迭代门：iter=80 < min_iter=100 → 不稳定，且已累计的确认必须清零
+        let v = dp_stop_decide(&IN_BAND, 80, 1e-3, &c, 1);
+        assert!(!v.stable, "iter=80 未过最小迭代门，不得判稳定");
+        assert_eq!(v.confirm, 0, "不稳定必须把确认计数清零");
+        assert!(!v.stop);
+
+        // 边界：iter 恰好 = min_iter → 门是「>=」，仍应稳定
+        let v = dp_stop_decide(&IN_BAND, c.min_iter, 1e-3, &c, 0);
+        assert!(v.stable, "iter == min_iter 属于门内（>=）");
+        let v = dp_stop_decide(&IN_BAND, c.min_iter - 1, 1e-3, &c, 0);
+        assert!(!v.stable, "iter == min_iter-1 属于门外");
+
+        // 连续性门：cg=0.1 > 1e-2 → 不稳定（dP 再稳也不停车）
+        let v = dp_stop_decide(&IN_BAND, 100, 0.1, &c, 1);
+        assert!(!v.stable, "连续性 0.1 > 1e-2，不得判稳定");
+        assert_eq!(v.confirm, 0, "连续性不达标也必须清零确认计数");
+
+        // 带门：带外样本 → 不稳定
+        let v = dp_stop_decide(&OUT_BAND, 140, 1e-3, &c, 1);
+        assert!(!v.stable, "带外样本（band {:.4}%）不得判稳定", v.band_pct);
+        assert!(v.band_pct > c.band_rel * 100.0);
+        assert_eq!(v.confirm, 0);
+
+        // 带边界严格性：band_rel 恰好 == 门限 → 不稳定（门是严格「<」）
+        let v = dp_stop_decide(&AT_BAND_EDGE, 140, 1e-3, &c, 0);
+        assert!(
+            (v.band_rel - c.band_rel).abs() < 1e-15,
+            "构造样本的 band_rel 应恰等于门限，实际 {}",
+            v.band_rel
+        );
+        assert!(!v.stable, "band_rel == 门限时应判不稳定（严格小于）");
+
+        // 窗未满：不评估，确认计数原样保留（不得被误清零、也不得误停车）
+        let v = dp_stop_decide(&IN_BAND[..3], 60, 1e-3, &c, 1);
+        assert!(!v.ready, "3 < window=5 应判窗未满");
+        assert!(!v.stop);
+        assert_eq!(v.confirm, 1, "窗未满不应改动确认计数");
+    }
+
+    /// T2 confirm 重置：序列「稳定 → 带外 → 稳定 → 稳定」→ 只在第 4 个评估窗（第 3 次
+    /// 确认之后）停车；中间那次带外必须把计数清零，否则第 3 个窗口就会误停。
+    #[test]
+    fn t2_confirm_reset() {
+        let c = cfg();
+        let mut confirm = 0usize;
+        let mut stops: Vec<usize> = Vec::new();
+        let mut confirms: Vec<usize> = Vec::new();
+        // 模拟 4 个评估窗（每 20 迭代一个采样窗，这里只喂窗口内容与迭代号）
+        let windows: [(usize, &[f64], bool); 4] = [
+            (100, &IN_BAND, true),
+            (120, &OUT_BAND, false),
+            (140, &IN_BAND, true),
+            (160, &IN_BAND, true),
+        ];
+        for (it, samples, expect_stable) in windows {
+            let v = dp_stop_decide(samples, it, 1e-3, &c, confirm);
+            assert_eq!(v.stable, expect_stable, "iter {it} 稳定判定不符预期");
+            confirm = v.confirm;
+            confirms.push(v.confirm);
+            if v.stop {
+                stops.push(it);
+            }
+        }
+        assert_eq!(
+            confirms,
+            vec![1, 0, 1, 2],
+            "确认计数序列应为 稳定=1 → 带外清零 0 → 稳定重计 1 → 稳定 2"
+        );
+        assert_eq!(
+            stops,
+            vec![160],
+            "只在第 4 个评估窗确认 2 次后停车；若中间未清零会在 iter 140 误停"
+        );
+        // 显式钉「中间那次带外把计数清零」这一环
+        let v1 = dp_stop_decide(&IN_BAND, 100, 1e-3, &c, 0);
+        let v2 = dp_stop_decide(&OUT_BAND, 120, 1e-3, &c, v1.confirm);
+        assert_eq!((v1.confirm, v2.confirm), (1, 0), "带外必须清零");
+        let v3 = dp_stop_decide(&IN_BAND, 140, 1e-3, &c, v2.confirm);
+        assert_eq!(v3.confirm, 1, "清零后第 3 个窗口只得 1 次确认");
+        assert!(!v3.stop, "清零后不得在第 3 个窗口停车");
+        let v4 = dp_stop_decide(&IN_BAND, 160, 1e-3, &c, v3.confirm);
+        assert_eq!(v4.confirm, 2);
+        assert!(v4.stop, "第 2 次确认（连续两窗稳定）才停车");
+    }
+
+    /// 端到端用的 Run-A 直管边界条件（patch 名用判据契约名 inlet / outlet）
+    fn duct_bcs(q: f64) -> BoundaryConditions {
+        let wall = || PatchBC {
+            velocity: VelocityBC::FixedValue([0.0, 0.0, 0.0]),
+            pressure: PressureBC::ZeroGradient,
+        };
+        BoundaryConditions {
+            patches: vec![
+                (
+                    "inlet".to_string(),
+                    PatchBC {
+                        velocity: VelocityBC::FlowRateInlet { q },
+                        pressure: PressureBC::ZeroGradient,
+                    },
+                ),
+                (
+                    "outlet".to_string(),
+                    PatchBC {
+                        velocity: VelocityBC::ZeroGradient,
+                        pressure: PressureBC::FixedValue(0.0),
+                    },
+                ),
+                ("yMin".to_string(), wall()),
+                ("yMax".to_string(), wall()),
+                ("zMin".to_string(), wall()),
+                ("zMax".to_string(), wall()),
+            ],
+        }
+    }
+
+    /// 造一个可跑的小直管 solver：`build_box_mesh` 的 patch 名是 xMin/xMax，
+    /// 判据按名找 inlet*/outlet，这里改名为契约名（几何与网格不受影响）。
+    fn duct_solver(dp_stop: bool, max_iter: usize) -> SimpleSolver {
+        let (nx, ny, nz) = (20usize, 5usize, 1usize);
+        let (h, l, w) = (0.01f64, 0.2f64, 0.01f64);
+        let u_mean = 0.02f64;
+        let mut mesh = build_box_mesh(nx, ny, nz, l / nx as f64, h / ny as f64, w / nz as f64);
+        for p in mesh.patches.iter_mut() {
+            if p.name == "xMin" {
+                p.name = "inlet".to_string();
+            } else if p.name == "xMax" {
+                p.name = "outlet".to_string();
+            }
+        }
+        let mut params = SolverParams::default();
+        params.max_iter = max_iter;
+        // 端到端只验 dP 判据与 endTime 兜底：把 residualControl 门收到实际不可达
+        params.residual_p = 1e-12;
+        params.residual_u = 1e-12;
+        params.write_interval = 0;
+        let mut solver = SimpleSolver::new(mesh, CaseConfig::synthetic(duct_bcs(u_mean * h * w), params))
+            .expect("构造 solver 失败");
+        solver.dp_stop = dp_stop;
+        solver
+    }
+
+    /// 当前场态的 dP（与 contract_metrics / 判据同口径）
+    fn duct_dp(s: &SimpleSolver) -> f64 {
+        let inlets: Vec<usize> = s
+            .patches
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| p.name.starts_with("inlet"))
+            .map(|(i, _)| i)
+            .collect();
+        let outlet = s
+            .patches
+            .iter()
+            .position(|p| p.name == "outlet")
+            .expect("缺 outlet patch");
+        dp_pa(&s.mesh, &s.p, &inlets, outlet)
+    }
+
+    /// T3 端到端（真跑）：判据开 → `stop_reason = dp_stable`、停车早于跑满、停车时 dP 与
+    /// 跑满 1500 步的 dP 相对差 < 0.1%；判据关（等价 `--no-dp-stop`）→ `endtime` + 1500 步。
+    #[test]
+    fn t3_end_to_end_dp_stable_and_no_dp_stop() {
+        std::env::remove_var("FLOWSCOPE_DP_STOP");
+        let max_iter = 1500usize;
+        let c = cfg();
+
+        // (a) 判据开：应在 1500 步内因 dP 稳定停车
+        let mut on = duct_solver(true, max_iter);
+        on.run(None, None, false).expect("判据开：求解失败");
+        assert_eq!(on.stop_reason, "dp_stable", "应因 dP 稳定停车，实际：{}", on.stop_detail);
+        let stop_iter = on.stop_iter;
+        assert!(
+            stop_iter >= c.min_iter,
+            "停车迭代 {stop_iter} 不应早于最小迭代 {}",
+            c.min_iter
+        );
+        assert!(stop_iter < max_iter, "停车迭代 {stop_iter} 应早于跑满 {max_iter}");
+        assert!(
+            on.dp_band_pct < c.band_rel * 100.0,
+            "停车时带的百分数数值 {:.4} 应 < {}",
+            on.dp_band_pct,
+            c.band_rel * 100.0
+        );
+        // 日志三字段（pipeline 契约：tests/test_dp_stop.py 解析同一格式）
+        let log = on.contract_metrics();
+        assert!(log.contains("\nstop_reason         : dp_stable\n"), "日志缺 dp_stable 三字段：{log}");
+        assert!(
+            log.contains(&format!("\nstop_iter           : {stop_iter}\n")),
+            "日志 stop_iter 应为 {stop_iter}：{log}"
+        );
+        assert!(log.contains("\ndp_band_pct         : "), "日志缺 dp_band_pct：{log}");
+        let dp_on = duct_dp(&on);
+
+        // (b) 判据关（--no-dp-stop 同义）：必须 endTime 硬停 1500 步
+        let mut off = duct_solver(false, max_iter);
+        off.run(None, None, false).expect("判据关：求解失败");
+        assert_eq!(off.stop_reason, "endtime", "关闭判据后应 endTime 硬停，实际：{}", off.stop_detail);
+        assert_eq!(off.stop_iter, max_iter, "关闭判据后应跑满 {max_iter} 步");
+        let off_log = off.contract_metrics();
+        assert!(
+            off_log.contains("\nstop_reason         : endtime\n"),
+            "关闭判据的日志 stop_reason 应为 endtime：{off_log}"
+        );
+        let dp_off = duct_dp(&off);
+
+        // (c) dP 判据的正当性：停车时的 dP 与跑满的 dP 相对差 < 0.1%
+        let rel = ((dp_on - dp_off) / dp_off).abs();
+        assert!(
+            rel < 1e-3,
+            "停车 dP {dp_on:.6e} 与跑满 dP {dp_off:.6e} 相对差 {:.4}% 应 < 0.1%",
+            rel * 100.0
+        );
+    }
+
+    /// 横幅：判据关闭 / 不适用时**不得**再罗列参数元组，只给一行原因
+    #[test]
+    fn t4_banner_off_does_not_list_params() {
+        let c = cfg();
+        // 生效时：必须带参数元组
+        let on = dp_stop_banner(DpStopMode::Enabled, &c);
+        for must in ["residualControl OR dP-stable", "0.2%", "最少 100 步", "连续 2 轮确认"] {
+            assert!(on.contains(must), "生效横幅缺 {must}：{on}");
+        }
+        // 关闭 / 不适用时：明确一行原因，且不得出现任何参数数字
+        let cases = [
+            (DpStopMode::SwitchOff, dp_stop_mode(false, false, false, 1, true)),
+            (DpStopMode::SwitchOff, dp_stop_mode(true, true, false, 1, true)),
+            (DpStopMode::InletPressureFixed, dp_stop_mode(true, false, true, 2, true)),
+            (DpStopMode::MissingPatches, dp_stop_mode(true, false, false, 0, true)),
+            (DpStopMode::MissingPatches, dp_stop_mode(true, false, false, 2, false)),
+        ];
+        for (want, got) in cases {
+            assert_eq!(want, got, "模式派生不符预期");
+            let s = dp_stop_banner(got, &c);
+            assert!(s.starts_with("residualControl only"), "应以 residualControl only 开头：{s}");
+            for ban in ["样本", "0.2%", "最少 100", "连续 2 轮", "1e-2", "0.01"] {
+                assert!(!s.contains(ban), "关闭/不适用横幅不得罗列参数（出现 {ban}）：{s}");
+            }
+        }
+        // 只有四类全满足才进入 Enabled
+        assert_eq!(dp_stop_mode(true, false, false, 1, true), DpStopMode::Enabled);
+    }
+}
