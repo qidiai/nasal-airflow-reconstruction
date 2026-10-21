@@ -314,7 +314,7 @@ def assemble_contract(result_metrics, letter, case):
     Q = float(totals["Q_inlet_total_L_min"])
     resistance = dP / (Q / 60.0)  # Pa/(L/s)，定流量口径
     contract = {
-        "title": f"患者{letter} 鼻腔气流仿真查看器（黑客松概念验证）",
+        "title": f"患者{letter} 鼻腔气流仿真查看器（科研与康复参考）",
         "caseBaseline": f"{case} @15 L/min 层流",
         "units": "mm, m/s, Pa",
         "metrics": {
@@ -1541,11 +1541,19 @@ def run_postprocess_and_step5(manifest, result_dir, OUT_ROOT, PREFIX, CASE,
     vtu = find_vtu(result_dir)
     if vtu is None:
         die(2, f"契约完备但 VTU 缺失：{result_dir}/VTK/*/internal.vtu")
+    # [修复] step5 的 --mask-npz 默认按 HERE/out/step2/<mask> 推导（内置病例位置），
+    #   上传病例的掩码实际在 <run_out_root>/step2/，故必须显式传入；否则 step5 到
+    #   内置病例目录找掩码而 FileNotFoundError。命名规则与 S3（main 内 mask_npz）一致。
+    _mask_name = ("mask_full.npz" if (PREFIX == "pA" and CASE == "v5")
+                  else (f"mask_full-{CASE}.npz" if PREFIX == "pA"
+                        else f"mask_full-{PREFIX}-{CASE}.npz"))
+    mask_npz = os.path.join(OUT_ROOT, "step2", _mask_name)
     cmd5 = [sys.executable, STEP5,
             "--dicom-dir", DICOM_DIR,
             "--case-prefix", PREFIX,
             "--case", CASE,
             "--vtu", vtu,
+            "--mask-npz", mask_npz,
             "--metrics-json", contract_path,
             "--out-dir", os.path.join(OUT_ROOT, "step5"),
             "--write-mode", "full"]

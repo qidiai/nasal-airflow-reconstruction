@@ -557,7 +557,7 @@ header = """\
 //            rim_b64 = int16(小端) xyz 交错独立点, 两点一段 LineSegments
 // CENTER   : {}  （与 step5 VIEWER_DATA / step6 VOLUME_DATA 同帧）
 // frame    : {}（block_mean + pad 后的 MC 坐标按体素中心口径 -0.5*spacing 归位）
-// 说明     : 概念验证 · 非医疗器械 · 仿真几何禁止人体使用
+// 说明     : 科研与康复参考 · 非医疗器械 · 仿真几何禁止人体使用
 //            头部外形受扫描视野限制：颅顶 / 枕后 / 颈项未完整采集
 // ============================================================================
 """.format(gen_time, HU_SKIN, round(SZ_C, 4), TARGET, QUANT_MM,
@@ -899,7 +899,7 @@ if not args.no_preview:
                          fontsize=10, color="#cfd8e3")
         fig.text(0.01, 0.014,
                  "step7 T9 方案A · free %.1f cm2 / cut %.1f cm2 · 交付 %d 面 · "
-                 "受扫描视野限制：颅顶/枕后/颈项未完整采集 · 概念验证 · 非医疗器械 · 仿真几何禁止人体使用"
+                 "受扫描视野限制：颅顶/枕后/颈项未完整采集 · 科研与康复参考 · 非医疗器械 · 仿真几何禁止人体使用"
                  % (free_g["area_cm2"], cut_g["area_cm2"], len(df)), fontsize=9, color="#8899aa")
         prev_path = os.path.join(OUT_STEP7, "skin_preview.png")
         fig.savefig(prev_path, dpi=100, facecolor="#101418")

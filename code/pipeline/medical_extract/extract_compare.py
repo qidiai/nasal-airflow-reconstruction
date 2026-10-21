@@ -264,7 +264,7 @@ def main():
             'Q_L_min': Q_ANCHOR_L_MIN,
         },
         'disclaimer': ('仿真估计 · 非临床测量 · 层流线性外推 · 不确定度±20-50% · '
-                       '概念验证（非医疗器械）'),
+                       '科研与康复参考（非医疗器械）'),
     }
 
     # ---------- 组装 data 对象（保留既有六键） ----------
@@ -289,7 +289,7 @@ def main():
     head = ('// viewer_plus_data.js —— T17 SimScale后处理集成数据包（生成脚本：升级施工-T17/extract_*.py）\n'
             '// T18-M4：compare 键由 extract_compare.py 追加（多病例对比 · ΔP/Q 直算 · 禁用 legacy resistance_total）\n'
             '// 坐标系：mm，已减 airwayMesh 质心 CENTER=[79.22,71.87,56.98]（与 viewer_data.js 同帧）\n'
-            '// 说明：概念验证 · 非医疗器械 · 仿真估计 · 非临床测量\n')
+            '// 说明：科研与康复参考 · 非医疗器械 · 仿真估计 · 非临床测量\n')
     txt = head + 'window.VIEWER_PLUS_DATA = ' + body + ';\n'
 
     for p in (OUT_T17, OUT_ROOT):
