@@ -51,6 +51,8 @@ _ap5.add_argument("--out-dir", default=None, help="输出目录（默认 pipelin
 _ap5.add_argument("--single-case", action="store_true",
                   help="单算例模式：三档占位字段可缺（最小必需集齐备即导出；"
                        "缺失项写入 meta.partial/meta.missing，供 viewer 隐藏）")
+_ap5.add_argument("--voxel-z", type=float, default=None,
+                  help="[回退口径] z 单元尺寸 mm（默认从 --vtu 单元几何实测；实测不出时用本值，再不行用 DS2_Z）")
 _ap5.add_argument("--mask-npz", default=None,
                   help="覆盖 mask npz 路径（默认按 --case-prefix/--case 推导；"
                        "重导既有病例时可显式指定）")
@@ -328,40 +330,143 @@ log("读 internal.vtu ...")
 import meshio
 m = meshio.read(VTU)
 log(f"  points {m.points.shape} 单元 {m.cells[0].data.shape[0]} 类型 {m.cells[0].type}")
-# T12：降采样2× 网格体心索引范围动态探测（VTU 点 bbox；
-#   公式经患者A 实证复现原探测值 I0/J0/K0=50/30/0, NI/NJ/NK=126/141/147）
-_pmin = m.points.min(axis=0) * 1000.0
-_pmax = m.points.max(axis=0) * 1000.0
-I0 = int(np.floor(_pmin[0] / DS2_X))
-J0 = int(np.floor(_pmin[1] / DS2_Y))
-K0 = int(np.floor(_pmin[2] / DS2_Z))
-I1 = int(np.floor(_pmax[0] / DS2_X - 0.5))
-J1 = int(np.floor(_pmax[1] / DS2_Y - 0.5))
-K1 = int(np.floor(_pmax[2] / DS2_Z - 0.5))
-NI, NJ, NK = I1 - I0 + 1, J1 - J0 + 1, K1 - K0 + 1
-log(f"  DS2 网格动态探测: I0/J0/K0={I0}/{J0}/{K0}  NI/NJ/NK={NI}/{NJ}/{NK}")
 Ucell = np.asarray(m.cell_data["U"][0], dtype=np.float64)         # (ncell,3) m/s
 conn = m.cells[0].data
-cc_m = m.points[conn].mean(axis=1)                               # 单元中心 (m)
+_Pcell = m.points[conn]                                          # (ncell,8,3) m（一次 gather 两用）
+cc_m = _Pcell.mean(axis=1)                                      # 单元中心 (m)
 cc_mm = cc_m * 1000.0
 
-# 体心 -> 网格索引
-ii_c = np.round(cc_mm[:, 0] / DS2_X - 0.5).astype(np.int64) - I0
-jj_c = np.round(cc_mm[:, 1] / DS2_Y - 0.5).astype(np.int64) - J0
-kk_c = np.round(cc_mm[:, 2] / DS2_Z - 0.5).astype(np.int64) - K0
+# ---------------------------------------------------------------------------
+# [FIX 2026-10-21「快速档看不到流线」根因] VG 网格间距改为**实测 CFD 单元尺寸**
+#
+#   旧实现把体素速度网格 VG 的 z 间距硬绑 DS2_Z（= 2×全分辨率层厚 = 0.7mm），
+#   而快速档 CFD 单元 z 尺寸 = dz×zf（0.35×9 = 3.15mm）→ 只有 0.7/3.15 = 22%
+#   的 z 层有速度样本；trilinear 权重 wsum<0.25 → sample_vel 返 None → 流线
+#   走不到 20 点而全部作废（对照实验：均匀速度场、只改 z 单元尺寸 →
+#   快速档 0/144 条、标准档 144/144 条）。
+#
+#   现改为从单元几何**实测**三向单元尺寸（不猜参数），VG 间距 = max(名义 DS2,
+#   实测) —— **只粗不细**：标准档实测≈名义（抖动 <0.1%，由 VG_PITCH_TOL 滤掉），
+#   网格与索引换算逐字节不变；只有 CFD 单元明显粗于名义间距时，才把 VG 层对齐
+#   到真实单元层，使 sample_vel 在任意 z 层都拿得到权重。
+#   非均匀 z（阶梯网格/末层残层）由 sample_vel 的 KD-tree 最近单元兜底覆盖。
+# ---------------------------------------------------------------------------
+VG_PITCH_TOL = 0.05              # 实测粗于名义 >5% 才对齐（滤掉建模/浮点抖动）
+# 最近单元兜底的两个上界：距离 ≤ 1.5×单元对角线，且点须落在最近单元的"单元盒"内
+#   （各轴 |Δ| ≤ BOX_FACTOR × 半单元尺寸）。纯距离阈值实测会把速度外推到远距
+#   固体区（真实 pA-v1 标准档 board⑥ 负点 30→179、最小间隙 −0.50→−5.15mm），
+#   单元盒判据把穿透限制在半个单元内（标准档 0.35mm / 快速档 1.58mm）。
+VG_KD_FALLBACK_DIAG_FACTOR = 1.5
+VG_KD_FALLBACK_BOX_FACTOR = 1.0
+
+
+def _cell_size_mm(Pcell_m):
+    """实测单元三向尺寸（mm）：逐单元 bbox 跨度的中位数。
+
+    用 bbox 而非"按节点序号取棱长"——患者A 的 internal.vtu（foamToVTK 产物）里
+    hexahedron 节点序并非按 x/y/z 排列，(0,1) 棱实测是 z 向 0.7mm、而 (0,4) 棱是
+    x/y 向 0.6992mm，按序号取棱长会张冠李戴。bbox 跨度与节点序无关。
+    非轴对齐网格上 bbox 略大于真实厚度 → 只会让 VG 更粗，不会漏层。
+    读不出（全退化/非法值）返回 None。
+    """
+    ext = (Pcell_m.max(axis=1) - Pcell_m.min(axis=1)) * 1000.0   # (ncell,3) mm
+    med = np.median(ext, axis=0)
+    if not np.all(np.isfinite(med)) or np.any(med <= 0):
+        return None
+    return (float(med[0]), float(med[1]), float(med[2]))
+
+
+def _pitch_align(nominal, measured):
+    """实测明显粗于名义才采用（只粗不细）；否则保持名义间距（= 旧版行为）。"""
+    if measured is None or not np.isfinite(measured) or measured <= 0:
+        return float(nominal)
+    if measured <= float(nominal) * (1.0 + VG_PITCH_TOL):
+        return float(nominal)
+    return float(round(measured, 6))
+
+
+_cell_mm = _cell_size_mm(_Pcell)
+if _cell_mm is None and ARGS5.voxel_z:
+    # 实测不出（退化/异常网格）→ 回退 --voxel-z 显式口径（只补 z，xy 仍用名义）
+    _cell_mm = (None, None, float(ARGS5.voxel_z))
+    log("  [W] 单元几何实测失败：z 回退 --voxel-z 口径 %.4f mm" % float(ARGS5.voxel_z))
+VGX = _pitch_align(DS2_X, _cell_mm[0] if _cell_mm else None)
+VGY = _pitch_align(DS2_Y, _cell_mm[1] if _cell_mm else None)
+VGZ = _pitch_align(DS2_Z, _cell_mm[2] if _cell_mm else None)
+_cell_ok = bool(_cell_mm) and all(v is not None for v in _cell_mm)
+log("  [诊断] VG 网格间距 %g/%g/%g mm（名义 DS2 %g/%g/%g；实测单元 %s）"
+    % (VGX, VGY, VGZ, DS2_X, DS2_Y, DS2_Z,
+       ("%g/%g/%g mm" % tuple(_cell_mm)) if _cell_ok else "读不出"))
+
+# 网格索引范围：直接由**单元体心索引**定界（T12 旧式用节点 bbox + floor(pmax/p - 0.5)，
+#   在"末层是残层"时上界会小于体心索引——快速档 zf=9 的末层正是残层 → 越界断言）。
+#   患者A 标准档实证：本式复现同一组 I0/J0/K0=50/30/0、NI/NJ/NK=126/141/147。
+#   体心 -> 网格索引（与 VG 间距同口径；kk_c / sample_vel 的 gk / mean_inward 的 ck
+#   三处换算必须与 VGX/VGY/VGZ 一致，否则权重错位）
+ii_abs = np.round(cc_mm[:, 0] / VGX - 0.5).astype(np.int64)
+jj_abs = np.round(cc_mm[:, 1] / VGY - 0.5).astype(np.int64)
+kk_abs = np.round(cc_mm[:, 2] / VGZ - 0.5).astype(np.int64)
+I0, J0, K0 = int(ii_abs.min()), int(jj_abs.min()), int(kk_abs.min())
+NI, NJ, NK = (int(ii_abs.max()) - I0 + 1, int(jj_abs.max()) - J0 + 1,
+              int(kk_abs.max()) - K0 + 1)
+log(f"  网格动态探测(按体心索引定界): I0/J0/K0={I0}/{J0}/{K0}  "
+    f"NI/NJ/NK={NI}/{NJ}/{NK}")
+ii_c, jj_c, kk_c = ii_abs - I0, jj_abs - J0, kk_abs - K0
 assert ii_c.min() >= 0 and ii_c.max() < NI and jj_c.min() >= 0 and jj_c.max() < NJ and kk_c.min() >= 0 and kk_c.max() < NK, "网格索引越界"
 VG = np.full((NK, NJ, NI, 3), np.nan)
 VG[kk_c, jj_c, ii_c] = Ucell
 FLUID = ~np.isnan(VG[..., 0])
 spd_all = np.linalg.norm(Ucell, axis=1)
-log(f"  体素速度网格 {VG.shape} 充填 {int(FLUID.sum())}；单元速度 m/s min/mean/max = "
+_nk_fluid = int(FLUID.any(axis=(1, 2)).sum())
+log(f"  体素速度网格 {VG.shape} 充填 {int(FLUID.sum())}；"
+    f"z 向有速度层 {_nk_fluid}/{NK}（{100.0 * _nk_fluid / NK:.0f}%）；"
+    f"单元速度 m/s min/mean/max = "
     f"{spd_all.min():.4f}/{spd_all.mean():.4f}/{spd_all.max():.4f}")
 
+# [FIX] 最近单元兜底：trilinear 权重不足时（粗单元之间的空层、薄壁附近权重被
+#   非流体角点吃掉）退到"最近单元速度"。两个上界同时成立才采用：距离 ≤ 1.5×
+#   单元对角线，且点落在最近单元的单元盒内（越界即返回 None）。这样 VG 的任意
+#   z 层（含阶梯/残层）都取得到速度，又不会把速度外推到远处固体区。
+from scipy.spatial import cKDTree
+_KD = cKDTree(cc_mm)                                            # 单元中心（mm）
+_cell_vec_mm = np.asarray([c if c is not None else v
+                           for c, v in zip((_cell_mm or (None, None, None)),
+                                           (VGX, VGY, VGZ))], dtype=np.float64)
+_cell_diag_mm = float(np.linalg.norm((_cell_mm if _cell_ok else (VGX, VGY, VGZ))))
+_KD_MAX_DIST_MM = VG_KD_FALLBACK_DIAG_FACTOR * _cell_diag_mm
+_KD_HALF_BOX_MM = 0.5 * VG_KD_FALLBACK_BOX_FACTOR * _cell_vec_mm
+log("  最近单元兜底: KD-tree %d 单元, 距离上限 %.2fmm（%.1f×单元对角线 %.2fmm）, "
+    "单元盒半宽 %s mm"
+    % (len(cc_mm), _KD_MAX_DIST_MM, VG_KD_FALLBACK_DIAG_FACTOR, _cell_diag_mm,
+       np.round(_KD_HALF_BOX_MM, 3).tolist()))
+
+_SV_STAT = {"hit": 0, "miss": 0, "kd": 0}   # [诊断] 命中/落空/兜底计数（只计数，不改判定）
+
+
+def _sample_vel_kd(p_mm):
+    """最近单元兜底：点须落在最近单元的单元盒内且距离 ≤ 1.5×单元对角线。
+
+    （等价于"这个点就在某个流体单元体内，取该单元的分片常数速度"；
+      越出单元盒即认输返回 None，避免把速度外推到远处固体区。）
+    """
+    d, idx = _KD.query(p_mm, k=1)
+    if not np.isfinite(d) or d > _KD_MAX_DIST_MM:
+        _SV_STAT["miss"] += 1
+        return None
+    i = int(idx)
+    if np.any(np.abs(np.asarray(p_mm, dtype=np.float64) - cc_mm[i]) > _KD_HALF_BOX_MM):
+        _SV_STAT["miss"] += 1
+        return None
+    _SV_STAT["kd"] += 1
+    _SV_STAT["hit"] += 1
+    return Ucell[i]
+
+
 def sample_vel(p_mm):
-    """p_mm:(3,) -> 速度 (m/s) 或 None（插值权重不足）"""
-    gi = p_mm[0] / DS2_X - (I0 + 0.5)
-    gj = p_mm[1] / DS2_Y - (J0 + 0.5)
-    gk = p_mm[2] / DS2_Z - (K0 + 0.5)
+    """p_mm:(3,) -> 速度 (m/s) 或 None（插值权重不足且最近单元超距）"""
+    gi = p_mm[0] / VGX - (I0 + 0.5)
+    gj = p_mm[1] / VGY - (J0 + 0.5)
+    gk = p_mm[2] / VGZ - (K0 + 0.5)
     i0f, j0f, k0f = np.floor(gi), np.floor(gj), np.floor(gk)
     fi, fj, fk = gi - i0f, gj - j0f, gk - k0f
     i0f, j0f, k0f = int(i0f), int(j0f), int(k0f)
@@ -383,7 +488,8 @@ def sample_vel(p_mm):
                 if w <= 0: continue
                 acc += w * VG[kk, jj, ii]; wsum += w
     if wsum < 0.25:
-        return None
+        return _sample_vel_kd(p_mm)          # [FIX] 权重不足 -> 最近单元兜底（自带计数）
+    _SV_STAT["hit"] += 1
     return acc / wsum
 
 
@@ -407,17 +513,17 @@ sides = {}
 
 def mean_inward(c, R=6.0):
     """鼻孔质心 c 附近 R(mm) 内流体单元的平均速度方向（= CFD 入流方向，物理意义上的“向内”）"""
-    ri = int(np.ceil(R / DS2_X)); rj = int(np.ceil(R / DS2_Y)); rk = int(np.ceil(R / DS2_Z))
-    ci = int(round(c[0] / DS2_X - 0.5)) - I0
-    cj = int(round(c[1] / DS2_Y - 0.5)) - J0
-    ck = int(round(c[2] / DS2_Z - 0.5)) - K0
+    ri = int(np.ceil(R / VGX)); rj = int(np.ceil(R / VGY)); rk = int(np.ceil(R / VGZ))
+    ci = int(round(c[0] / VGX - 0.5)) - I0
+    cj = int(round(c[1] / VGY - 0.5)) - J0
+    ck = int(round(c[2] / VGZ - 0.5)) - K0
     i0, i1 = max(0, ci - ri), min(NI, ci + ri + 1)
     j0, j1 = max(0, cj - rj), min(NJ, cj + rj + 1)
     k0, k1 = max(0, ck - rk), min(NK, ck + rk + 1)
     sub = VG[k0:k1, j0:j1, i0:i1]
     fl = ~np.isnan(sub[..., 0])
     Ki, Ji, Ii = np.meshgrid(np.arange(k0, k1), np.arange(j0, j1), np.arange(i0, i1), indexing="ij")
-    P = np.stack([(Ii + I0 + 0.5) * DS2_X, (Ji + J0 + 0.5) * DS2_Y, (Ki + K0 + 0.5) * DS2_Z], -1)
+    P = np.stack([(Ii + I0 + 0.5) * VGX, (Ji + J0 + 0.5) * VGY, (Ki + K0 + 0.5) * VGZ], -1)
     d = np.linalg.norm(P - c, axis=-1)
     sel = fl & (d < R)
     vm = sub[sel].mean(axis=0)
@@ -484,6 +590,10 @@ def build(sign):
     return out
 
 streamlines = build(1.0)
+# [规格 2026-10-21] 0 有效流线的退化路径：z0/z1 只有在 >=1 条有效流线时才存在。
+#   这里先给空数组默认值（即使日后有人误删下面的守卫也不会 NameError），
+#   但统计与日志一律放进 ``if streamlines:``——空数组 .mean() 会出 nan 误导报表。
+z0 = z1 = np.zeros(0, dtype=np.float64)
 if streamlines:
     z0 = np.array([s[0][0][2] for s in streamlines])
     z1 = np.array([s[0][-1][2] for s in streamlines])
@@ -496,9 +606,24 @@ log(f"  streamlines 有效 {len(streamlines)} 条（≥20 点）")
 if streamlines and not (frac_down >= 0.5 and z1.mean() < z0.mean()):
     log(f"  方向自检未通过(向下比例={frac_down:.2f}, 起点z均={z0.mean():.1f} 终点z均={z1.mean():.1f}) -> 翻转重做")
     streamlines = build(-1.0)
-    z0 = np.array([s[0][0][2] for s in streamlines]); z1 = np.array([s[0][-1][2] for s in streamlines])
-    frac_down = float((z1 < z0).mean())
-log(f"  方向自检: 起点平均z={z0.mean():.1f}mm 终点平均z={z1.mean():.1f}mm; 向下(终点z<起点z)比例={frac_down:.2f}")
+    if streamlines:
+        z0 = np.array([s[0][0][2] for s in streamlines]); z1 = np.array([s[0][-1][2] for s in streamlines])
+        frac_down = float((z1 < z0).mean())
+    else:
+        # 翻转重做后仍 0 条：同样回落到空数组（不能沿用翻转前的 z0/z1：那属另一个方向）
+        z0 = z1 = np.zeros(0, dtype=np.float64)
+        frac_down = 0.0
+        log("  [W] 反向重做后仍 0 条有效流线")
+if streamlines:
+    log(f"  方向自检: 起点平均z={z0.mean():.1f}mm 终点平均z={z1.mean():.1f}mm; 向下(终点z<起点z)比例={frac_down:.2f}")
+else:
+    log("[W] 流线 0 条：跳过方向自检，viewer 仅显示气道网格")
+
+_sv_tot = _SV_STAT["hit"] + _SV_STAT["miss"]
+if _sv_tot:
+    log("  [诊断] sample_vel 命中 %d/%d（%.1f%%），落空 %d（其中最近单元兜底 %d）"
+        % (_SV_STAT["hit"], _sv_tot, 100.0 * _SV_STAT["hit"] / _sv_tot,
+           _SV_STAT["miss"], _SV_STAT["kd"]))
 
 stream_out = []
 for pts, sps in streamlines:
@@ -1021,157 +1146,168 @@ else:
 # 板⑥ 流线-壳间隙抽检 v2（[裁决2] 两段式门禁替代原 min≥0 口径）
 #   采样：63 条流线每 5 点取 1；端区=每条流线首、尾各 1 个采样点
 #   （帽区豁免：壳在鼻孔/咽口开放，流线端点本就穿过帽平面）
-log("[F3] 板⑥ 流线-壳间隙抽检 v2 ...")
-air_mesh_world = _f3_mesh(air.vertices, air.faces)
-per_sl = []
-for pts, _sps in streamlines:
-    per_sl.append(np.asarray(pts, dtype=np.float64)[::5])
-probe_pts = np.concatenate(per_sl, axis=0)
-_sl_idx = np.concatenate([np.full(len(p), t, dtype=np.int64)
-                          for t, p in enumerate(per_sl)])
-_samp_idx = np.concatenate([np.arange(len(p), dtype=np.int64) for p in per_sl])
-_n_samp = [len(p) for p in per_sl]
-_endpoint_zone = np.zeros(len(probe_pts), dtype=bool)
-_off = 0
-for _p in per_sl:
-    _endpoint_zone[_off] = True                        # 首采样点
-    _endpoint_zone[_off + len(_p) - 1] = True          # 尾采样点
-    _off += len(_p)
-dist, face_idx = _f3_closest_point_exact(air_mesh_world, probe_pts)
-if air_mesh_world.is_watertight:
-    try:
-        inside = air_mesh_world.contains(probe_pts)
-        method = "精确点-三角形距离（质心 KD-tree 候选集；等价 trimesh.proximity.closest_point，本环境缺 rtree）+ contains（壳水密）"
-    except Exception as _e:
+if streamlines:
+    log("[F3] 板⑥ 流线-壳间隙抽检 v2 ...")
+    air_mesh_world = _f3_mesh(air.vertices, air.faces)
+    per_sl = []
+    for pts, _sps in streamlines:
+        per_sl.append(np.asarray(pts, dtype=np.float64)[::5])
+    probe_pts = np.concatenate(per_sl, axis=0)
+    _sl_idx = np.concatenate([np.full(len(p), t, dtype=np.int64)
+                              for t, p in enumerate(per_sl)])
+    _samp_idx = np.concatenate([np.arange(len(p), dtype=np.int64) for p in per_sl])
+    _n_samp = [len(p) for p in per_sl]
+    _endpoint_zone = np.zeros(len(probe_pts), dtype=bool)
+    _off = 0
+    for _p in per_sl:
+        _endpoint_zone[_off] = True                        # 首采样点
+        _endpoint_zone[_off + len(_p) - 1] = True          # 尾采样点
+        _off += len(_p)
+    dist, face_idx = _f3_closest_point_exact(air_mesh_world, probe_pts)
+    if air_mesh_world.is_watertight:
+        try:
+            inside = air_mesh_world.contains(probe_pts)
+            method = "精确点-三角形距离（质心 KD-tree 候选集；等价 trimesh.proximity.closest_point，本环境缺 rtree）+ contains（壳水密）"
+        except Exception as _e:
+            inside = _f3_inside_by_local_normal(air_mesh_world, probe_pts, face_idx)
+            method = "精确点-三角形距离 + 最近面法向局部判内外（contains 不可用: %s）" % _e
+    else:
         inside = _f3_inside_by_local_normal(air_mesh_world, probe_pts, face_idx)
-        method = "精确点-三角形距离 + 最近面法向局部判内外（contains 不可用: %s）" % _e
-else:
-    inside = _f3_inside_by_local_normal(air_mesh_world, probe_pts, face_idx)
-    method = "精确点-三角形距离 + 最近面法向局部判内外（壳非水密，contains 不可靠）"
-clearance = np.where(inside, dist, -dist)
+        method = "精确点-三角形距离 + 最近面法向局部判内外（壳非水密，contains 不可靠）"
+    clearance = np.where(inside, dist, -dist)
 
-# [F3 诊断] 板⑥ 平滑前对照（同一精确法 + 同一局部法向判内外；v2 门禁 before 侧）
-_F3_air_b_mesh = _f3_mesh(_F3_air_before, air.faces)
-_db, _fb = _f3_closest_point_exact(_F3_air_b_mesh, probe_pts)
-if _F3_air_b_mesh.is_watertight:
-    try:
-        _in_b = _F3_air_b_mesh.contains(probe_pts)
-    except Exception:
+    # [F3 诊断] 板⑥ 平滑前对照（同一精确法 + 同一局部法向判内外；v2 门禁 before 侧）
+    _F3_air_b_mesh = _f3_mesh(_F3_air_before, air.faces)
+    _db, _fb = _f3_closest_point_exact(_F3_air_b_mesh, probe_pts)
+    if _F3_air_b_mesh.is_watertight:
+        try:
+            _in_b = _F3_air_b_mesh.contains(probe_pts)
+        except Exception:
+            _in_b = _f3_inside_by_local_normal(_F3_air_b_mesh, probe_pts, _fb)
+    else:
         _in_b = _f3_inside_by_local_normal(_F3_air_b_mesh, probe_pts, _fb)
+    _clr_b = np.where(_in_b, _db, -_db)
+
+    # [裁决2] flip_points 逐点诊断（正→负翻转点全量留档，即使门禁全过也保留）
+    # [裁决（本轮）门禁 v3] 每个翻转点附歧义剖面档案（最近内/外侧面距离、法向、
+    #   腔宽解释全量留档——即使门禁全过也保留，裁决2 要求）
+    _flip = (_clr_b >= 0.0) & (clearance < 0.0)
+    flip_points = []
+    _flip_entry_by_flat = {}
+    for _ii in np.where(_flip)[0]:
+        _prof = _f3_ambiguity_profile(air_mesh_world, probe_pts[_ii])
+        _ddiff = (None if (_prof["d_inside_mm"] is None or _prof["d_outside_mm"] is None)
+                  else float(abs(_prof["d_inside_mm"] - _prof["d_outside_mm"])))
+        _amb = bool(_ddiff is not None and _ddiff < F3_AMBIGUITY_TOL_MM)
+        _expl = ("符号无歧义（两面距离差 ≥ 0.1mm 或单侧无候选面），不豁免"
+                 if not _amb else
+                 ("该点位于两壁间真腔隙（腔宽≈{:.2f}mm），距两侧壁近乎等距（差 {:.4f}mm < 0.1mm）；"
+                  "'外侧'判定来自近距双层面下最近面选择的歧义，非真实穿壁").format(
+                      _prof["d_inside_mm"] + _prof["d_outside_mm"], _ddiff))
+        flip_points.append({
+            "streamline_index": int(_sl_idx[_ii]),
+            "sample_index": int(_samp_idx[_ii]),
+            "samples_in_streamline": int(_n_samp[int(_sl_idx[_ii])]),
+            "is_endpoint_zone": bool(_endpoint_zone[_ii]),
+            "clearance_before_mm": float(_clr_b[_ii]),
+            "clearance_after_mm": float(clearance[_ii]),
+            "world_xyz": [float(x) for x in (probe_pts[_ii] - CENTER)],
+            "ambiguity_v3": dict(
+                _prof,
+                abs_distance_diff_mm=_ddiff,
+                lumen_width_mm=(None if _ddiff is None
+                                else float(_prof["d_inside_mm"] + _prof["d_outside_mm"])),
+                is_sign_ambiguous=_amb,
+                rule=("裁决（门禁 v3）：最近内侧面与最近外侧面（两面法向相对该点取向相反）"
+                      "距离差 < 0.1mm → 近等距多层面/折叠，最近面选择歧义，"
+                      "'外侧'判定非真实穿壁 → 符号歧义豁免（不计入门禁）"),
+                explanation=_expl),
+        })
+        _flip_entry_by_flat[int(_ii)] = len(flip_points) - 1
+
+    # [裁决2] 门禁 v2 两段式（保留记录供追溯；v3 为现行判据）
+    _neg_a = int((clearance < 0).sum())
+    _neg_b = int((_clr_b < 0).sum())
+    _seg1_pass = _neg_a <= _neg_b
+    _inner = ~_endpoint_zone
+    _viol = _inner & (_clr_b >= 0.5) & (clearance <= -0.5)
+    _seg2_pass = not bool(_viol.any())
+
+    # [裁决（本轮）门禁 v3 = v2 + 歧义折叠豁免]
+    #   对每个 v2 违规点（内段显著翻转）判符号歧义；豁免后，符号无歧义的违规点数必须 = 0
+    _v3_records = []
+    _n_unambig = 0
+    for _ii in np.where(_viol)[0]:
+        _amb = bool(flip_points[_flip_entry_by_flat[int(_ii)]]["ambiguity_v3"]["is_sign_ambiguous"])
+        if not _amb:
+            _n_unambig += 1
+        _v3_records.append({
+            "flat_index": int(_ii),
+            "streamline_index": int(_sl_idx[_ii]),
+            "sample_index": int(_samp_idx[_ii]),
+            "is_endpoint_zone": bool(_endpoint_zone[_ii]),
+            "clearance_before_mm": float(_clr_b[_ii]),
+            "clearance_after_mm": float(clearance[_ii]),
+            "world_xyz": [float(x) for x in (probe_pts[_ii] - CENTER)],
+            "is_sign_ambiguous": _amb,
+            "exempted_ambiguity": _amb,
+        })
+    _seg3_pass = (_n_unambig == 0)
+
+    b6 = {"method": method + "；[门禁 v3] 歧义折叠豁免：内段显著翻转点若最近内侧面与最近外侧面距离差 < 0.1mm 且两面法向相对该点取向相反（近等距多层面/折叠），判符号歧义豁免不计入门禁（逐点档案见 flip_points[].ambiguity_v3）",
+          "sampled_points": int(len(probe_pts)),
+          "streamlines": len(streamlines), "stride": 5,
+          "min_clearance_mm": float(clearance.min()),
+          "mean_clearance_mm": float(clearance.mean()),
+          "p95_clearance_mm": float(np.percentile(clearance, 95)),
+          "max_clearance_mm": float(clearance.max()),
+          "negative_count": _neg_a,
+          "sign_convention": "流线在壳体内侧为正",
+          "endpoint_zone_points": int(_endpoint_zone.sum()),
+          "endpoint_zone_rule": "每条流线首、尾各 1 个采样点（帽区豁免：壳在鼻孔/咽口开放，流线端点本就穿过帽平面）",
+          "diag_before_smoothing": {
+              "min_clearance_mm": float(_clr_b.min()),
+              "mean_clearance_mm": float(_clr_b.mean()),
+              "negative_count": _neg_b},
+          "flip_points": flip_points,
+          "gate_v2": {
+              "segment1_global_negative_count": {
+                  "rule": "after 负点数 ≤ before 负点数",
+                  "after": _neg_a, "before": _neg_b, "pass": bool(_seg1_pass)},
+              "segment2_inner_significant_flip": {
+                  "rule": "排除端区后，内段点中 before ≥ +0.5mm 且 after ≤ −0.5mm 的点数 = 0",
+                  "inner_points": int(_inner.sum()),
+                  "violating_points": int(_viol.sum()),
+                  "violating_flat_indices": [int(x) for x in np.where(_viol)[0]],
+                  "pass": bool(_seg2_pass)},
+              "pass": bool(_seg1_pass and _seg2_pass)},
+          "gate_v3": {
+              "rule": "门禁 v2 两段式 + 歧义折叠豁免：符号无歧义的内段显著翻转（before ≥ +0.5mm 且 after ≤ −0.5mm）点数 = 0",
+              "ambiguity_rule": "内段显著翻转点中，最近内侧面与最近外侧面（两面法向相对该点取向相反）距离差 < 0.1mm → 近等距多层面/折叠之最近面选择歧义，非真实穿壁 → 豁免（档案：flip_points[].ambiguity_v3）",
+              "v2_significant_inner_flips": int(_viol.sum()),
+              "ambiguous_exempted": int(_viol.sum()) - _n_unambig,
+              "unambiguous_violations": _n_unambig,
+              "violation_records": _v3_records,
+              "pass": bool(_seg3_pass)},
+          "pass": bool(_seg1_pass and _seg3_pass)}
+    gates["board6_v3_two_segment_ambiguity_exempt"] = {
+        "pass": b6["pass"],
+        "seg1_after_neg_le_before_neg": bool(_seg1_pass),
+        "seg1_after_neg": _neg_a, "seg1_before_neg": _neg_b,
+        "seg2_v2_significant_inner_flips": int(_viol.sum()),
+        "seg3_ambiguous_exempted": int(_viol.sum()) - _n_unambig,
+        "seg3_unambiguous_violations": _n_unambig,
+        "seg3_pass": bool(_seg3_pass)}
 else:
-    _in_b = _f3_inside_by_local_normal(_F3_air_b_mesh, probe_pts, _fb)
-_clr_b = np.where(_in_b, _db, -_db)
-
-# [裁决2] flip_points 逐点诊断（正→负翻转点全量留档，即使门禁全过也保留）
-# [裁决（本轮）门禁 v3] 每个翻转点附歧义剖面档案（最近内/外侧面距离、法向、
-#   腔宽解释全量留档——即使门禁全过也保留，裁决2 要求）
-_flip = (_clr_b >= 0.0) & (clearance < 0.0)
-flip_points = []
-_flip_entry_by_flat = {}
-for _ii in np.where(_flip)[0]:
-    _prof = _f3_ambiguity_profile(air_mesh_world, probe_pts[_ii])
-    _ddiff = (None if (_prof["d_inside_mm"] is None or _prof["d_outside_mm"] is None)
-              else float(abs(_prof["d_inside_mm"] - _prof["d_outside_mm"])))
-    _amb = bool(_ddiff is not None and _ddiff < F3_AMBIGUITY_TOL_MM)
-    _expl = ("符号无歧义（两面距离差 ≥ 0.1mm 或单侧无候选面），不豁免"
-             if not _amb else
-             ("该点位于两壁间真腔隙（腔宽≈{:.2f}mm），距两侧壁近乎等距（差 {:.4f}mm < 0.1mm）；"
-              "'外侧'判定来自近距双层面下最近面选择的歧义，非真实穿壁").format(
-                  _prof["d_inside_mm"] + _prof["d_outside_mm"], _ddiff))
-    flip_points.append({
-        "streamline_index": int(_sl_idx[_ii]),
-        "sample_index": int(_samp_idx[_ii]),
-        "samples_in_streamline": int(_n_samp[int(_sl_idx[_ii])]),
-        "is_endpoint_zone": bool(_endpoint_zone[_ii]),
-        "clearance_before_mm": float(_clr_b[_ii]),
-        "clearance_after_mm": float(clearance[_ii]),
-        "world_xyz": [float(x) for x in (probe_pts[_ii] - CENTER)],
-        "ambiguity_v3": dict(
-            _prof,
-            abs_distance_diff_mm=_ddiff,
-            lumen_width_mm=(None if _ddiff is None
-                            else float(_prof["d_inside_mm"] + _prof["d_outside_mm"])),
-            is_sign_ambiguous=_amb,
-            rule=("裁决（门禁 v3）：最近内侧面与最近外侧面（两面法向相对该点取向相反）"
-                  "距离差 < 0.1mm → 近等距多层面/折叠，最近面选择歧义，"
-                  "'外侧'判定非真实穿壁 → 符号歧义豁免（不计入门禁）"),
-            explanation=_expl),
-    })
-    _flip_entry_by_flat[int(_ii)] = len(flip_points) - 1
-
-# [裁决2] 门禁 v2 两段式（保留记录供追溯；v3 为现行判据）
-_neg_a = int((clearance < 0).sum())
-_neg_b = int((_clr_b < 0).sum())
-_seg1_pass = _neg_a <= _neg_b
-_inner = ~_endpoint_zone
-_viol = _inner & (_clr_b >= 0.5) & (clearance <= -0.5)
-_seg2_pass = not bool(_viol.any())
-
-# [裁决（本轮）门禁 v3 = v2 + 歧义折叠豁免]
-#   对每个 v2 违规点（内段显著翻转）判符号歧义；豁免后，符号无歧义的违规点数必须 = 0
-_v3_records = []
-_n_unambig = 0
-for _ii in np.where(_viol)[0]:
-    _amb = bool(flip_points[_flip_entry_by_flat[int(_ii)]]["ambiguity_v3"]["is_sign_ambiguous"])
-    if not _amb:
-        _n_unambig += 1
-    _v3_records.append({
-        "flat_index": int(_ii),
-        "streamline_index": int(_sl_idx[_ii]),
-        "sample_index": int(_samp_idx[_ii]),
-        "is_endpoint_zone": bool(_endpoint_zone[_ii]),
-        "clearance_before_mm": float(_clr_b[_ii]),
-        "clearance_after_mm": float(clearance[_ii]),
-        "world_xyz": [float(x) for x in (probe_pts[_ii] - CENTER)],
-        "is_sign_ambiguous": _amb,
-        "exempted_ambiguity": _amb,
-    })
-_seg3_pass = (_n_unambig == 0)
-
-b6 = {"method": method + "；[门禁 v3] 歧义折叠豁免：内段显著翻转点若最近内侧面与最近外侧面距离差 < 0.1mm 且两面法向相对该点取向相反（近等距多层面/折叠），判符号歧义豁免不计入门禁（逐点档案见 flip_points[].ambiguity_v3）",
-      "sampled_points": int(len(probe_pts)),
-      "streamlines": len(streamlines), "stride": 5,
-      "min_clearance_mm": float(clearance.min()),
-      "mean_clearance_mm": float(clearance.mean()),
-      "p95_clearance_mm": float(np.percentile(clearance, 95)),
-      "max_clearance_mm": float(clearance.max()),
-      "negative_count": _neg_a,
-      "sign_convention": "流线在壳体内侧为正",
-      "endpoint_zone_points": int(_endpoint_zone.sum()),
-      "endpoint_zone_rule": "每条流线首、尾各 1 个采样点（帽区豁免：壳在鼻孔/咽口开放，流线端点本就穿过帽平面）",
-      "diag_before_smoothing": {
-          "min_clearance_mm": float(_clr_b.min()),
-          "mean_clearance_mm": float(_clr_b.mean()),
-          "negative_count": _neg_b},
-      "flip_points": flip_points,
-      "gate_v2": {
-          "segment1_global_negative_count": {
-              "rule": "after 负点数 ≤ before 负点数",
-              "after": _neg_a, "before": _neg_b, "pass": bool(_seg1_pass)},
-          "segment2_inner_significant_flip": {
-              "rule": "排除端区后，内段点中 before ≥ +0.5mm 且 after ≤ −0.5mm 的点数 = 0",
-              "inner_points": int(_inner.sum()),
-              "violating_points": int(_viol.sum()),
-              "violating_flat_indices": [int(x) for x in np.where(_viol)[0]],
-              "pass": bool(_seg2_pass)},
-          "pass": bool(_seg1_pass and _seg2_pass)},
-      "gate_v3": {
-          "rule": "门禁 v2 两段式 + 歧义折叠豁免：符号无歧义的内段显著翻转（before ≥ +0.5mm 且 after ≤ −0.5mm）点数 = 0",
-          "ambiguity_rule": "内段显著翻转点中，最近内侧面与最近外侧面（两面法向相对该点取向相反）距离差 < 0.1mm → 近等距多层面/折叠之最近面选择歧义，非真实穿壁 → 豁免（档案：flip_points[].ambiguity_v3）",
-          "v2_significant_inner_flips": int(_viol.sum()),
-          "ambiguous_exempted": int(_viol.sum()) - _n_unambig,
-          "unambiguous_violations": _n_unambig,
-          "violation_records": _v3_records,
-          "pass": bool(_seg3_pass)},
-      "pass": bool(_seg1_pass and _seg3_pass)}
-gates["board6_v3_two_segment_ambiguity_exempt"] = {
-    "pass": b6["pass"],
-    "seg1_after_neg_le_before_neg": bool(_seg1_pass),
-    "seg1_after_neg": _neg_a, "seg1_before_neg": _neg_b,
-    "seg2_v2_significant_inner_flips": int(_viol.sum()),
-    "seg3_ambiguous_exempted": int(_viol.sum()) - _n_unambig,
-    "seg3_unambiguous_violations": _n_unambig,
-    "seg3_pass": bool(_seg3_pass)}
+    # [规格 2026-10-21] 0 条有效流线 -> 板⑥ 没有任何抽样点可抽检：记 SKIP（pass=None），
+    #   绝不伪造成 PASS、不编造间隙数字；SKIP 不计入 all_gates_pass（与板④/板⑤ 同口径）。
+    _reason6 = ("未执行：本例 0 条有效流线（种子 %d 个均未达 ≥20 点）——流线-壳间隙抽检"
+                "无抽样点可抽检，本板 SKIP（不等于质量通过）" % len(seeds))
+    log("[W] 板⑥ 跳过：" + _reason6)
+    b6 = {"pass": None, "skipped": True, "reason": _reason6,
+          "sampled_points": 0, "streamlines": 0, "stride": 5, "flip_points": []}
+    gates["board6_v3_two_segment_ambiguity_exempt"] = {
+        "pass": None, "skipped": True, "reason": _reason6}
 
 boards = {
     "generated": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
@@ -1311,7 +1447,7 @@ header = f"""\
 //            decimate 模式 {DECIMATE_MODE}
 //            [T4] airwayCavity {len(cavity_mesh.faces)} 面 / airwaySinus {len(sinus_mesh.faces)} 面;
 //                 cavity {int(cavity.sum())} 体素 + sinus {int(sinus.sum())} 体素 = mask {int(mask.sum())} 体素
-// 说明     : 概念验证 · 非医疗器械 · 仿真几何禁止人体使用
+// 说明     : 科研与康复参考 · 非医疗器械 · 仿真几何禁止人体使用
 // ============================================================================
 """
 
