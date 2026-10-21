@@ -109,29 +109,33 @@ class TestConsentFieldValidation:
         assert SRV._parse_retention("仅本次会话（跑完即删）") == "session_only"
         assert SRV._parse_retention("保留1天") == "days:1"
         assert SRV._parse_retention("days:30") == "days:30"
-        ok, err = SRV.parse_consent_fields({"data_subject": "self",
-                                            "processing_scope": "local_only",
-                                            "retention": "days:5"})
+        ok, err, fld = SRV.parse_consent_fields({"data_subject": "self",
+                                                 "processing_scope": "local_only",
+                                                 "retention": "days:5"})
         assert ok is None and "数据保留" in err
+        assert fld == "retention"
 
     def test_source_declaration_required_unless_demo(self):
-        ok, err = SRV.parse_consent_fields({"data_subject": "self",
-                                            "processing_scope": "local_only",
-                                            "retention": "days:7"})
+        ok, err, fld = SRV.parse_consent_fields({"data_subject": "self",
+                                                 "processing_scope": "local_only",
+                                                 "retention": "days:7"})
         assert ok is None and "来源声明必填" in err
-        ok2, err2 = SRV.parse_consent_fields({"data_subject": "demo",
-                                              "processing_scope": "local_only",
-                                              "retention": "days:7"})
+        assert fld == "source_declaration"
+        ok2, err2, fld2 = SRV.parse_consent_fields({"data_subject": "demo",
+                                                    "processing_scope": "local_only",
+                                                    "retention": "days:7"})
         assert err2 == "" and ok2["data_subject"] == "demo"
+        assert fld2 == ""
 
     def test_ui_labels_accepted(self):
         """弹窗中文选项文案 → 规范枚举（前端文案与落档字段解耦）。"""
-        ok, err = SRV.parse_consent_fields({"data_subject": "已获授权的他人CT",
-                                            "processing_scope": "允许云端处理",
-                                            "retention": "保留 30 天",
-                                            "source_declaration": "家属 CT",
-                                            "authorization_ref": "AUTH-2026-101"})
+        ok, err, fld = SRV.parse_consent_fields({"data_subject": "已获授权的他人CT",
+                                                 "processing_scope": "允许云端处理",
+                                                 "retention": "保留 30 天",
+                                                 "source_declaration": "家属 CT",
+                                                 "authorization_ref": "AUTH-2026-101"})
         assert err == ""
+        assert fld == ""
         assert ok == {"data_subject": "authorized_third_party",
                       "source_declaration": "家属 CT",
                       "authorization_ref": "AUTH-2026-101",
