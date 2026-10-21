@@ -835,7 +835,7 @@ body.landing-open #btn-page-fs{display:none}
       <li><b>观众交互边界</b>：观众自助浏览与 CT 原图切片范围待确认；确认前三平面 QC 仅掩膜/掩膜叠加态，皮肤层默认关。</li>
     </ul>
     <div class="fixed-sentence" style="margin-top:10px;background:var(--bg)">
-      <b>责任边界（固定句）</b>：本工具为工程概念验证，<b>非医疗器械</b>；仿真几何与结果<b>禁止人体使用</b>；
+      <b>责任边界（固定句）</b>：本工具为科研与康复参考，<b>非医疗器械</b>；仿真几何与结果<b>禁止人体使用</b>；
       不构成诊断、治疗或试戴建议。"过度通畅"与 ENS 的临床关联，<b>待主诊医师复核</b>。
     </div>
   </div>
@@ -1028,7 +1028,7 @@ body.landing-open #btn-page-fs{display:none}
 </main>
 <footer>
   <div class="fixed-sentence">
-    <b>责任边界（固定句）</b>：本工具为工程概念验证，<b>非医疗器械</b>；仿真几何与结果<b>禁止人体使用</b>；
+    <b>责任边界（固定句）</b>：本工具为科研与康复参考，<b>非医疗器械</b>；仿真几何与结果<b>禁止人体使用</b>；
     不构成诊断、治疗或试戴建议。"过度通畅"与 ENS 的临床关联，<b>待主诊医师复核</b>。
     数据边界硬闸在服务器端代码级执行（非界面隐藏）；真实患者数据仅限本机局域网，不外传。
   </div>
@@ -2811,7 +2811,7 @@ function renderGauges(m, c){
   $("gauge-grid").innerHTML = g.join("") || '<div class="muted">暂无指标数据</div>';
   $("koujing-note").textContent = "口径说明：" + (m.口径_note || "") + "　来源：" + (m.source || "—");
   $("metrics-disclaimer").textContent = m.disclaimer ||
-    "层流下界估计，不确定度±20-50%；概念验证 · 非医疗器械 · 仿真几何禁止人体使用；温湿度交换未建模（质传递未实现）";
+    "层流下界估计，不确定度±20-50%；科研与康复参考 · 非医疗器械 · 仿真几何禁止人体使用；温湿度交换未建模（质传递未实现）";
 }
 
 function renderGaugesDenied(c){

@@ -14,7 +14,7 @@ VIEWER = ROOT / "viewer_template" / "viewer.html"
 PLUS = ROOT / "plus" / "viewer_plus.html"
 
 WORKBENCH_CHECKBOXES = ["hero-ly-cfd", "hero-ly-model", "hero-ly-flow", "hero-ly-slice", "hero-ly-wire", "pg-auto"]
-VIEWER_CHECKBOXES = ["cb-ct", "cb-skin", "cb-breath", "cb-cavity", "cb-sinus", "cb-lines", "cb-slices", "cb-ph-1", "cb-ph-2", "cb-ph-3"]
+VIEWER_CHECKBOXES = ["cb-ct", "cb-skin", "cb-breath-anim", "cb-cavity", "cb-sinus", "cb-lines", "cb-slices", "cb-ph-1", "cb-ph-2", "cb-ph-3"]
 WORKBENCH_IDS = ["tab-airway", "airway-pills", "case-summary-rail", "hero-box", "hero-viewtoggle", "findings-block", "compare-card", "metrics-card", "qc-card", "results-card", "figures-card", "btn-page-fs"]
 VIEWER_FEATURE_IDS = ["app", "canvas-wrap", "glcanvas", "toolbar", "btn-reset", "btn-rotate", "legend", "breath-phase", "panel", "flow-card", "curve-card", "ct-card", "ct-presets", "methodology-box", "ct-thumb-card", "ct-thumbs", "row-skin"]
 

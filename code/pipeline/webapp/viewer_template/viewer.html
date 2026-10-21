@@ -23,9 +23,23 @@ main{flex:1;display:flex;min-height:0} /* T10-F2：不写 flex-wrap——实测 
 #toolbar button:hover{border-color:#4d6472}
 #toolbar button.on{background:#234452;border-color:#3fae6a;color:#c9ecd6}
 #toolbar .t10-short{display:none} /* Y3：宽屏用完整文案「患者左/患者右」，紧凑档在下方 @media 覆盖为「左/右」 */
-#hint{position:absolute;left:10px;bottom:8px;font-size:11px;color:#6b7a89;background:#0d111699;padding:3px 8px;border-radius:4px;pointer-events:none;max-width:calc(100% - 200px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis} /* T10-F2：限宽避让右下角色标，窄视口省略号收尾 */
-#ct-note{position:absolute;left:10px;bottom:32px;font-size:11px;opacity:.8;color:#9fb0bd;pointer-events:none} /* T8-P0：画布角常驻合规小字 */
-#panel{flex:0 1 300px;min-width:0;overflow-y:auto;padding:12px;background:var(--panel);border-left:1px solid var(--line)}
+/* T55-C：11px→12px、#6b7a89→#cfd8e3、底条加深至 rgba(6,10,16,.78)+细描边，深色背景上对比度 ≥4.5:1 */
+#hint{position:absolute;left:10px;bottom:8px;font-size:12px;color:#cfd8e3;background:rgba(6,10,16,.78);border:1px solid rgba(120,140,160,.35);padding:4px 9px;border-radius:4px;pointer-events:none;max-width:calc(100% - 300px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis} /* T10-F2：限宽避让右下角色标，窄视口省略号收尾 */
+#ct-note{position:absolute;left:10px;bottom:44px;font-size:11px;opacity:.8;color:#9fb0bd;pointer-events:none} /* T8-P0：画布角常驻合规小字 */
+/* T55-A：面板 300px→276px，且支持折叠为 44px 竖条（折叠态统一由 html.panel-collapsed 控制） */
+#panel{flex:0 1 276px;min-width:0;overflow-y:auto;padding:0 10px 10px;background:var(--panel);border-left:1px solid var(--line)}
+#panel-head{position:sticky;top:0;z-index:4;display:flex;align-items:center;justify-content:flex-end;gap:6px;margin:0 -10px 10px;padding:6px 8px;background:#151b22;border-bottom:1px solid var(--line)}
+#btn-panel-toggle{display:inline-flex;align-items:center;justify-content:center;gap:4px;min-height:24px;background:#1a222b;color:var(--text);border:1px solid var(--line);border-radius:4px;padding:4px 8px;font:12px/1.2 "Microsoft YaHei","PingFang SC","Noto Sans SC","Segoe UI",sans-serif;cursor:pointer}
+#btn-panel-toggle:hover{border-color:#4d6472;background:#22303c}
+#btn-panel-toggle .pg-col{display:none}
+#panel-mini{display:none}
+html.panel-collapsed #panel{flex:0 0 44px;padding:0 5px 10px;overflow:hidden}
+html.panel-collapsed #panel-head{justify-content:center;margin:0 -5px 0;padding:6px 0}
+html.panel-collapsed #btn-panel-toggle{width:100%;padding:4px 5px;font-size:13px;color:var(--accent)}
+html.panel-collapsed #btn-panel-toggle .pg-exp{display:none}
+html.panel-collapsed #btn-panel-toggle .pg-col{display:inline}
+html.panel-collapsed #panel .card,html.panel-collapsed #panel #data-error{display:none}
+html.panel-collapsed #panel-mini{display:block;writing-mode:vertical-rl;text-orientation:mixed;font-size:12px;letter-spacing:3px;color:var(--dim);text-align:center;margin:10px auto 0;user-select:none;pointer-events:none}
 .card{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:10px 12px;margin-bottom:12px}
 .card h2{margin:0 0 8px;font-size:13px;color:var(--accent);font-weight:600}
 .metric-row{display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:3px 0}
@@ -44,16 +58,21 @@ label.chk{display:flex;align-items:center;gap:8px;padding:3px 0;cursor:pointer}
 label.chk input{accent-color:#3fae6a}
 label.chk.dis{color:#5a6774;cursor:default}
 .legend{margin-top:10px}
-.legend-title{font-size:11px;color:var(--dim);margin-bottom:4px}
-#legend-bar{height:10px;border-radius:3px;border:1px solid var(--line)}
-.legend-scale{display:flex;justify-content:space-between;font-size:10px;color:var(--dim)}
+.legend-title{font-size:12px;color:#cfd8e3;margin-bottom:5px}
+#legend-bar-wrap{position:relative}
+#legend-bar{height:16px;border-radius:4px;border:1px solid rgba(207,216,227,.55);box-shadow:inset 0 0 0 1px rgba(0,0,0,.45)}
+.legend-ticks{position:absolute;inset:0;border-radius:4px;pointer-events:none;background:repeating-linear-gradient(90deg,rgba(8,12,18,.5) 0 1px,transparent 1px 25%)}
+.legend-scale{display:grid;grid-template-columns:1fr 1fr 1fr;font-size:12px;color:#cfd8e3;font-variant-numeric:tabular-nums;margin-top:4px}
+.legend-scale span:nth-child(2){text-align:center}
+.legend-scale span:nth-child(3){text-align:right}
 #btn-fs{position:absolute;right:10px;bottom:176px;z-index:20;width:34px;height:34px;border:1px solid var(--line);border-radius:6px;background:#0d1116cc;color:#d8e0e8;font-size:15px;line-height:1;cursor:pointer;padding:0}
 #btn-fs:hover{background:#1a2634;color:#fff}
 #app.vp-fs{position:fixed;inset:0;z-index:9998;width:100vw;height:100vh;overflow:auto}
 body.vp-fs-on{overflow:hidden}
-#legend{position:absolute;right:10px;bottom:10px;z-index:10;pointer-events:none;margin:0;width:150px;padding:6px 8px;background:#0d1116cc;border:1px solid var(--line);border-radius:4px} /* T10-F2：色标唯一事实源移入视口右下角 */
+/* T55-B：色标 150→252px 宽、色带 10→16px 高，1px 描边 + 半透明深色底 + 投影；色带配色未改 */
+#legend{position:absolute;right:10px;bottom:10px;z-index:10;pointer-events:none;margin:0;width:252px;padding:8px 10px;background:rgba(8,12,18,.82);border:1px solid #46607a;border-radius:6px;box-shadow:0 3px 12px rgba(0,0,0,.55)} /* T10-F2：色标唯一事实源移入视口右下角 */
 .slider-row{display:flex;align-items:center;gap:8px;margin:6px 0 2px}
-.slider-row input[type=range]{flex:1;accent-color:#3fae6a}
+.slider-row input[type=range]{flex:1;min-width:0;accent-color:#3fae6a}/* T55-A：range 默认 min-width:auto（约 129px）在窄面板里撑破卡片——置 0 让滑块可压缩，消除横向溢出 */
 .slider-row .sl-val{font-variant-numeric:tabular-nums;min-width:62px;text-align:right;font-size:12px}
 .caliber{font-size:10px;color:var(--dim);line-height:1.45;margin-top:2px}
 #breath-phase{position:absolute;top:48px;left:10px;display:none;align-items:center;gap:8px;background:#0d111699;border:1px solid var(--line);border-radius:4px;padding:4px 10px;font-size:11px;color:#c9ecd6}
@@ -86,16 +105,30 @@ footer{flex:0 0 32px;display:flex;align-items:center;justify-content:center;back
 @media (max-width:480px){
   main{flex-direction:column}
   #canvas-wrap{flex:1 1 480px}
-  #panel{flex:1 1 300px;border-left:0;border-top:1px solid var(--line)}
-  #legend{width:112px;padding:4px 6px;right:8px;bottom:8px}
-  #legend .legend-title{font-size:10px}
-  #hint{font-size:10px;max-width:56%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;bottom:6px}
+  #panel{flex:1 1 276px;border-left:0;border-top:1px solid var(--line)}
+  #legend{width:220px;padding:6px 7px;right:8px;bottom:8px}
+  #legend .legend-title{font-size:12px}
+  #hint{font-size:12px;max-width:56%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;bottom:6px}
+  /* T55-A：列向布局下折叠态=底部横条（按钮 + 横排标题各占一行，故留 68px 高） */
+  html.panel-collapsed #panel{flex:0 0 68px;padding:0 6px 6px}
+  html.panel-collapsed #btn-panel-toggle{width:auto}
+  html.panel-collapsed #panel-mini{writing-mode:horizontal-tb;text-orientation:initial;letter-spacing:0;margin:4px 0 0}
   #toolbar{flex-wrap:wrap;max-width:calc(100% - 20px)} /* Y3：四按钮在 414px 宽下换行，不溢出画布 */
   #toolbar button{padding:4px 7px;font-size:11px}
   #toolbar .t10-full{display:none}
   #toolbar .t10-short{display:inline}
 }
 </style>
+<script>/* T55-A：折叠态在首帧前定档（localStorage 记忆优先，其次视口 <1100px 默认折叠），避免布局跳变 */
+(function () {
+  try {
+    var v = localStorage.getItem('qidi.viewer.panel.collapsed');
+    if (v === '1' || (v === null && window.innerWidth < 1100)) {
+      document.documentElement.classList.add('panel-collapsed');
+    }
+  } catch (e) {}
+})();
+</script>
 </head>
 <body>
 <div id="app">
@@ -119,9 +152,9 @@ footer{flex:0 0 32px;display:flex;align-items:center;justify-content:center;back
       <div id="ct-note">演示着色 = 密度分档，非诊断影像</div>
       <div class="legend" id="legend">
         <div class="legend-title" id="legend-title">速度色标（m/s）</div>
-        <div id="legend-bar"></div>
-        <div class="legend-scale"><span>0</span><span id="legend-max">11</span></div>
-        <div id="spd-range-note" style="font-size:10px;opacity:.65;margin-top:2px"></div>
+        <div id="legend-bar-wrap"><div id="legend-bar"></div><div class="legend-ticks" aria-hidden="true"></div></div>
+        <div class="legend-scale"><span>0</span><span id="legend-mid">—</span><span id="legend-max">11 m/s</span></div>
+        <div id="spd-range-note" style="font-size:11px;opacity:.8;margin-top:3px;line-height:1.35"></div>
       </div>
       <div id="breath-phase"><span id="breath-label">吸入</span><div id="breath-bar"><div id="breath-fill"></div></div></div>
       <div id="probe-tip"></div>
@@ -129,6 +162,11 @@ footer{flex:0 0 32px;display:flex;align-items:center;justify-content:center;back
       <div id="ab-badge-r"></div>
     </div>
     <aside id="panel">
+      <!-- T55-A：折叠/展开按钮（记忆写入 localStorage，窄屏默认折叠） -->
+      <div id="panel-head">
+        <button id="btn-panel-toggle" type="button" aria-expanded="true" aria-controls="panel" aria-label="收起指标面板" title="收起指标面板（模型区变宽）"><span class="pg-exp" aria-hidden="true">⟨ 收起面板</span><span class="pg-col" aria-hidden="true">⟩</span></button>
+      </div>
+      <div id="panel-mini" aria-hidden="true">指标面板</div>
       <div id="data-error" class="err" style="display:none"></div>
 
       <section class="card">
@@ -167,7 +205,7 @@ footer{flex:0 0 32px;display:flex;align-items:center;justify-content:center;back
 
       <section class="card" id="ct-card" style="display:none">
         <h2>CT 体绘制</h2>
-        <label class="chk"><input type="checkbox" id="cb-ct" checked> CT 体绘制（显示用，不判组织，不影响气流计算）</label>
+        <label class="chk"><input type="checkbox" id="cb-ct"> CT 体绘制（显示用，不判组织，不影响气流计算）</label>
         <div id="ct-presets"></div>
         <div class="slider-row"><span class="sl-k">HU下限</span><input type="range" id="sl-hu-lo" min="-1024" max="2047" step="1"><span class="sl-val" id="sl-hu-lo-val">—</span></div>
         <div class="slider-row"><span class="sl-k">HU上限</span><input type="range" id="sl-hu-hi" min="-1024" max="2047" step="1"><span class="sl-val" id="sl-hu-hi-val">—</span></div>
@@ -196,8 +234,8 @@ footer{flex:0 0 32px;display:flex;align-items:center;justify-content:center;back
       <section class="card">
         <h2>图层控制</h2>
         <label class="chk" id="row-skin" style="display:none"><input type="checkbox" id="cb-skin"> 头部外形（皮肤壳）<span class="info-i" title="由同一 CT 全视野重建：颅顶/枕后/颈项超出扫描视野，断面以暗灰显示并描边">ⓘ</span></label>
-        <label class="chk"><input type="checkbox" id="cb-breath"> 呼吸模式</label>
-        <div class="caliber" style="margin:-2px 0 4px 24px">吸气相演示动画——呼气未仿真</div>
+        <label class="chk"><input type="checkbox" id="cb-breath-anim" checked> 呼吸动画（吸入 ⇄ 呼气）<span class="info-i" title="按 4 秒周期演示：0–2 秒吸入（沿流线正向），2–4 秒呼气（沿流线反向）；局部流速越快粒子走得越快（与流线同色标 青→黄）。关闭后只保留静态流线与箭头">ⓘ</span></label>
+        <div class="caliber" style="margin:-2px 0 4px 24px">按 4 秒周期演示：吸入 → 呼气（方向相反）</div>
         <label class="chk"><input type="checkbox" id="cb-cavity" checked> 鼻腔本体</label>
         <label class="chk"><input type="checkbox" id="cb-sinus" checked> 鼻窦<span class="info-i" title="鼻窦区气流接近零是生理现象（自然口细小，近乎死腔）——本仿真域包含鼻窦">ⓘ</span></label>
         <label class="chk"><input type="checkbox" id="cb-lines" checked> 流线</label>
@@ -214,7 +252,7 @@ footer{flex:0 0 32px;display:flex;align-items:center;justify-content:center;back
       </section>
     </aside>
   </main>
-  <footer id="disclaimer">概念验证 · 非医疗器械 · 仿真几何禁止人体使用 | 数据：合成示例数据（本仓库不含任何患者数据）| 黑客松科研演示</footer>
+  <footer id="disclaimer">科研与康复参考 · 非医疗器械 · 仿真几何禁止人体使用 | 数据：合成示例数据（本仓库不含任何患者数据）| 科研演示</footer>
 </div>
 
 <!--
@@ -1157,7 +1195,14 @@ return LineSegments2;
 
   /* ---------- 0. 工具与错误提示 ---------- */
   var errBox = document.getElementById('data-error');
-  function fatal(msg) { errBox.textContent = msg; errBox.style.display = 'block'; }
+  function fatal(msg) {
+    errBox.textContent = msg; errBox.style.display = 'block';
+    /* T55-A：折叠态下错误信息不可见 —— 数据错误时自动展开面板（不改用户记忆） */
+    if (document.documentElement.classList.contains('panel-collapsed')) {
+      if (typeof window.__panelExpand === 'function') { window.__panelExpand(); }
+      else { document.documentElement.classList.remove('panel-collapsed'); }
+    }
+  }
   function fmt(v) { return (v === null || v === undefined) ? '—' : String(v); } /* 数值按数据原样展示，不改写精度 */
   function set(id, s) { var el = document.getElementById(id); if (el) { el.textContent = s; } }
 
@@ -1187,7 +1232,7 @@ return LineSegments2;
       mockBanner.textContent = '⚠ 当前为开发模拟数据（DEV-MOCK），非患者仿真结果——请检查 viewer_data.js 是否与 viewer.html 同目录';
       mockBanner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:999;background:#c0392b;color:#fff;font-weight:bold;padding:10px 16px;font-size:14px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,.5)';
       document.body.appendChild(mockBanner);
-      document.getElementById('disclaimer').textContent = '概念验证 · 非医疗器械 · 仿真几何禁止人体使用 | 数据：开发模拟数据（非患者仿真结果）| 黑客松科研演示';
+      document.getElementById('disclaimer').textContent = '科研与康复参考 · 非医疗器械 · 仿真几何禁止人体使用 | 数据：开发模拟数据（非患者仿真结果）| 科研演示';
     }
   }
   if (!DATA) { fatal('未找到查看器数据：viewer_data.js 缺失，且无 DEV-MOCK 模拟数据。'); return; }
@@ -1339,28 +1384,45 @@ return LineSegments2;
   /* GLM复审G-2：运行中掉上下文不再静默黑屏 */
   canvas.addEventListener('webglcontextlost', function (e) { e.preventDefault(); fatal('显卡上下文丢失：请刷新页面重试'); });
   renderer.setClearColor(0x000000, 0); /* T8-P0 R4：透明清屏（作用于渲染循环每次 render，含 A/B 双视口） */
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  /* T-BLUE 有效分辨率核对：应用代码里仅此一处 setPixelRatio（其余同名调用都在内联 three.js 库代码内；resize() 走 setSize，不改 pixelRatio），
+     也不存在把 canvas CSS 尺寸放大、缓冲区缩小的写法 —— 缓冲区 = CSS×2（实测 1140×822 → 2280×1644）。
+     原来就是 min(dpr,2)，本次把上限抽成常量并在自测钩子里暴露，防止后续被悄悄调低。 */
+  var PIXEL_RATIO_CAP = 2;
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, PIXEL_RATIO_CAP));
   var scene = new THREE.Scene();
   /* T8-P0 R4：不再设 scene.background（原 0x101418 会盖住 CSS 渐变）——背景由容器 CSS 渐变承担 */
   var camera = new THREE.PerspectiveCamera(45, 1, 0.1, 10000);
   /* T9-2：本数据 z 轴才是颅顶-颈项方向，three.js 默认 +Y 上会把头横躺（面部朝屏幕下方）；
      皮肤壳上线后必须颅顶朝上才读得出"一个完整的头"，轨道控制的角度约定同步改为 z-up。 */
   camera.up.set(0, 0, 1);
-  scene.add(new THREE.AmbientLight(0xffffff, 0.7)); /* T8-P0 R4：环境光提升至 0.7（改前实际 0.55） */
-  /* T9-2 光照朝向修正：本数据 +Y 是枕后、-Y 才是面部（y+ 有 169cm² 视野断面，y- 无）。
-     原 dl1/dl3 把 +Y 当"前"，主光全打在脑后，面部只剩环境光 → 皮肤壳发灰。只改朝向，颜色与强度不动。 */
-  var dl1 = new THREE.DirectionalLight(0xffffff, 1.1); dl1.position.set(1, -1.6, 1.2); scene.add(dl1);
-  var dl2 = new THREE.DirectionalLight(0x9db8d2, 0.4); dl2.position.set(-1, 0.4, -1); scene.add(dl2);
-  var dl3 = new THREE.DirectionalLight(0xffffff, 0.5); /* T8-P0 R4：上方 30° 仰角补光（正前上方），仅作用于 MeshStandard 材质；流线 LineBasicMaterial 不受光照；不新增 render pass */
+  /* T-BLUE 光照：主表面改成近不透明的冷色实体后，纯环境光会读成一整片平涂。
+     分层 = 环境光（保底）+ 半球光（冷色天光/地面反光，给曲面上下两段不同色温）
+     + 主光（从前下方向打，照亮鼻背/面中）+ 冷色补光 + 上方轮廓光。
+     T9-2 朝向结论保留：本数据 +Y 是枕后、-Y 才是面部，主光必须从 -Y 打。 */
+  scene.add(new THREE.AmbientLight(0xdbe8f7, 0.42));
+  scene.add(new THREE.HemisphereLight(0xcfe8ff, 0x16222e, 0.8));
+  var dl1 = new THREE.DirectionalLight(0xffffff, 1.5); dl1.position.set(1, -1.6, 1.2); scene.add(dl1);
+  var dl2 = new THREE.DirectionalLight(0x86b6ff, 0.55); dl2.position.set(-1, 0.4, -1); scene.add(dl2);
+  var dl3 = new THREE.DirectionalLight(0xe8f4ff, 0.7); /* 上方 30° 仰角轮廓光；仅作用于 MeshStandard 材质，流线 Line2 不受光照；不新增 render pass */
   dl3.position.set(0, -50, 86.6); scene.add(dl3);
 
-  /* viridis 风格色标：0 → 深蓝，上限 → 亮黄（速度 m/s） */
-  var VIRIDIS = [[68,1,84],[72,40,120],[62,74,137],[49,104,142],[38,130,142],[31,158,137],[53,183,121],[109,205,89],[180,222,44],[253,231,37]];
-  function viridis(t) {
+  /* T-BLUE 冷色速度色标：0 → 深蓝，中段 蓝→青，上限 → 亮黄（速度 m/s）。
+     取代原 viridis（低端紫、中段灰绿）——"发紫、不清晰"的观感来源之一。
+     数值域一律不动：仍是 0 .. colorScaleMax（有流线时取 speed 的 P98，无数据回退 11 m/s）。 */
+  var SPEED_RAMP = [
+    [27, 58, 140],    /* 0.00 深蓝 */
+    [42, 107, 214],   /* 0.18 蓝 */
+    [30, 155, 224],   /* 0.38 天蓝 */
+    [23, 195, 214],   /* 0.55 青 */
+    [79, 227, 192],   /* 0.72 青绿 */
+    [201, 240, 90],   /* 0.88 黄绿 */
+    [255, 226, 74]    /* 1.00 亮黄 */
+  ];
+  function speedRamp(t) {
     t = Math.max(0, Math.min(1, t));
-    var x = t * (VIRIDIS.length - 1), i = Math.floor(x), f = x - i;
-    if (i >= VIRIDIS.length - 1) { i = VIRIDIS.length - 2; f = 1; }
-    var a = VIRIDIS[i], b = VIRIDIS[i + 1];
+    var x = t * (SPEED_RAMP.length - 1), i = Math.floor(x), f = x - i;
+    if (i >= SPEED_RAMP.length - 1) { i = SPEED_RAMP.length - 2; f = 1; }
+    var a = SPEED_RAMP[i], b = SPEED_RAMP[i + 1];
     return [(a[0] + (b[0] - a[0]) * f) / 255, (a[1] + (b[1] - a[1]) * f) / 255, (a[2] + (b[2] - a[2]) * f) / 255];
   }
   /* F1 色标动态化：上限 = 全部流线 speed 的 P98（取整到 0.1）；无有效数据回退 11 */
@@ -1379,9 +1441,9 @@ return LineSegments2;
   /* F2 流量状态：Q∈[5,30] L/min，缩放系数 = Q/15（15 为仿真标定点） */
   var flowQ = 15, flowK = 1;
   var colorScaleMax = V_MAX_BASE;
-  function speedColor(sp) { return viridis((Number(sp) || 0) * flowK / colorScaleMax); }
+  function speedColor(sp) { return speedRamp((Number(sp) || 0) * flowK / colorScaleMax); }
 
-  /* F5 鼻腔/鼻窦分离渲染：鼻腔本体 #7fa8b8（透明度0.35）、鼻窦 #9b8fb8（透明度0.25）；
+  /* F5 鼻腔/鼻窦分离渲染：鼻腔本体 #2b7fd4（不透明度 0.96）、鼻窦 #1fa9c9（0.93）；
      旧版数据（无 airwayCavity/airwaySinus）回退渲染 airwayMesh 单体，向后兼容 */
   var airway = null, cavity = null, sinus = null;
   function buildSurface(src, material) {
@@ -1414,16 +1476,46 @@ return LineSegments2;
         ].join('\n'));
     };
   }
+  /* T-BLUE 主表面改造（用户口径："渲染很模糊，没有那种蓝色的感觉清晰"）：
+     ① 不透明度 0.35/0.25 → 0.96/0.93（≥0.92）：原值两层半透明叠加 = 糊成一团；
+     ② 配色转冷：鼻腔本体 蓝 #2b7fd4、鼻窦 青 #1fa9c9（原 0x7fa8b8 灰蓝 / 0x9b8fb8 紫）；
+     ③ 补上 depthWrite:true（原来 false = 每个三角都不写深度，背面三角会随便糊到正面之上，
+        这才是"成一团"的机制）。side 保持 DoubleSide：鼻腔进气口/后鼻孔是开口，单面剔除
+        会让腔内在开口处漏出背景空洞；DoubleSide + 写深度时深度测试自己会排出正确遮挡。
+     ④ roughness/metalness 收到工程材质区间（0.38/0.15、0.42/0.10）+ 极弱自发光垫底，
+        避免背光面掉成纯黑（纯黑会把轮廓吃掉，反而更糊）。 */
+  var CAVITY_OPACITY = 0.96, SINUS_OPACITY = 0.93;
+  var CAVITY_COLOR = 0x2b7fd4, SINUS_COLOR = 0x1fa9c9;
   var matCavity = new THREE.MeshStandardMaterial({
-    color: 0x7fa8b8, side: THREE.DoubleSide, flatShading: false,
-    transparent: true, opacity: 0.35, depthWrite: false, roughness: 0.62, metalness: 0.0
+    color: CAVITY_COLOR, side: THREE.DoubleSide, flatShading: false,
+    transparent: true, opacity: CAVITY_OPACITY, depthWrite: true,
+    roughness: 0.38, metalness: 0.15, emissive: 0x07182c, emissiveIntensity: 0.45
   });
   var matSinus = new THREE.MeshStandardMaterial({
-    color: 0x9b8fb8, side: THREE.DoubleSide, flatShading: false,
-    transparent: true, opacity: 0.25, depthWrite: false, roughness: 0.68, metalness: 0.0
+    color: SINUS_COLOR, side: THREE.DoubleSide, flatShading: false,
+    transparent: true, opacity: SINUS_OPACITY, depthWrite: true,
+    roughness: 0.42, metalness: 0.10, emissive: 0x061a22, emissiveIntensity: 0.45
   });
-  addFresnelRim(matCavity, 0.55, 0xdff0f6);
-  addFresnelRim(matSinus, 0.42, 0xe4dcf4);
+  addFresnelRim(matCavity, 0.40, 0xbfe9ff);
+  addFresnelRim(matSinus, 0.32, 0xa8e6ff);
+  /* T-BLUE 清晰轮廓：在主表面外再套一层 BackSide 放大壳（不用 EdgesGeometry——54084 面的低阈值
+     线框会生成十万级线段，得不偿失）。缩放必须绕几何包围盒中心，否则非居中的网格整体漂移。
+     renderOrder=1 让它排在主表面之后画：深度测试把壳的内部背面剔掉，只在剪影外侧留一圈亮边。 */
+  var OUTLINE_SCALE = 1.02, outlineMeshes = [];
+  function addBackfaceOutline(mesh, color, opacity, k) {
+    if (!mesh) { return null; }
+    mesh.geometry.computeBoundingBox();
+    var c = mesh.geometry.boundingBox.getCenter(new THREE.Vector3());
+    var o = new THREE.Mesh(mesh.geometry, new THREE.MeshBasicMaterial({
+      color: color, side: THREE.BackSide, transparent: true, opacity: opacity, depthWrite: false
+    }));
+    o.scale.setScalar(k);
+    o.position.copy(c).multiplyScalar(1 - k); /* p -> c + k(p-c)，绕包围盒中心缩放 */
+    o.renderOrder = 1;
+    mesh.add(o);
+    outlineMeshes.push(o);
+    return o;
+  }
   if (DATA.airwayCavity && DATA.airwayCavity.positions && DATA.airwayCavity.positions.length) {
     cavity = buildSurface(DATA.airwayCavity, matCavity);
     scene.add(cavity);
@@ -1435,6 +1527,8 @@ return LineSegments2;
     sinus = buildSurface(DATA.airwaySinus, matSinus);
     scene.add(sinus);
   }
+  addBackfaceOutline(cavity || airway, 0x9fe4ff, 0.55, OUTLINE_SCALE);
+  addBackfaceOutline(sinus, 0x7fd8ef, 0.45, OUTLINE_SCALE);
 
   /* ---------- T9-2 皮肤壳层（skin_data.js → window.SKIN_DATA）：整头外形，默认关（T11 补丁② defacing 处置，可手动开） ----------
      重合带：交付网格（抽稀+落点阵后）自由皮肤面积有 37.18% 落在气道 16mm 内，MC 原始网格口径
@@ -1538,9 +1632,14 @@ return LineSegments2;
   var gLines = new THREE.Group();
   var gPickLines = new THREE.Group();
   var pickMat = new THREE.LineBasicMaterial({ visible: false });
-  var F1_LINEWIDTH_PX = 2.8;
+  /* T-BLUE：线宽 2.8 → 3.6（表面变实之后细线会被压住看不清）。
+     depthTest:false 是关键——流线跑在气道腔体**内部**，主表面一旦写深度，按深度测试
+     整条流线会被表面挡住，这正是用户说的"看不到流向"。关掉深度测试 = 流线恒画在表面之上
+     （工程仿真流线惯例）；配合 renderOrder 保证在表面之后绘制，不被 0.96 的混合盖住。 */
+  var F1_LINEWIDTH_PX = 3.6;
   var fatMat = new T10_LINE2.LineMaterial({
     vertexColors: true, linewidth: F1_LINEWIDTH_PX, worldUnits: false,
+    depthTest: false,
     resolution: new THREE.Vector2(1, 1)
   });
   function polylineToSegments(pts, n) { /* 折点序列 → 段端点序列（LineSegmentsGeometry 要求 stride 6） */
@@ -1561,11 +1660,92 @@ return LineSegments2;
     if (n > 1) { geo.setPositions(polylineToSegments(sl.points, n)); }
     geo.setColors(seg); /* 颜色由 remapColors() 统一填充（F1/F2） */
     var ln = new T10_LINE2.LineSegments2(geo, fatMat);
+    ln.renderOrder = 2; /* 排在主表面(0)/轮廓(1)之后，透明排序不会被 0.96 的表面混合盖住 */
     ln.userData.t10col = seg;
     gLines.add(ln);
   });
   scene.add(gLines);
   scene.add(gPickLines);
+
+  /* T-BLUE 流向箭头：Line2 只表达"一条线"，走向要靠箭头读出来。
+     每 ARROW_STEP 个折点放一个小锥体，朝向 = 到下一点的切线；颜色跟速度色标（青→黄）。
+     走 InstancedMesh（一次 draw call），不逐个建 Mesh。
+     instanceColor 在本版 three(r160) 里只在 vertex shader 里累乘进 vColor，fragment 的
+     <color_fragment> 受 USE_COLOR 门控 —— 所以必须 vertexColors:true 且几何带一份全 1 的
+     color 属性，否则实例颜色根本不生效（这是 r160 的坑，不是自选写法）。
+     流线为空 → 整组不建、不渲染、不报错（test_step5_zero_streamlines 的退化口径）。 */
+  var ARROW_STEP = 14, ARROW_MAX = 1200;
+  var gArrows = new THREE.Group();
+  var arrowMesh = null, arrowSpeeds = [];
+  function paintArrowColors() {
+    /* 注意顺序：第一次进来 instanceColor 还是 null（InstancedMesh 要等第一次 setColorAt 才创建
+       这个属性）。所以不能拿 instanceColor 做前置守卫——那样箭头会永远停在 setColorAt 的默认白色，
+       而 USE_INSTANCING_COLOR 也不再被编译进 shader（实测：整组箭头渲染成纯白）。 */
+    if (!arrowMesh) { return; }
+    var c = new THREE.Color(), i, col;
+    for (i = 0; i < arrowSpeeds.length; i += 1) {
+      col = speedColor(arrowSpeeds[i]);
+      c.setRGB(col[0], col[1], col[2]);
+      arrowMesh.setColorAt(i, c);
+    }
+    if (arrowMesh.instanceColor) { arrowMesh.instanceColor.needsUpdate = true; }
+  }
+  (function buildFlowArrows() {
+    var lines = DATA.streamlines || [], li, i, k, pts, n, v;
+    if (!lines.length) { return; }
+    var mn = [1e9, 1e9, 1e9], mx = [-1e9, -1e9, -1e9];
+    for (li = 0; li < lines.length; li += 1) {
+      pts = lines[li].points || [];
+      for (k = 0; k + 2 < pts.length; k += 3) {
+        for (i = 0; i < 3; i += 1) {
+          v = pts[k + i];
+          if (v < mn[i]) { mn[i] = v; }
+          if (v > mx[i]) { mx[i] = v; }
+        }
+      }
+    }
+    var dx = mx[0] - mn[0], dy = mx[1] - mn[1], dz = mx[2] - mn[2];
+    var span = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    if (!(span > 0)) { span = 100; } /* 点云退化（全同点）时按 100mm 兜底，不产生 NaN */
+    var aLen = span * 0.018, aRad = aLen * 0.30;
+    var P = [], D = [], S = [];
+    for (li = 0; li < lines.length; li += 1) {
+      pts = lines[li].points || []; n = Math.floor(pts.length / 3);
+      var spd = lines[li].speed || [];
+      for (i = ARROW_STEP - 1; i < n - 1; i += ARROW_STEP) {
+        if (S.length >= ARROW_MAX) { break; }
+        P.push(pts[i * 3], pts[i * 3 + 1], pts[i * 3 + 2]);
+        D.push(pts[i * 3 + 3] - pts[i * 3], pts[i * 3 + 4] - pts[i * 3 + 1], pts[i * 3 + 5] - pts[i * 3 + 2]);
+        S.push(Number(spd[i]) || 0);
+      }
+    }
+    var m = S.length;
+    if (!m) { return; }
+    var coneGeo = new THREE.ConeGeometry(aRad, aLen, 8, 1);
+    coneGeo.setAttribute('color', new THREE.Float32BufferAttribute(
+      new Float32Array(coneGeo.attributes.position.count * 3).fill(1), 3));
+    arrowMesh = new THREE.InstancedMesh(coneGeo, new THREE.MeshBasicMaterial({
+      vertexColors: true, depthTest: false, transparent: true, opacity: 0.95
+    }), m);
+    arrowMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    arrowMesh.renderOrder = 3; /* 与流线同档（表面/轮廓之后），箭头压在流线之上 */
+    var up = new THREE.Vector3(0, 1, 0), dir = new THREE.Vector3();
+    var q = new THREE.Quaternion(), pos = new THREE.Vector3();
+    var one = new THREE.Vector3(1, 1, 1), mtx = new THREE.Matrix4();
+    for (i = 0; i < m; i += 1) {
+      dir.set(D[i * 3], D[i * 3 + 1], D[i * 3 + 2]);
+      if (dir.lengthSq() <= 1e-12) { dir.set(0, 0, 1); } else { dir.normalize(); }
+      q.setFromUnitVectors(up, dir);
+      pos.set(P[i * 3], P[i * 3 + 1], P[i * 3 + 2]);
+      mtx.compose(pos, q, one);
+      arrowMesh.setMatrixAt(i, mtx);
+      arrowSpeeds.push(S[i]);
+    }
+    arrowMesh.instanceMatrix.needsUpdate = true;
+    gArrows.add(arrowMesh);
+    scene.add(gArrows);
+    paintArrowColors();
+  })();
 
   /* 切片：小点云（Points，尺寸 1.5px，不随距离衰减），默认隐藏 */
   var gSlices = new THREE.Group();
@@ -1652,12 +1832,15 @@ return LineSegments2;
   }
   function applyCT(on) {
     ctOn = on;
+    /* T-FRAME 铁律：CT 层是显隐开关，只改可见性/不透明度，绝不重取景、绝不复位相机——
+       用户勾一下"CT 体绘制"不该清掉他刚调好的视角。重新取景只有 resetView() 一处。 */
     if (ctMode === 'volume' && ctMesh) { ctMesh.visible = on; }
     if (ctMode === 'slices' && sliceGroup) { sliceGroup.visible = on; }
-    /* CT 为主视图时气道表面减淡（0.35→0.22 / 0.25→0.16）；关闭恢复原值。
-       T8 原值 0.12 是给"体绘制饱和成一团白"的旧积分配的，改发射-吸收后会把气道一起抹掉。 */
-    matCavity.opacity = on ? 0.22 : 0.35;
-    matSinus.opacity = on ? 0.16 : 0.25;
+    /* CT 为主视图时气道表面减淡（0.96→0.30 / 0.93→0.22）；关闭恢复到 T-BLUE 的实体值。
+       T8 原值 0.12 是给"体绘制饱和成一团白"的旧积分配的，改发射-吸收后会把气道一起抹掉。
+       T-BLUE：基础值从 0.35/0.25 抬到 CAVITY_OPACITY/SINUS_OPACITY，这里的减淡系数同步重定。 */
+    matCavity.opacity = on ? 0.30 : CAVITY_OPACITY;
+    matSinus.opacity = on ? 0.22 : SINUS_OPACITY;
     /* T9-2：皮肤壳与 CT 联动调暗，避免半透明外壳把体绘制糊成一层肉色。
        系数实测：0.45 时轴位/透视快照里头部剪影几乎消失（只剩一团雾），提到 0.70 才两头兼顾。 */
     if (matSkinFree) { matSkinFree.opacity = on ? SKIN_FREE_OP * 0.70 : SKIN_FREE_OP; }
@@ -1913,28 +2096,129 @@ return LineSegments2;
     });
     applyWindow(500, 2200); /* T8-P1 R3：默认 realistic 骨骼写实（WC500/WW2200 → HU 回显 lo=-600/hi=1600）——非 soft_wide（k3 裁定：骨骼写实对标视觉本身；软组织宽窗下鼻腔腔体大团暗色观感差） */
     cbCt = document.getElementById('cb-ct');
-    cbCt.checked = true;
+    /* T-BLUE：密度体渲染默认**关**——快速/部分数据下它只是一层半透明雾，
+       叠在气道表面上会把表面糊成一团（用户看到的"紫色半透明"就是这个）。
+       图层开关保留：勾上即恢复原有体绘制行为。 */
+    cbCt.checked = false;
     cbCt.addEventListener('change', function () { applyCT(cbCt.checked); });
-    applyCT(true);
+    applyCT(false);
   })();
 
-  /* 场景自动整体缩放：包围盒 → 相机初始位置能看全模型 */
-  var box = new THREE.Box3();
-  scene.traverse(function (o) {
-    if (o.geometry) { o.geometry.computeBoundingBox(); box.union(o.geometry.boundingBox); }
-  });
-  /* V0：体盒（origin → origin+dims×spacing，mm 1:1）一并纳入取景，与气道几何同帧 */
-  if (VOL) {
-    var vd = VOL.dims, vs = VOL.spacing_mm, vo = VOL.origin_mm;
-    box.expandByPoint(new THREE.Vector3(vo[0], vo[1], vo[2]));
-    box.expandByPoint(new THREE.Vector3(vo[0] + vd[0] * vs[0], vo[1] + vd[1] * vs[1], vo[2] + vd[2] * vs[2]));
+  /* ---------- 取景（T-FRAME）：默认只按气道模型包围盒 fit ----------
+     改前：全场景几何（气道+皮肤壳+占位壳+流线）+ CT 体盒（197×206×182 体素 @0.7mm = 138×144×127mm）
+     一起 union，fitR 被 CT 体盒主导 → 气道只占画面 3–4%，观感就是"模糊、看不清"。
+     改后：取景基准 = 气道包围盒（airwayCavity/airwayMesh + airwaySinus）；CT 体盒 / 皮肤壳 /
+     占位壳一律不参与。near/far 与缩放上下限仍按全场景盒算（打开 CT 层不会被裁剪面切掉，也缩得出去）。
+     airwayMesh 为空（或未加载）→ 回退旧的全场景取景，不报错。 */
+  var FIT_MARGIN = 0.10; /* 边距比例（验收区间 10–15%）；越小模型越大 */
+  var VIEW_THETA = -1.15, VIEW_PHI = 1.34; /* T9-2 扫掠定版：z-up 下"面部右 3/4 略俯" */
+  /* 全场景盒：所有几何 + CT 体盒（near/far、缩放上限、回退取景用） */
+  function sceneBounds() {
+    var b = new THREE.Box3();
+    scene.traverse(function (o) {
+      if (o.geometry) { o.geometry.computeBoundingBox(); b.union(o.geometry.boundingBox); }
+    });
+    /* V0：世界校正，origin 到 origin+dims×spacing（mm 1:1）——一次性取景必须带上，否则两帧不同框 */
+    if (VOL) {
+      var vd = VOL.dims, vs = VOL.spacing_mm, vo = VOL.origin_mm;
+      b.expandByPoint(new THREE.Vector3(vo[0], vo[1], vo[2]));
+      b.expandByPoint(new THREE.Vector3(vo[0] + vd[0] * vs[0], vo[1] + vd[1] * vs[1], vo[2] + vd[2] * vs[2]));
+    }
+    return b;
   }
-  var center = box.getCenter(new THREE.Vector3());
-  var sizeV = box.getSize(new THREE.Vector3());
-  var fitR = Math.max(sizeV.length() / 2, 0.001);
-  camera.near = Math.max(fitR / 200, 0.01);
-  camera.far = fitR * 60;
-  var fitDist = fitR / Math.sin(camera.fov * Math.PI / 360) * 1.12;
+  /* 气道盒：只收气道本体（cavity / airway）与鼻窦（sinus）；outline 放大壳是子节点、不单独收。
+     不看 visible——图层关掉后复位视角仍落在模型上，不会因为少显一层就跳框。 */
+  function airwayBounds() {
+    var b = new THREE.Box3(), any = false;
+    [cavity, airway, sinus].forEach(function (m) {
+      if (!m || !m.geometry) { return; }
+      m.updateWorldMatrix(true, false);
+      m.geometry.computeBoundingBox();
+      if (!m.geometry.boundingBox) { return; }
+      b.union(m.geometry.boundingBox.clone().applyMatrix4(m.matrixWorld));
+      any = true;
+    });
+    return (any && !b.isEmpty()) ? b : null;
+  }
+  /* 视口宽高比：与 resize() 同口径（#canvas-wrap）。fit 发生在 resize() 之前，此时 camera.aspect 还是 1，不能读它 */
+  function viewAspect() {
+    var w = wrap.clientWidth, h = wrap.clientHeight;
+    return (w && h) ? w / h : 1;
+  }
+  /* 气道顶点缓存（世界系 x,y,z 平铺）：取景要按真实顶点解，不是 bbox 角点 */
+  var _airwayVerts = null;
+  function airwayVerts() {
+    if (_airwayVerts) { return _airwayVerts; }
+    var out = [];
+    [cavity, airway, sinus].forEach(function (m) {
+      var pos = (m && m.geometry && m.geometry.attributes) ? m.geometry.attributes.position : null;
+      if (!pos) { return; }
+      m.updateWorldMatrix(true, false);
+      var p = new THREE.Vector3(), i;
+      for (i = 0; i < pos.count; i += 1) {
+        p.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld);
+        out.push(p.x, p.y, p.z);
+      }
+    });
+    _airwayVerts = out;
+    return out;
+  }
+  /* 解取景：返回 { r, center, box } —— 让气道轮廓在画幅里【居中】且刚好占 (1-FIT_MARGIN)。
+     ① 逐"真实顶点"解距离：气道是空腔薄壁结构，bbox 的 8 个角点离几何面很远，按角点解会把
+        相机推远近一倍（同一份数据实测：角点解 223mm / 顶点解 159mm）；
+     ② 气道前后不对称，按 bbox 中心取景会整块偏上（实测轮廓 ndc 跨 -0.54…+0.90，只占画幅 72%
+        高度）：把投影极值的中点推回画幅中心，迭代 3 次收敛，同一份数据可到 ~90% 画幅高度。 */
+  function fitFrame() {
+    var boxObj = airwayBounds();
+    if (!boxObj) { return null; }
+    var verts = airwayVerts();
+    if (!verts.length) { return null; }
+    var c = boxObj.getCenter(new THREE.Vector3());
+    var sp = Math.sin(VIEW_PHI);
+    var dir = new THREE.Vector3(sp * Math.cos(VIEW_THETA), sp * Math.sin(VIEW_THETA), Math.cos(VIEW_PHI)).normalize(); /* target→eye */
+    var xA = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 0, 1), dir).normalize();
+    var yA = new THREE.Vector3().crossVectors(dir, xA).normalize();
+    var tanV = Math.tan(camera.fov * Math.PI / 360), tanX = tanV * viewAspect();
+    var limX = (1 - FIT_MARGIN) * tanX, limY = (1 - FIT_MARGIN) * tanV;
+    var r = 0.001, it, i, px, py, pz, dz, dx, dy, d, x0, y0, x1, y1;
+    for (it = 0; it < 3; it += 1) {
+      r = 0.001;
+      for (i = 0; i < verts.length; i += 3) {
+        px = verts[i] - c.x; py = verts[i + 1] - c.y; pz = verts[i + 2] - c.z;
+        dz = px * dir.x + py * dir.y + pz * dir.z; /* 沿视线（朝相机为正） */
+        dx = px * xA.x + py * xA.y + pz * xA.z;
+        dy = px * yA.x + py * yA.y + pz * yA.z;
+        r = Math.max(r, dz + Math.abs(dx) / limX, dz + Math.abs(dy) / limY);
+      }
+      /* 按解出的 r 量一遍 ndc 极值（各点深度不同，必须逐点除深度） */
+      x0 = y0 = 1e9; x1 = y1 = -1e9;
+      for (i = 0; i < verts.length; i += 3) {
+        px = verts[i] - c.x; py = verts[i + 1] - c.y; pz = verts[i + 2] - c.z;
+        dz = px * dir.x + py * dir.y + pz * dir.z;
+        d = Math.max(r - dz, 1e-6);
+        dx = (px * xA.x + py * xA.y + pz * xA.z) / (d * tanX);
+        dy = (px * yA.x + py * yA.y + pz * yA.z) / (d * tanV);
+        if (dx < x0) { x0 = dx; }
+        if (dx > x1) { x1 = dx; }
+        if (dy < y0) { y0 = dy; }
+        if (dy > y1) { y1 = dy; }
+      }
+      if (Math.abs(x0 + x1) + Math.abs(y0 + y1) < 0.01) { break; } /* 已居中（偏差 <1% 画幅） */
+      c.addScaledVector(xA, (x0 + x1) / 2 * r * tanX);
+      c.addScaledVector(yA, (y0 + y1) / 2 * r * tanV);
+    }
+    return { r: r, center: c, box: boxObj };
+  }
+  var sceneBox = sceneBounds();
+  var sceneR = Math.max(sceneBox.getSize(new THREE.Vector3()).length() / 2, 0.001);
+  camera.near = Math.max(sceneR / 200, 0.01); /* 仍按全场景盒：CT 层不会被近/远裁剪面切掉 */
+  camera.far = sceneR * 60;
+  var frame0 = fitFrame(); /* null = 气道为空/无顶点 → 回退旧的全场景取景 */
+  var airwayFit = !!frame0;
+  var fitBox = airwayFit ? frame0.box : sceneBox;
+  var center = airwayFit ? frame0.center : fitBox.getCenter(new THREE.Vector3());
+  var fitR = Math.max(fitBox.getSize(new THREE.Vector3()).length() / 2, 0.001);
+  var fitDist = airwayFit ? frame0.r : fitR / Math.sin(camera.fov * Math.PI / 360) * 1.12;
 
   /* ---------- 6. 简易轨道控制（three r160 无 UMD 版 OrbitControls，按规格允许降级自实现）：
        左键拖拽=绕目标旋转，滚轮=缩放，右键/Shift+左键=平移；enableDamping 惯性阻尼 ---------- */
@@ -2027,15 +2311,24 @@ return LineSegments2;
   };
 
   var controls = new SimpleOrbit(camera, canvas);
-  controls.minRadius = fitR * 0.02;
-  controls.maxRadius = fitR * 15;
+  controls.minRadius = Math.max(fitR * 0.02, 0.01); /* 近限沿用改前语义（fitR 已从 CT 盒换成气道盒，绝对值随之变小） */
+  controls.maxRadius = sceneR * 15; /* 上限按全场景盒：CT 体盒比气道大 3 倍，仍要缩得出去 */
   /* T9-2：z-up 约定下的默认取景 = 面部右 3/4 略俯（颅顶朝上、面部朝观察者）。
      扫掠实测：平视（phi 1.62）时鼻/眶/颏全被颊部轮廓吃掉，略俯（phi 1.30）才读得出五官
      与气道走向，见 升级施工-T9/sweep/B_面部右3_4_略俯.png */
-  controls.setView(center, fitDist, -1.15, 1.34);
+  controls.setView(center, fitDist, VIEW_THETA, VIEW_PHI);
 
   /* ---------- 7. 工具按钮 ---------- */
-  document.getElementById('btn-reset').addEventListener('click', function () { controls.reset(); });
+  /* 复位视角：先按"当前气道盒"重新解一次 fit，再走阻尼回默认角度。
+     全应用只有这里会重新取景——CT / 皮肤 / 图层开关只改 visible，绝不碰相机（T-FRAME 验收项 2）。 */
+  function resetView() {
+    var fr = fitFrame(); /* 气道为空 → null，退回 home（初始帧） */
+    if (fr) {
+      controls.home = { r: fr.r, theta: nearestAngle(VIEW_THETA), phi: VIEW_PHI, target: fr.center };
+    }
+    controls.reset();
+  }
+  document.getElementById('btn-reset').addEventListener('click', function () { resetView(); });
   var btnRot = document.getElementById('btn-rotate');
   function setAutoRotate(on) {
     controls.autoRotate = on;
@@ -2077,6 +2370,13 @@ return LineSegments2;
   bindChk('cb-cavity', cavity || airway, true);
   bindChk('cb-sinus', sinus, true);
   bindChk('cb-lines', gLines, true);
+  /* 流向箭头与流线同开关。箭头是独立 InstancedMesh，绝不可塞进 gLines:
+     gLines.children[i] 必须与 DATA.streamlines[i] 1:1 同序（remapColors 与探针按下标对齐）。 */
+  (function bindArrowVisibility() {
+    var el = document.getElementById('cb-lines');
+    gArrows.visible = el ? el.checked : true;
+    if (el) { el.addEventListener('change', function () { gArrows.visible = el.checked; }); }
+  })();
   bindChk('cb-slices', gSlices, false);
   ['1', '2', '3'].forEach(function (mm) {
     var el = document.getElementById('cb-ph-' + mm);
@@ -2091,7 +2391,7 @@ return LineSegments2;
   (function legend() {
     var stops = [], i, c;
     for (i = 0; i <= 10; i += 1) {
-      c = viridis(i / 10);
+      c = speedRamp(i / 10);
       stops.push('rgb(' + Math.round(c[0] * 255) + ',' + Math.round(c[1] * 255) + ',' + Math.round(c[2] * 255) + ') ' + (i * 10) + '%');
     }
     document.getElementById('legend-bar').style.background = 'linear-gradient(90deg,' + stops.join(',') + ')';
@@ -2100,7 +2400,9 @@ return LineSegments2;
   function updateLegendText() {
     var vm = Math.round(V_MAX_BASE * flowK * 10) / 10;
     set('legend-title', '色标 0–' + vm + ' m/s（本数据动态）');
-    set('legend-max', String(vm));
+    /* T55-B：三档刻度 0 / 中值 / 上限（单位 m/s 见标题与上限） */
+    set('legend-mid', String(Math.round(vm * 5) / 10));
+    set('legend-max', vm + ' m/s');
   }
 
   /* ---------- F1/F2：颜色重映射（色标上限 = P98×流量缩放；速度同步缩放，归一化比值不变） ---------- */
@@ -2128,7 +2430,8 @@ return LineSegments2;
       }
       col.needsUpdate = true;
     });
-    refreshBreathColors();
+    paintArrowColors();
+    breathStep(0); /* 流量缩放/色标上限变了，粒子颜色同口径重刷（位置不动） */
   }
   /* F2：指标卡 ΔP 四档按 Q/15 线性外推；Q=15 时按数据原样逐字展示 */
   function dpDisp(v) {
@@ -2177,7 +2480,7 @@ return LineSegments2;
     else if (e.key === 'ArrowDown') { controls.dst.phi = Math.min(Math.PI - 0.02, controls.dst.phi + KEY_STEP); }
     else if (e.key === '+' || e.key === '=') { controls.dst.r = Math.max(controls.minRadius, controls.dst.r * 0.9); }
     else if (e.key === '-' || e.key === '_') { controls.dst.r = Math.min(controls.maxRadius, controls.dst.r * 1.1); }
-    else if (e.key === 'r' || e.key === 'R') { controls.reset(); }
+    else if (e.key === 'r' || e.key === 'R') { resetView(); }
     else { handled = false; }
     if (handled) { e.preventDefault(); }
   });
@@ -2191,31 +2494,37 @@ return LineSegments2;
     document.getElementById('sl-sens-val').textContent = v.toFixed(1) + '×';
   });
 
-  /* ---------- F6：呼吸动画（4s正弦周期；0–2s吸气相粒子沿各自弧长正向移动，瞬时速度∝sin(πt/2s)×当前流量缩放系数；
-     2–4s呼气相粒子淡出至不可见；不影响静态流线本体。粒子间距0.25、每吸气相推进0.25 → 循环无缝） ---------- */
-  var BREATH_PER_LINE = 4, breathPeriod = 4;
-  var breathData = [], breathBaseU = [], breathCount = 0;
+  /* ---------- 气流粒子层：呼吸双相（原 F6「呼吸模式」+ T-FLOW「流动动画」合并为同一套） ----------
+     为什么合并（用户反馈"打补丁"）：旧版场景里同时跑两层粒子——F6 每线 4 粒沿弧长正向走，
+     呼气相只是把透明度淡到 0（只有吸入、没有呼出）；T-FLOW 另有 2961 粒连续单向跑，与呼吸无关。
+     两套互不相干的运动叠在一起，观感混乱。现在只有一套粒子，由 4s 呼吸周期统一驱动：
+       · 0–2s 吸气相：沿流线正向推进（u 增大，朝鼻咽方向）
+       · 2–4s 呼气相：沿流线反向推进（u 减小，朝鼻前庭方向）——不淡出，始终可见且方向相反
+       · 相内瞬时速度 ∝ sin(π·相位进度/2s)：相位两端为 0 → 相变处速度连续、位置不跳变
+       · 每粒再乘局部流速归一化 vN（快流处快）与 flowK（流量滑杆一改，粒子同步变快）
+     不动的部分：静态流线/箭头几何与配色、取景、面板结构、材质、数据契约；粒子仍是一个
+     BufferGeometry + 一个 THREE.Points（单 draw call）、总数 ≤ BREATH_MAX_PTS、挂在既有 rAF 上。
+     弧长记录 {p,cum,total,sp} 只有一份，粒子层与流速探针（speedAtU）共用。 */
+  var BREATH_PERIOD = 4;         /* 一个完整呼吸周期（秒） */
+  var BREATH_HALF = 2;           /* 半周期：0–2s 吸气、2–4s 呼气 */
+  var BREATH_MAX_PTS = 3000;     /* 性能红线：粒子总数上限 */
+  var BREATH_MAX_PER_LINE = 64;  /* 单线粒子上限（流线很少时不至于糊成一条实线） */
+  var BREATH_MIN_PER_LINE = 3;
+  var BREATH_U_MIN = 0.12;       /* 局部流速≈0 时保留的推进比——"慢流"要慢，不能停 */
+  var BREATH_RATE = 0.26;        /* 相位推进率(1/s)：满速粒子约 3.8s 跑完一遍，半周期≈18% 弧长 */
+  var BREATH_PT_SIZE = 3.8;      /* 屏幕像素（sizeAttenuation:false，55–60% 取景下可辨） */
+
+  var breathData = [];           /* 流线弧长记录 {p,cum,total,sp}：本层与探针共用同一份 */
   (DATA.streamlines || []).forEach(function (sl) {
     var p = sl.points, m = p.length / 3;
     if (m < 2) { return; }
-    var cum = [0], i2, dx, dy, dz;
-    for (i2 = 1; i2 < m; i2 += 1) {
-      dx = p[i2 * 3] - p[(i2 - 1) * 3]; dy = p[i2 * 3 + 1] - p[(i2 - 1) * 3 + 1]; dz = p[i2 * 3 + 2] - p[(i2 - 1) * 3 + 2];
-      cum.push(cum[i2 - 1] + Math.sqrt(dx * dx + dy * dy + dz * dz));
+    var cum = [0], i1, dx, dy, dz;
+    for (i1 = 1; i1 < m; i1 += 1) {
+      dx = p[i1 * 3] - p[(i1 - 1) * 3]; dy = p[i1 * 3 + 1] - p[(i1 - 1) * 3 + 1]; dz = p[i1 * 3 + 2] - p[(i1 - 1) * 3 + 2];
+      cum.push(cum[i1 - 1] + Math.sqrt(dx * dx + dy * dy + dz * dz));
     }
     breathData.push({ p: p, cum: cum, total: cum[m - 1] || 1e-9, sp: sl.speed || [] });
-    for (i2 = 0; i2 < BREATH_PER_LINE; i2 += 1) { breathBaseU.push(i2 / BREATH_PER_LINE); breathCount += 1; }
   });
-  var breathGeo = new THREE.BufferGeometry();
-  var breathPos = new Float32Array(breathCount * 3);
-  var breathCol = new Float32Array(breathCount * 3);
-  breathGeo.setAttribute('position', new THREE.BufferAttribute(breathPos, 3));
-  breathGeo.setAttribute('color', new THREE.BufferAttribute(breathCol, 3));
-  var breathMat = new THREE.PointsMaterial({ size: 4, sizeAttenuation: false, vertexColors: true, transparent: true, opacity: 0, depthWrite: false });
-  var breathPts = new THREE.Points(breathGeo, breathMat);
-  breathPts.visible = false;
-  scene.add(breathPts);
-  var breathOn = false, breathT = 0, breathAdvance = 0, breathOpacity = 0, lastPhase = '';
   var breathTmp = [0, 0, 0];
   function posAtU(rec, u, out) { /* 弧长参数化查找表（累积弧长二分 + 线性插值） */
     var d = u * rec.total, cum = rec.cum, lo = 0, hi = cum.length - 1, mid;
@@ -2230,54 +2539,124 @@ return LineSegments2;
     if (!n) { return 0; }
     return Number(rec.sp[Math.min(n - 1, Math.max(0, Math.round(u * (n - 1))))]) || 0;
   }
-  function refreshBreathColors() {
-    var b, j, pi, c;
-    for (b = 0; b < breathData.length; b += 1) {
-      for (j = 0; j < BREATH_PER_LINE; j += 1) {
-        pi = b * BREATH_PER_LINE + j;
-        c = speedColor(speedAtU(breathData[b], (breathBaseU[pi] + breathAdvance) % 1));
-        breathCol[pi * 3] = c[0]; breathCol[pi * 3 + 1] = c[1]; breathCol[pi * 3 + 2] = c[2];
-      }
+
+  /* 粒子几何：一个 BufferGeometry + 一个 THREE.Points（单 draw call），按弧长等距撒点 */
+  var ptLineOf = [], ptU = [], ptPerLine = 0, ptCount = 0;
+  var ptGeo = null, ptMat = null, ptPts = null, ptPosA = null;
+  var breathT = 0;        /* 周期内时间 0..BREATH_PERIOD */
+  var breathPhase = 0;    /* +1 吸气相 / -1 呼气相 */
+  var breathFrameDu = 0;  /* 本帧带符号平均位移（弧长坐标 u/帧）：验收探针读它判正负 */
+  (function buildBreathParticles() {
+    var li, i2, per;
+    per = Math.floor(BREATH_MAX_PTS / Math.max(1, breathData.length));
+    if (per < BREATH_MIN_PER_LINE) { per = BREATH_MIN_PER_LINE; }
+    if (per > BREATH_MAX_PER_LINE) { per = BREATH_MAX_PER_LINE; }
+    ptPerLine = breathData.length ? per : 0; /* 无流线时诊断口径报 0，不报钳制值 */
+    for (li = 0; li < breathData.length; li += 1) { /* 按弧长等距：u = k/per */
+      for (i2 = 0; i2 < per; i2 += 1) { ptLineOf.push(li); ptU.push(i2 / per); ptCount += 1; }
     }
-    breathGeo.attributes.color.needsUpdate = true;
+    if (!ptCount) { return; } /* 空数据：不建粒子、不报错（勾选框随后置灰） */
+    ptGeo = new THREE.BufferGeometry();
+    ptGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(ptCount * 3), 3));
+    ptGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(ptCount * 3), 3));
+    ptPosA = ptGeo.attributes.position.array;
+    ptMat = new THREE.PointsMaterial({
+      size: BREATH_PT_SIZE, sizeAttenuation: false, vertexColors: true,
+      transparent: true, opacity: 0.95, depthTest: false, depthWrite: false
+    });
+    ptPts = new THREE.Points(ptGeo, ptMat);
+    ptPts.frustumCulled = false; /* 位置逐帧变，关掉剔除省一次包围球重算；单 draw call 本就便宜 */
+    ptPts.renderOrder = 4;       /* 表面(0)/轮廓(1)/流线(2)/箭头(3) 之上——"在流"是最上层提示 */
+    ptPts.visible = false;       /* 首帧由 breathApplyVisibility() 按开关定档 */
+    scene.add(ptPts);
+    breathStep(0);               /* 先落一次位置/颜色，避免首帧粒子堆在原点 */
+  })();
+
+  /* 单遍推进：带符号步长 → 弧长坐标 → 位置 → 颜色（不额外分配；dt=0 时只按当前色标重刷颜色） */
+  function breathStep(dt) {
+    if (!ptGeo) { return; }
+    var inhale = breathT < BREATH_HALF;
+    var pT = inhale ? breathT : breathT - BREATH_HALF;        /* 相内进度 0..2s */
+    var dir = inhale ? 1 : -1;
+    breathPhase = dir;
+    var env = Math.sin(Math.PI * pT / BREATH_HALF);           /* 0→1→0：相变处为 0，位置连续 */
+    var i, rec, u, sp, vN, f, stp, sum = 0, c;
+    var col = ptGeo.attributes.color.array;
+    for (i = 0; i < ptCount; i += 1) {
+      rec = breathData[ptLineOf[i]];
+      u = ptU[i];
+      sp = speedAtU(rec, u);
+      vN = colorScaleMax > 0 ? (sp * flowK / colorScaleMax) : 0;
+      if (vN > 1) { vN = 1; } else if (vN < 0) { vN = 0; }
+      f = BREATH_U_MIN + (1 - BREATH_U_MIN) * vN;             /* 慢流慢走，快流快走 */
+      if (dt > 0) {
+        stp = dir * env * BREATH_RATE * f * dt;               /* 吸气相为正、呼气相为负 */
+        u += stp;
+        u -= Math.floor(u);                                   /* 环形坐标：越界即由另一端续上 */
+        ptU[i] = u;
+        sum += stp;
+      }
+      posAtU(rec, u, breathTmp);
+      ptPosA[i * 3] = breathTmp[0]; ptPosA[i * 3 + 1] = breathTmp[1]; ptPosA[i * 3 + 2] = breathTmp[2];
+      c = speedRamp(0.42 + 0.58 * vN); /* 与流线同色标（青→黄）；低流速不上深蓝——暗底看不见粒子 */
+      col[i * 3] = c[0]; col[i * 3 + 1] = c[1]; col[i * 3 + 2] = c[2];
+    }
+    if (dt > 0) { breathFrameDu = sum / ptCount; }
+    ptGeo.attributes.position.needsUpdate = true;
+    ptGeo.attributes.color.needsUpdate = true;
   }
+
+  /* 开关：默认开；prefers-reduced-motion:reduce → 默认关，运行中切到 reduce 自动关 */
+  var mqReduce = (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)')) || null;
   var breathPhaseEl = document.getElementById('breath-phase');
-  function updateBreath(dt) {
-    if (!breathOn) {
-      breathPts.visible = false;
-      if (lastPhase !== 'off') { breathPhaseEl.style.display = 'none'; lastPhase = 'off'; }
+  var breathLabelEl = document.getElementById('breath-label');
+  var breathFillEl = document.getElementById('breath-fill');
+  var cbBreathAnim = document.getElementById('cb-breath-anim');
+  var breathOn = !(mqReduce && mqReduce.matches);
+  var breathLabel = 'off';
+  function breathApplyVisibility() {
+    if (!ptPts) { if (breathPhaseEl) { breathPhaseEl.style.display = 'none'; } breathLabel = 'off'; return; }
+    ptPts.visible = breathOn && gLines.visible; /* 流线关掉时粒子一起收（线下无线可跑） */
+    if (!ptPts.visible && breathPhaseEl) { breathPhaseEl.style.display = 'none'; breathLabel = 'off'; }
+  }
+  if (cbBreathAnim) {
+    if (!ptPts) { /* 无流线数据：置灰，不留一个点了没反应的开关 */
+      cbBreathAnim.checked = false;
+      cbBreathAnim.disabled = true;
+      if (cbBreathAnim.parentNode) { cbBreathAnim.parentNode.classList.add('dis'); }
+    } else {
+      cbBreathAnim.checked = breathOn;
+      cbBreathAnim.addEventListener('change', function () {
+        breathOn = cbBreathAnim.checked;
+        if (breathOn) { breathT = 0; breathLabel = ''; } /* 重开从吸气相起点开始，不停在相位末尾 */
+        breathApplyVisibility();
+      });
+      if (mqReduce && mqReduce.addEventListener) {
+        mqReduce.addEventListener('change', function (ev) {
+          if (ev.matches) { breathOn = false; cbBreathAnim.checked = false; breathApplyVisibility(); }
+        });
+      }
+      breathApplyVisibility();
+    }
+  }
+  function breathTick(dt) { /* 挂在既有 rAF tick 上，不新建循环 */
+    if (!ptPts || !breathOn || !gLines.visible) {
+      if (ptPts && ptPts.visible) { ptPts.visible = false; }
+      if (breathLabel !== 'off' && breathPhaseEl) { breathPhaseEl.style.display = 'none'; breathLabel = 'off'; }
       return;
     }
-    breathT = (breathT + dt) % breathPeriod;
-    var b, j, pi, u;
-    if (breathT < 2) {
-      /* 吸气相：瞬时速度 ∝ sin(πt/2s)×流量缩放系数 */
-      breathAdvance += (0.25 / (4 / Math.PI)) * Math.sin(Math.PI * breathT / 2) * flowK * dt;
-      breathOpacity = 1;
-    } else {
-      breathOpacity = 1 - (breathT - 2) / 2; /* 呼气相：淡出至不可见 */
-    }
-    for (b = 0; b < breathData.length; b += 1) {
-      for (j = 0; j < BREATH_PER_LINE; j += 1) {
-        pi = b * BREATH_PER_LINE + j;
-        u = (breathBaseU[pi] + breathAdvance) % 1;
-        posAtU(breathData[b], u, breathTmp);
-        breathPos[pi * 3] = breathTmp[0]; breathPos[pi * 3 + 1] = breathTmp[1]; breathPos[pi * 3 + 2] = breathTmp[2];
-      }
-    }
-    breathGeo.attributes.position.needsUpdate = true;
-    breathMat.opacity = breathOpacity;
-    breathPts.visible = breathOpacity > 0.02;
+    if (!ptPts.visible) { ptPts.visible = true; }
+    breathT = (breathT + dt) % BREATH_PERIOD;
+    breathStep(dt);
+    if (!breathPhaseEl) { return; }
     breathPhaseEl.style.display = 'flex';
-    var ph = breathT < 2 ? '吸入' : '呼出';
-    if (ph !== lastPhase) { document.getElementById('breath-label').textContent = ph; lastPhase = ph; }
-    document.getElementById('breath-fill').style.width = ((breathT < 2 ? breathT / 2 : (breathT - 2) / 2) * 100) + '%';
+    var inhale = breathT < BREATH_HALF;
+    var pT = inhale ? breathT : breathT - BREATH_HALF;
+    /* 箭头是吸气参考方向，不翻转箭头几何；呼气相只在相位标签旁提示「（反向）」 */
+    var next = inhale ? '吸入' : '呼气（反向）';
+    if (next !== breathLabel) { if (breathLabelEl) { breathLabelEl.textContent = next; } breathLabel = next; }
+    if (breathFillEl) { breathFillEl.style.width = ((pT / BREATH_HALF) * 100).toFixed(1) + '%'; }
   }
-  var cbBreath = document.getElementById('cb-breath');
-  cbBreath.addEventListener('change', function () {
-    breathOn = cbBreath.checked;
-    if (breathOn) { breathT = 0; lastPhase = ''; refreshBreathColors(); }
-  });
 
   /* ---------- F7：悬停流速探针（流线阈值3mm/切片阈值1.5mm；60ms节流；数值按当前流量缩放） ---------- */
   var raycaster = new THREE.Raycaster();
@@ -2391,12 +2770,49 @@ function resize() {
   window.addEventListener('resize', resize);
   resize();
 
+  /* ---------- T55-A：右侧指标面板折叠（记忆 + 窄屏默认折叠 + 画布联动 resize） ---------- */
+  (function panelCollapse() {
+    var KEY = 'qidi.viewer.panel.collapsed';
+    var THRESHOLD = 1100;
+    var root = document.documentElement;
+    var btn = document.getElementById('btn-panel-toggle');
+    if (!btn) { return; }
+    var pref = null, t = null;
+    try { pref = localStorage.getItem(KEY); } catch (e) { pref = null; }
+    function isCollapsed() { return root.classList.contains('panel-collapsed'); }
+    function sync() {
+      var c = isCollapsed();
+      btn.setAttribute('aria-expanded', c ? 'false' : 'true');
+      btn.setAttribute('aria-label', c ? '展开指标面板' : '收起指标面板');
+      btn.title = c ? '展开指标面板' : '收起指标面板（模型区变宽）';
+      /* 面板宽度变化不触发 window resize —— 手动让画布/相机 aspect 跟上 */
+      try { resize(); } catch (e) {}
+    }
+    function apply(collapsed) {
+      if (collapsed) { root.classList.add('panel-collapsed'); } else { root.classList.remove('panel-collapsed'); }
+      sync();
+    }
+    window.__panelExpand = function () { apply(false); };
+    btn.addEventListener('click', function () {
+      var next = !isCollapsed();
+      pref = next ? '1' : '0';
+      try { localStorage.setItem(KEY, pref); } catch (e) {}
+      apply(next);
+    });
+    sync(); /* 与首帧脚本预置的类对齐（aria + 首次 resize） */
+    window.addEventListener('resize', function () {
+      if (pref !== null) { return; } /* 用户已显式选择过就不再自动跟随 */
+      clearTimeout(t);
+      t = setTimeout(function () { apply(window.innerWidth < THRESHOLD); }, 120);
+    });
+  })();
+
   var last = performance.now();
   function tick(now) {
     var dt = Math.min((now - last) / 1000, 0.1);
     last = now;
     controls.update(dt);
-    updateBreath(dt);
+    breathTick(dt); /* 唯一粒子层：吸气相正向、呼气相反向——挂既有 rAF 循环，不新建循环 */
     probePick(now);
     /* V1 性能预算：体渲染开启时 ≥25fps，不达标自动降 renderScale=0.25（一次性） */
     if (ctOn && !abOn) {
@@ -2410,15 +2826,15 @@ function resize() {
         }
       }
     }
-    /* 性能红线：呼吸动画与体渲染同时开时如低于 20fps → 自动关呼吸 */
-    if (ctOn && breathOn) {
+    /* 性能红线：呼吸粒子与体渲染同时开时如低于 20fps → 自动关粒子动画 */
+    if (ctOn && breathOn && cbBreathAnim) {
       brFpsFrames += 1; brFpsTime += dt;
       if (brFpsTime >= 2) {
         var brFps = brFpsFrames / brFpsTime;
         brFpsFrames = 0; brFpsTime = 0;
         if (brFps < 20) {
-          cbBreath.checked = false;
-          cbBreath.dispatchEvent(new Event('change'));
+          cbBreathAnim.checked = false;
+          cbBreathAnim.dispatchEvent(new Event('change'));
           console.info('[viewer] 体渲染+呼吸同开帧率低于20fps（实测 ' + brFps.toFixed(1) + '），已自动关闭呼吸动画');
         }
       }
@@ -2454,7 +2870,7 @@ function resize() {
   window.__v2 = {
     controls: controls,
     camera: camera,
-    breathPts: breathPts,
+    pts: ptPts,
     scene: scene, gLines: gLines, gSlices: gSlices,
     meshes: function () { return { airway: airway, cavity: cavity, sinus: sinus }; },
     ct: function () {
@@ -2486,16 +2902,97 @@ function resize() {
       if (e) { e.checked = !!on; e.dispatchEvent(new Event('change')); }
     },
     setCT: function (on) { if (cbCt) { cbCt.checked = !!on; applyCT(!!on); } },
+    /* T-BLUE 自测钩子（只读）：像素统计/无头验收据此核对改动是否真的生效 */
+    arrows: function () { return { count: arrowSpeeds.length, visible: gArrows.visible, inScene: !!arrowMesh }; },
+    /* 气流粒子层自测钩子（只读 + 一个开关写入口）：粒子数/单 draw call/相位/帧步长 */
+    particles: function () {
+      var pT = breathT < BREATH_HALF ? breathT : breathT - BREATH_HALF;
+      return {
+        on: breathOn, hasParticles: !!ptPts, count: ptCount, perLine: ptPerLine,
+        lines: breathData.length, visible: !!ptPts && ptPts.visible,
+        sizePx: ptMat ? ptMat.size : 0, opacity: ptMat ? ptMat.opacity : 0, rate: BREATH_RATE, uMin: BREATH_U_MIN,
+        tSec: Math.round(breathT * 1000) / 1000, period: BREATH_PERIOD, half: BREATH_HALF,
+        phase: breathPhase > 0 ? 'inhale' : 'exhale', phaseT: Math.round(pT * 1000) / 1000,
+        label: breathLabel, frameDu: Math.round(breathFrameDu * 1e9) / 1e9,
+        reduceMotion: !!(mqReduce && mqReduce.matches),
+        u0: ptCount ? Math.round(ptU[0] * 1e6) / 1e6 : -1,
+        drawCalls: renderer.info.render.calls, pointsDrawn: renderer.info.render.points,
+        triangles: renderer.info.render.triangles
+      };
+    },
+    setBreathAnim: function (on) {
+      var e4 = document.getElementById('cb-breath-anim');
+      if (e4) { e4.checked = !!on; e4.dispatchEvent(new Event('change')); }
+    },
+    /* 只读快照：粒子弧长坐标 / 所属流线 / 各线总弧长——无头验收据此算"沿流线带符号平均位移" */
+    arcSnapshot: function () {
+      return {
+        t: Math.round(breathT * 1000) / 1000,
+        phase: breathPhase > 0 ? 'inhale' : 'exhale',
+        u: ptU.slice(0), line: ptLineOf.slice(0),
+        totals: breathData.map(function (r) { return r.total; })
+      };
+    },
+    linewidth: function () { return { px: F1_LINEWIDTH_PX, depthTest: fatMat.depthTest }; },
+    surface: function () {
+      return {
+        cavityColor: '#' + matCavity.color.getHexString(), cavityOpacity: matCavity.opacity,
+        sinusColor: '#' + matSinus.color.getHexString(), sinusOpacity: matSinus.opacity,
+        cavitySide: matCavity.side, cavityDepthWrite: matCavity.depthWrite,
+        cavityRoughness: matCavity.roughness, cavityMetalness: matCavity.metalness,
+        outlines: outlineMeshes.length, outlineScale: OUTLINE_SCALE,
+        pixelRatio: renderer.getPixelRatio(), pixelRatioCap: PIXEL_RATIO_CAP,
+        lights: scene.children.filter(function (o) { return !!o.isLight; })
+          .map(function (o) { return o.type; })
+      };
+    },
     setAB: function (on) { setAB(!!on); },
     state: function () {
       return {
         flowQ: flowQ, flowK: flowK, vMaxBase: V_MAX_BASE, colorScaleMax: colorScaleMax,
-        breathOn: breathOn, breathT: breathT, breathOpacity: breathOpacity, breathAdvance: breathAdvance,
-        breathCount: breathCount, breathVisible: breathPts.visible,
+        breathOn: breathOn, breathT: breathT, breathPhase: breathPhase > 0 ? 'inhale' : 'exhale',
+        breathParticles: ptCount, breathVisible: !!ptPts && ptPts.visible,
+        breathLabel: breathLabel, breathFrameDu: breathFrameDu,
         damping: controls.dampingFactor, rotSpeed: controls.rotateSpeed, panFactor: controls.panFactor
       };
     },
-    legendTitle: function () { return document.getElementById('legend-title').textContent; }
+    legendTitle: function () { return document.getElementById('legend-title').textContent; },
+    /* T55 自测钩子（只读）：面板折叠态/宽度与图例几何，供无头验收 */
+    panel: function () {
+      var p = document.getElementById('panel');
+      var b = p.getBoundingClientRect();
+      return {
+        collapsed: document.documentElement.classList.contains('panel-collapsed'),
+        width: Math.round(b.width * 100) / 100,
+        pctOfViewport: Math.round(b.width / window.innerWidth * 10000) / 100,
+        canvasWidth: Math.round(document.getElementById('canvas-wrap').getBoundingClientRect().width * 100) / 100,
+        stored: (function () { try { return localStorage.getItem('qidi.viewer.panel.collapsed'); } catch (e) { return null; } })(),
+        ariaExpanded: document.getElementById('btn-panel-toggle').getAttribute('aria-expanded')
+      };
+    },
+    legend: function () {
+      var bar = document.getElementById('legend-bar').getBoundingClientRect();
+      var lg = document.getElementById('legend').getBoundingClientRect();
+      return {
+        width: Math.round(lg.width * 100) / 100, height: Math.round(lg.height * 100) / 100,
+        barW: Math.round(bar.width * 100) / 100, barH: Math.round(bar.height * 100) / 100,
+        tickFont: getComputedStyle(document.querySelector('.legend-scale span')).fontSize,
+        ticks: document.querySelector('.legend-scale').textContent
+      };
+    },
+    /* T-FRAME 自测钩子（只读）：取景依据、距离、边距、当前相机状态 */
+    frame: function () {
+      var b = airwayBounds();
+      var sz = b ? b.getSize(new THREE.Vector3()) : null;
+      return {
+        airwayOnly: airwayFit, margin: FIT_MARGIN, fitR: fitR, fitDist: fitDist,
+        fitCenter: center.toArray(), near: camera.near, far: camera.far,
+        airwayBoxSize: sz ? [sz.x, sz.y, sz.z] : null,
+        r: controls.cur.r, theta: controls.cur.theta, phi: controls.cur.phi,
+        target: controls.cur.target.toArray(), aspect: viewAspect()
+      };
+    },
+    resetView: function () { resetView(); }
   };
 })();
 /*__MAIN_APP_JS_END__*/
