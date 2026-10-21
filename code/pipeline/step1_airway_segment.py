@@ -6,6 +6,7 @@ P0 阶段1 v2：鼻腔气道三维重建（修正版）
 """
 import os, json, glob, argparse
 import numpy as np
+from airway_geom import centroid_split_x, read_ct_series  # 与回归测试共用同一份实现：x 向质心/左右分界、DICOM 读入规则
 import pydicom
 from scipy import ndimage
 from skimage.measure import marching_cubes
@@ -78,9 +79,11 @@ if not files:
     print("[错误] 在目录未找到任何 DICOM 文件（*.dcm）：" + DATA_DIR)
     print("请通过 --dicom-dir 或环境变量 P0_DICOM_DIR 指定真实 CT 的 DICOM 目录后再运行。")
     raise SystemExit(1)
-print(f"[1/7] 读取 {len(files)} 层 DICOM ...")
-slices = [pydicom.dcmread(f) for f in files]
-slices.sort(key=lambda s: float(s.ImagePositionPatient[2]))
+# 真实上传目录的匹配规则（airway_geom.read_ct_series，与回归测试共用同一份实现）：
+#   逐文件过滤（读不开 / 非图像 / 缺 IPP 或 Rows,Columns）并计数，绝不中断；
+#   按 SeriesInstanceUID 只留层数最多的一组（scout、报告、DICOMDIR 全部挡在外面）；
+#   同 z 去重；有效层 < 2 直接报错退出。两行摘要（[1/7] 与序列选择）由它打印。
+slices, _slices_sel = read_ct_series(files)
 nz, rows, cols = len(slices), slices[0].Rows, slices[0].Columns
 ps = [float(x) for x in slices[0].PixelSpacing]
 dz = abs(float(slices[1].ImagePositionPatient[2]) - float(slices[0].ImagePositionPatient[2]))
@@ -386,9 +389,12 @@ print(f"    气道组件合并: {len(merged)} 个 -> 合并后 {total_cm3:.2f} c
 # ---------- 5. 截面积曲线 ----------
 areas = airway.sum(axis=(1, 2)) * ps[0] * ps[1]
 zpos = np.array([float(s.ImagePositionPatient[2]) for s in slices])
-xs = np.arange(cols)
-cx = float((airway.sum(axis=2).sum(axis=0) * xs).sum() / max(airway.sum(), 1))
-mid = int(round(cx))
+# 左右分界（x 轴）：x 向质心 = 沿 z、y 两轴求和后的 x 边缘分布的重心。
+# 2026-10-21 修复（服务器实测非方形体数据 (230,308,360) 崩溃）：
+# 旧式 airway.sum(axis=2).sum(axis=0) 先沿 x 再沿 z 求和 -> 长度 ny 的 y 分布，
+# 与长度 nx 的 xs 相乘 -> ValueError: shapes (308,) (360,)；方形视野虽不崩，
+# 但拿 y 分布乘 x 坐标语义错 -> 左右分界错位。实现见 airway_geom.centroid_split_x。
+cx, mid = centroid_split_x(airway)
 l_areas = airway[:, :, :mid].sum(axis=(1, 2)) * ps[0] * ps[1]
 r_areas = airway[:, :, mid:].sum(axis=(1, 2)) * ps[0] * ps[1]
 
