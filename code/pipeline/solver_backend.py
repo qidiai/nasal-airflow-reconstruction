@@ -54,8 +54,10 @@ REPO = os.path.dirname(CODE)                       # repo root
 SOLVER_DIR = os.path.join(CODE, "solver")
 SOLVER_TOOLS = os.path.join(SOLVER_DIR, "tools")
 
-RHO_AIR = 1.2          # kg/m3（契约 §11）
-MU_AIR = 2.16e-5       # Pa·s（rho * nu = 1.2 * 1.8e-5）
+RHO_AIR = 1.2          # kg/m3（契约 §11 后处理口径）
+MU_AIR = 2.16e-5       # Pa·s（契约 §11：rho * nu = 1.2 * 1.8e-5，仅 WSS 用）
+# 注：上面两个是**后处理口径常量**，不是 metrics.inputs 的取值来源。
+# inputs.nu_m2_s 一律从该次求解用的 case 文件回读（见 build_inputs_provenance）。
 DEFAULT_MAX_ITER = 1500
 DEFAULT_WRITE_EVERY = 500
 DEFAULT_P_RELTOL = 1e-3
@@ -455,6 +457,86 @@ def _final_vtk(out_dir):
     return p, _it(p)
 
 
+def read_case_transport_properties(case_dir):
+    """从**该次求解实际使用的 case 文件**读 nu（求解器真正读的就是它）。
+
+    返回 ``(nu, tp_path, error)``：解析成功时 error 为 ``None``；失败时 nu 为
+    ``None`` 且 error 说明原因。调用方**不得**在失败时回落到任何硬编码默认值。
+    """
+    if not case_dir:
+        return None, "", "case_dir 未提供"
+    tp = os.path.join(case_dir, "constant", "transportProperties")
+    if not os.path.isfile(tp):
+        return None, tp, "找不到 %s" % tp
+    try:
+        with open(tp, "r", encoding="utf-8", errors="replace") as f:
+            txt = f.read()
+    except OSError as e:
+        return None, tp, "读不了 %s：%s" % (tp, e)
+    m = re.search(r"^\s*nu\s+\[[^\]]*\]\s*([0-9.eE+\-]+)\s*;", txt, re.M)
+    if not m:
+        return None, tp, "%s 里没有可解析的 'nu [..] <value>;' 行" % tp
+    try:
+        return float(m.group(1)), tp, None
+    except ValueError as e:
+        return None, tp, "%s 的 nu 值不可解析：%s" % (tp, e)
+
+
+def build_inputs_provenance(case_dir, vtk_dir=None, extra=None, solver_backend="custom"):
+    """构造 ``metrics.inputs``——nu/rho/mu 一律**从 case 文件回读**，无默认值回落。
+
+    规则（裁定五）：
+    - ``nu_m2_s``：解析该 case 的 ``constant/transportProperties`` 的 nu 行；
+      解析失败 ⇒ ``None``，并在返回的 warnings 里记一条，**不猜、不回落**。
+    - ``rho_kg_m3``：不可压缩算例的 transportProperties 不声明 rho；若 case 里
+      确实有 rho 行就用它（``rho_source`` = case 路径），否则用契约 §11 的
+      后处理口径常量 1.2，并在 ``rho_source`` 里写明是契约常量（不伪装成读回）。
+    - ``mu_Pa_s``：= rho * nu；nu 不可解析时同样为 ``None``。
+
+    返回 ``(inputs_dict, warnings_list)``。
+    """
+    nu, tp_path, err = read_case_transport_properties(case_dir)
+    warnings = []
+    if err:
+        warnings.append(
+            "inputs.nu_m2_s=null：%s（按裁定五禁止回落到硬编码默认值）" % err)
+
+    rho = None
+    rho_source = "case:%s" % tp_path
+    if tp_path and os.path.isfile(tp_path):
+        try:
+            with open(tp_path, "r", encoding="utf-8", errors="replace") as f:
+                txt = f.read()
+            m = re.search(r"^\s*rho\s+(\[[^\]]*\]\s*)?([0-9.eE+\-]+)\s*;", txt, re.M)
+            if m:
+                rho = float(m.group(2))
+        except (OSError, ValueError):
+            rho = None
+    if rho is None:
+        rho = RHO_AIR
+        rho_source = "contract_constant:rho=1.2（case 文件不声明 rho，不可压缩）"
+
+    mu = rho * nu if (nu is not None and rho is not None) else None
+    if mu is None and nu is None:
+        warnings.append("inputs.mu_Pa_s=null：nu 不可解析，mu 无法计算")
+
+    inputs = {
+        "vtk_dir": os.path.abspath(vtk_dir) if vtk_dir else None,
+        "rho_kg_m3": rho,
+        "rho_source": rho_source,
+        "nu_m2_s": nu,
+        "nu_source": tp_path if tp_path else "unavailable",
+        "mu_Pa_s": mu,
+        "geom_units": "m",
+        "solver_backend": solver_backend,
+    }
+    if solver_backend == "custom":
+        inputs["flowscope"] = flowscope_path()
+    if extra:
+        inputs.update(extra)
+    return inputs, warnings
+
+
 def build_metrics(case_dir, out_dir, log_path, prefix="", case="", tag=""):
     """汇编 ``后处理/metrics.json`` + ``VTK/<tag>/internal.vtu``（契约形状）。"""
     import numpy as np
@@ -521,16 +603,12 @@ def build_metrics(case_dir, out_dir, log_path, prefix="", case="", tag=""):
 
     wss = _wss_stats(case_dir, vtk_path, parsed, geom=(pts, conn, U))
 
+    # inputs 段：nu/rho/mu 从该次求解实际使用的 case 文件回读（裁定五），
+    # 解析失败写 null + warnings，禁止回落到任何硬编码默认值。
+    inputs, inputs_warnings = build_inputs_provenance(case_dir, vtk_dir=out_dir)
+
     metrics = {
-        "inputs": {
-            "vtk_dir": os.path.abspath(out_dir),
-            "rho_kg_m3": RHO_AIR,
-            "nu_m2_s": 1.8e-05,
-            "mu_Pa_s": MU_AIR,
-            "geom_units": "m",
-            "solver_backend": "custom",
-            "flowscope": flowscope_path(),
-        },
+        "inputs": inputs,
         "files": {
             "internal": vtu,
             "fields_vtk": vtk_path,
@@ -572,6 +650,8 @@ def build_metrics(case_dir, out_dir, log_path, prefix="", case="", tag=""):
             "run_mode": parsed.get("run_mode"),
             "contract_metrics_source": os.path.abspath(log_path),
         },
+        # inputs 段来源缺陷（如 case 文件里读不到 nu）在此逐条记录，不静默吞掉
+        "warnings": inputs_warnings,
     }
     post_dir = os.path.join(out_dir, "后处理")
     os.makedirs(post_dir, exist_ok=True)

@@ -18,6 +18,7 @@ import hashlib
 import json
 import os
 import re
+import sys
 import time
 
 import numpy as np
@@ -26,6 +27,9 @@ import pyvista as pv
 HERE = os.path.dirname(os.path.abspath(__file__))
 PIPELINE = os.path.dirname(HERE)
 REPO = os.path.dirname(os.path.dirname(PIPELINE))
+if PIPELINE not in sys.path:
+    sys.path.insert(0, PIPELINE)
+import solver_backend as _backend  # noqa: E402  inputs 段来源共用一个实现（裁定五）
 GEN_GEOMETRY = os.path.join(HERE, "gen_geometry.py")
 STL_TO_DICOM = os.path.join(HERE, "stl_to_dicom.py")
 STEP2 = os.path.join(PIPELINE, "step2_make_ofcase.py")
@@ -160,11 +164,22 @@ def finalize(case, repo, work):
                 "vtk": vd, "log": os.path.isfile(logp)}
     bdir = os.path.join(vd, "boundary")
     internal = os.path.join(vd, "internal.vtu")
+    # inputs 段的 nu/rho/mu 必须从该次求解实际使用的 case 文件回读（裁定五）：
+    # 求解发生在 pull（WSL 侧运行目录）里，拿不到就退到仓库侧同名 case 目录，
+    # 两处都读不到就写 null + warnings —— 不回落到模块常量 NU。
+    inputs, input_warnings = None, []
+    for cd in (pull, os.path.join(dst, "case")):
+        if os.path.isfile(os.path.join(cd, "constant", "transportProperties")):
+            inputs, input_warnings = _backend.build_inputs_provenance(
+                cd, vtk_dir=vd, solver_backend="openfoam")
+            break
+    if inputs is None:
+        inputs, input_warnings = _backend.build_inputs_provenance(
+            None, vtk_dir=vd, solver_backend="openfoam")
+    inputs["solve"] = "Run-A 15L/min simpleFoam laminar steady"
     m = {
         "case": case,
-        "inputs": {"rho_kg_m3": RHO, "nu_m2_s": NU, "mu_Pa_s": RHO * NU,
-                   "geom_units": "m", "vtk_dir": vd,
-                   "solve": "Run-A 15L/min simpleFoam laminar steady"},
+        "inputs": inputs,
         "files": {"internal": internal,
                   "inletL": os.path.join(bdir, "inletL.vtp"),
                   "inletR": os.path.join(bdir, "inletR.vtp"),
@@ -243,7 +258,7 @@ def finalize(case, repo, work):
         "voxel_mm": stats.get("voxel_mm"),
         "rasterization_ratio": qc.get("volume", {}).get("ratio"),
     }
-    m["warnings"] = []
+    m["warnings"] = list(input_warnings)
     if tot.get("cont_rel_err") is not None and tot["cont_rel_err"] > 0.05:
         m["warnings"].append(f"continuity rel err {tot['cont_rel_err']:.3%} > 5%")
     m["status"] = "OK"
