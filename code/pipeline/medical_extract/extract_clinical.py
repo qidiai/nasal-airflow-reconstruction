@@ -23,6 +23,15 @@ import numpy as np
 
 sys.stdout.reconfigure(encoding='utf-8')
 
+# 两档最小轴面积只用一套实现（GAP-2）：直接导入 extract_compare 的共用函数与固定标签
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from extract_compare import (  # noqa: E402
+    MIN_ANATOMIC_NOTE,
+    MIN_NO_THRESHOLD_LABEL,
+    MIN_RAW_LABEL,
+    axial_area_minima,
+)
+
 ROOT = r'F:\比赛项目\罕见无界黑客松\赛题3-鼻腔气流分析\项目\P0-鼻塞设计工具'
 CSV = ROOT + r'\阶段1-三维重建\area_per_slice_v2.csv'
 MJ = ROOT + r'\阶段1-三维重建\metrics_v2.json'
@@ -117,10 +126,38 @@ def main():
     assert int(has_air.sum()) == int(mj['n_slices_with_air']), \
         'CSV 有面积层数(%d)与 metrics_v2.json n_slices_with_air(%d)不一致' % (int(has_air.sum()), int(mj['n_slices_with_air']))
 
+    # --- 两档最小轴面积（与 extract_compare.py 共用 axial_area_minima，禁止写两份） ---
+    area_min = axial_area_minima(CSV)
+    mr = area_min['min_raw']
+    mnt = area_min['min_no_threshold']
+    print('[clinical] min_raw           %.6f mm² @层%d z=%.2f mm（%s）'
+          % (mr['mm2'], mr['layer'], mr['z_mm'], MIN_RAW_LABEL))
+    print('[clinical] min_no_threshold  %.6f mm² @层%d z=%.2f mm（%s）'
+          % (mnt['mm2'], mnt['layer'], mnt['z_mm'], MIN_NO_THRESHOLD_LABEL))
+    print('[clinical] min_anatomic      null —— %s' % MIN_ANATOMIC_NOTE)
+    assert abs(mr['mm2'] - float(mj['min_axial_area_mm2'])) < 0.05, \
+        '实算 min_raw %.6f 与 metrics_v2.json min_axial_area_mm2 %.1f 不一致' % (
+            mr['mm2'], float(mj['min_axial_area_mm2']))
+
     valve = {
         'min_area_mm2': mj['min_axial_area_mm2'],
         'min_layer': mj['min_layer'],
         'min_z_mm': mj['min_z_mm'],
+        # 旧字段 min_area_mm2 就是 min_raw，禁止被读成解剖值
+        'min_area_mm2_caliber': 'min_raw（' + MIN_RAW_LABEL + '）',
+        # 两档口径分开写，标签固定；min_raw 不得冒充解剖值
+        'min_raw_mm2': mr['mm2_6dp'],
+        'min_raw_layer': mr['layer'],
+        'min_raw_z_mm': mr['z_mm'],
+        'min_raw_label': MIN_RAW_LABEL,
+        'min_no_threshold_mm2': mnt['mm2_6dp'],
+        'min_no_threshold_layer': mnt['layer'],
+        'min_no_threshold_z_mm': mnt['z_mm'],
+        'min_no_threshold_label': MIN_NO_THRESHOLD_LABEL,
+        'min_anatomic_mm2': None,
+        'min_anatomic_note': MIN_ANATOMIC_NOTE,
+        'min_area_source': area_min['source'],
+        'min_area_threshold_rule': area_min['threshold_rule'],
         'source': '阶段1-三维重建/area_per_slice_v2.csv + metrics_v2.json',
         'caveat': mj['caveat'],
         'curve': {

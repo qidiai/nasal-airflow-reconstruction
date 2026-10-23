@@ -1,0 +1,1063 @@
+{
+ "schema": "split_validity/v1",
+ "generated_by": "code/pipeline/split_validity.py",
+ "note": "在用产物（metrics_v2.json / contract-*.json / baseline27 metrics.json）一字节未改；本文件是作废声明的侧车。无时间戳，输出确定，可按发布门⑨ 做字节级重放。",
+ "rule_ref": "裁定书（三）§2 第 1–2 项（R-10 范围修正：左右字段与 split 在所有 Run-A 算例上默认 false）",
+ "reason_enum": [
+  "imposed_by_area_BC",
+  "septum_grouping_failed"
+ ],
+ "defaults": {
+  "unlisted_case": "unknown（本侧车不推断未登记的算例）",
+  "unlisted_field": "unknown（缺键不得当作有效）"
+ },
+ "replica_check_policy": {
+  "in_repo_ref": "code/pipeline/out/step1/metrics_v2.json",
+  "external_ref": "阶段1-三维重建/metrics_v2.json",
+  "expected_md5": "c5759af68d72b5fc6274bc38016de93a",
+  "expected_bytes": 668,
+  "evaluated_by": "python code/pipeline/split_validity.py --replica-check",
+  "note": "结果现场计算，不入本文件，以保证字节可重放"
+ },
+ "inputs": [
+  {
+   "file": "code/pipeline/out/baseline27/case-001/metrics.json",
+   "bytes": 4195,
+   "md5": "04857fbb377695adf342dc3d05954b65"
+  },
+  {
+   "file": "code/pipeline/out/baseline27/case-002/metrics.json",
+   "bytes": 4273,
+   "md5": "8f133128959e12bedcce002cb7c47b45"
+  },
+  {
+   "file": "code/pipeline/out/baseline27/case-003/metrics.json",
+   "bytes": 4253,
+   "md5": "850318b1c5a00af191cc12a2e40d9d68"
+  },
+  {
+   "file": "code/pipeline/out/baseline27/case-004/metrics.json",
+   "bytes": 4250,
+   "md5": "130b50752df66acb3989a5d6453b3c02"
+  },
+  {
+   "file": "code/pipeline/out/baseline27/case-005/metrics.json",
+   "bytes": 4248,
+   "md5": "b014a36d1e3b8fea511ff07be4865770"
+  },
+  {
+   "file": "code/pipeline/out/baseline27/case-006/metrics.json",
+   "bytes": 4286,
+   "md5": "a74182155caa3344f0f2ae28cc074e53"
+  },
+  {
+   "file": "code/pipeline/out/baseline27/case-007/metrics.json",
+   "bytes": 4261,
+   "md5": "c863317d1dd01a15e029274ddc772147"
+  },
+  {
+   "file": "code/pipeline/out/baseline27/case-008/metrics.json",
+   "bytes": 4271,
+   "md5": "742ee4b5112fe7d450116ceba8306c23"
+  },
+  {
+   "file": "code/pipeline/out/baseline27/case-009/metrics.json",
+   "bytes": 4222,
+   "md5": "da29c8afa7f3f726ba739aca357916f3"
+  },
+  {
+   "file": "code/pipeline/out/baseline27/case-010/metrics.json",
+   "bytes": 4251,
+   "md5": "f7606962516efe6ab72da417a0d90d40"
+  },
+  {
+   "file": "code/pipeline/out/baseline27/case-011/metrics.json",
+   "bytes": 954,
+   "md5": "e5a1b2d8c372e81c6ad26049b9b9e916"
+  },
+  {
+   "file": "code/pipeline/out/baseline27/case-012/metrics.json",
+   "bytes": 958,
+   "md5": "ff909fcbce4d21d90f61e61b47283e75"
+  },
+  {
+   "file": "code/pipeline/out/baseline27/case-013/metrics.json",
+   "bytes": 953,
+   "md5": "92cf78a882e5ee555c92479f9c86ed80"
+  },
+  {
+   "file": "code/pipeline/out/baseline27/case-014/metrics.json",
+   "bytes": 4243,
+   "md5": "7973dd6f6174e275ff65c8a1f5fb6cbe"
+  },
+  {
+   "file": "code/pipeline/out/baseline27/case-015/metrics.json",
+   "bytes": 4282,
+   "md5": "80951f7bc4b74f48ea6b8b8e6ecdf24d"
+  },
+  {
+   "file": "code/pipeline/out/baseline27/case-016/metrics.json",
+   "bytes": 4246,
+   "md5": "b308ac03f63c93f0e2634d13a60f8b9f"
+  },
+  {
+   "file": "code/pipeline/out/baseline27/case-017/metrics.json",
+   "bytes": 4224,
+   "md5": "5562cbb96457229f9bb9e44774ff89d8"
+  },
+  {
+   "file": "code/pipeline/out/baseline27/case-018/metrics.json",
+   "bytes": 953,
+   "md5": "1e39f2db60a8a47271658a22ccd61d98"
+  },
+  {
+   "file": "code/pipeline/out/baseline27/case-019/metrics.json",
+   "bytes": 4258,
+   "md5": "b9395c9d7cec22de9e4b862cfbf1e1aa"
+  },
+  {
+   "file": "code/pipeline/out/baseline27/case-020/metrics.json",
+   "bytes": 4275,
+   "md5": "1718d76d6d0aeac8edb0272ababf5c91"
+  },
+  {
+   "file": "code/pipeline/out/baseline27/case-021/metrics.json",
+   "bytes": 4263,
+   "md5": "d04b1a7fcb8b83290c283e0b996090a9"
+  },
+  {
+   "file": "code/pipeline/out/baseline27/case-022/metrics.json",
+   "bytes": 953,
+   "md5": "215a01c9103de196291eb8692a8bbd9c"
+  },
+  {
+   "file": "code/pipeline/out/baseline27/case-023/metrics.json",
+   "bytes": 4263,
+   "md5": "a7d08b7cdf3f23642fbbdf249c6e0054"
+  },
+  {
+   "file": "code/pipeline/out/baseline27/case-024/metrics.json",
+   "bytes": 4272,
+   "md5": "403579667316eb18769dae4943ba0e36"
+  },
+  {
+   "file": "code/pipeline/out/baseline27/case-025/metrics.json",
+   "bytes": 4277,
+   "md5": "e8ec38dd01b4593f577cfb74ac9f8db4"
+  },
+  {
+   "file": "code/pipeline/out/baseline27/case-026/metrics.json",
+   "bytes": 4194,
+   "md5": "be13880efa9e9089e8e0c005550c754a"
+  },
+  {
+   "file": "code/pipeline/out/baseline27/case-027/metrics.json",
+   "bytes": 4173,
+   "md5": "15d00f598644de736d62e14c02c8f9b8"
+  },
+  {
+   "file": "code/pipeline/out/postprocess/contract-pA-v1.json",
+   "bytes": 621,
+   "md5": "a0b3ec4806920da6bcfe61004321f9e1"
+  },
+  {
+   "file": "code/pipeline/out/postprocess/contract-pB-v1.json",
+   "bytes": 621,
+   "md5": "6ea9676722c3e70573eb2982484f611d"
+  },
+  {
+   "file": "code/pipeline/out/step1/metrics_pB_v2.json",
+   "bytes": 1050,
+   "md5": "370007d0f92ce9d0d062e2e0e2fc06ee"
+  },
+  {
+   "file": "code/pipeline/out/step1/metrics_pN_v2.json",
+   "bytes": 1044,
+   "md5": "b7f750880967bb2d6faf3a4b4a06fbf0"
+  },
+  {
+   "file": "code/pipeline/out/step1/metrics_v2.json",
+   "bytes": 668,
+   "md5": "c5759af68d72b5fc6274bc38016de93a"
+  }
+ ],
+ "entries_count": 63,
+ "cases_count": 27,
+ "index": {
+  "pB": [
+   "left_min_mm2",
+   "left_min_layer",
+   "right_min_mm2",
+   "right_min_layer",
+   "left_right_asymmetry"
+  ],
+  "pN": [
+   "left_min_mm2",
+   "left_min_layer",
+   "right_min_mm2",
+   "right_min_layer",
+   "left_right_asymmetry"
+  ],
+  "pA": [
+   "left_min_mm2",
+   "left_min_layer",
+   "right_min_mm2",
+   "right_min_layer",
+   "left_right_asymmetry"
+  ],
+  "pA-v1": [
+   "split_L_pct",
+   "split_R_pct"
+  ],
+  "pB-v1": [
+   "split_L_pct",
+   "split_R_pct"
+  ],
+  "baseline27/case-001": [
+   "flow_share_L_pct",
+   "flow_share_R_pct"
+  ],
+  "baseline27/case-002": [
+   "flow_share_L_pct",
+   "flow_share_R_pct"
+  ],
+  "baseline27/case-003": [
+   "flow_share_L_pct",
+   "flow_share_R_pct"
+  ],
+  "baseline27/case-004": [
+   "flow_share_L_pct",
+   "flow_share_R_pct"
+  ],
+  "baseline27/case-005": [
+   "flow_share_L_pct",
+   "flow_share_R_pct"
+  ],
+  "baseline27/case-006": [
+   "flow_share_L_pct",
+   "flow_share_R_pct"
+  ],
+  "baseline27/case-007": [
+   "flow_share_L_pct",
+   "flow_share_R_pct"
+  ],
+  "baseline27/case-008": [
+   "flow_share_L_pct",
+   "flow_share_R_pct"
+  ],
+  "baseline27/case-009": [
+   "flow_share_L_pct",
+   "flow_share_R_pct"
+  ],
+  "baseline27/case-010": [
+   "flow_share_L_pct",
+   "flow_share_R_pct"
+  ],
+  "baseline27/case-014": [
+   "flow_share_L_pct",
+   "flow_share_R_pct"
+  ],
+  "baseline27/case-015": [
+   "flow_share_L_pct",
+   "flow_share_R_pct"
+  ],
+  "baseline27/case-016": [
+   "flow_share_L_pct",
+   "flow_share_R_pct"
+  ],
+  "baseline27/case-017": [
+   "flow_share_L_pct",
+   "flow_share_R_pct"
+  ],
+  "baseline27/case-019": [
+   "flow_share_L_pct",
+   "flow_share_R_pct"
+  ],
+  "baseline27/case-020": [
+   "flow_share_L_pct",
+   "flow_share_R_pct"
+  ],
+  "baseline27/case-021": [
+   "flow_share_L_pct",
+   "flow_share_R_pct"
+  ],
+  "baseline27/case-023": [
+   "flow_share_L_pct",
+   "flow_share_R_pct"
+  ],
+  "baseline27/case-024": [
+   "flow_share_L_pct",
+   "flow_share_R_pct"
+  ],
+  "baseline27/case-025": [
+   "flow_share_L_pct",
+   "flow_share_R_pct"
+  ],
+  "baseline27/case-026": [
+   "flow_share_L_pct",
+   "flow_share_R_pct"
+  ],
+  "baseline27/case-027": [
+   "flow_share_L_pct",
+   "flow_share_R_pct"
+  ]
+ },
+ "entries": [
+  {
+   "key": "baseline27/case-001|flow_share_L_pct",
+   "case": "baseline27/case-001",
+   "field": "flow_share_L_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/baseline27/case-001/metrics.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 61.58072610312868,
+   "source_file": "code/pipeline/out/baseline27/case-001/metrics.json"
+  },
+  {
+   "key": "baseline27/case-001|flow_share_R_pct",
+   "case": "baseline27/case-001",
+   "field": "flow_share_R_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/baseline27/case-001/metrics.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 38.419273896871324,
+   "source_file": "code/pipeline/out/baseline27/case-001/metrics.json"
+  },
+  {
+   "key": "baseline27/case-002|flow_share_L_pct",
+   "case": "baseline27/case-002",
+   "field": "flow_share_L_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/baseline27/case-002/metrics.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 47.11541153835385,
+   "source_file": "code/pipeline/out/baseline27/case-002/metrics.json"
+  },
+  {
+   "key": "baseline27/case-002|flow_share_R_pct",
+   "case": "baseline27/case-002",
+   "field": "flow_share_R_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/baseline27/case-002/metrics.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 52.884588461646146,
+   "source_file": "code/pipeline/out/baseline27/case-002/metrics.json"
+  },
+  {
+   "key": "baseline27/case-003|flow_share_L_pct",
+   "case": "baseline27/case-003",
+   "field": "flow_share_L_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/baseline27/case-003/metrics.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 48.4292,
+   "source_file": "code/pipeline/out/baseline27/case-003/metrics.json"
+  },
+  {
+   "key": "baseline27/case-003|flow_share_R_pct",
+   "case": "baseline27/case-003",
+   "field": "flow_share_R_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/baseline27/case-003/metrics.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 51.570800000000006,
+   "source_file": "code/pipeline/out/baseline27/case-003/metrics.json"
+  },
+  {
+   "key": "baseline27/case-004|flow_share_L_pct",
+   "case": "baseline27/case-004",
+   "field": "flow_share_L_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/baseline27/case-004/metrics.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 31.13431736118083,
+   "source_file": "code/pipeline/out/baseline27/case-004/metrics.json"
+  },
+  {
+   "key": "baseline27/case-004|flow_share_R_pct",
+   "case": "baseline27/case-004",
+   "field": "flow_share_R_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/baseline27/case-004/metrics.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 68.86568263881915,
+   "source_file": "code/pipeline/out/baseline27/case-004/metrics.json"
+  },
+  {
+   "key": "baseline27/case-005|flow_share_L_pct",
+   "case": "baseline27/case-005",
+   "field": "flow_share_L_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/baseline27/case-005/metrics.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 81.81820363631128,
+   "source_file": "code/pipeline/out/baseline27/case-005/metrics.json"
+  },
+  {
+   "key": "baseline27/case-005|flow_share_R_pct",
+   "case": "baseline27/case-005",
+   "field": "flow_share_R_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/baseline27/case-005/metrics.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 18.181796363688726,
+   "source_file": "code/pipeline/out/baseline27/case-005/metrics.json"
+  },
+  {
+   "key": "baseline27/case-006|flow_share_L_pct",
+   "case": "baseline27/case-006",
+   "field": "flow_share_L_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/baseline27/case-006/metrics.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 74.24651879443007,
+   "source_file": "code/pipeline/out/baseline27/case-006/metrics.json"
+  },
+  {
+   "key": "baseline27/case-006|flow_share_R_pct",
+   "case": "baseline27/case-006",
+   "field": "flow_share_R_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/baseline27/case-006/metrics.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 25.753481205569926,
+   "source_file": "code/pipeline/out/baseline27/case-006/metrics.json"
+  },
+  {
+   "key": "baseline27/case-007|flow_share_L_pct",
+   "case": "baseline27/case-007",
+   "field": "flow_share_L_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/baseline27/case-007/metrics.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 67.42834605732315,
+   "source_file": "code/pipeline/out/baseline27/case-007/metrics.json"
+  },
+  {
+   "key": "baseline27/case-007|flow_share_R_pct",
+   "case": "baseline27/case-007",
+   "field": "flow_share_R_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/baseline27/case-007/metrics.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 32.57165394267684,
+   "source_file": "code/pipeline/out/baseline27/case-007/metrics.json"
+  },
+  {
+   "key": "baseline27/case-008|flow_share_L_pct",
+   "case": "baseline27/case-008",
+   "field": "flow_share_L_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/baseline27/case-008/metrics.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 61.16522446608978,
+   "source_file": "code/pipeline/out/baseline27/case-008/metrics.json"
+  },
+  {
+   "key": "baseline27/case-008|flow_share_R_pct",
+   "case": "baseline27/case-008",
+   "field": "flow_share_R_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/baseline27/case-008/metrics.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 38.83477553391022,
+   "source_file": "code/pipeline/out/baseline27/case-008/metrics.json"
+  },
+  {
+   "key": "baseline27/case-009|flow_share_L_pct",
+   "case": "baseline27/case-009",
+   "field": "flow_share_L_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/baseline27/case-009/metrics.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 47.3684,
+   "source_file": "code/pipeline/out/baseline27/case-009/metrics.json"
+  },
+  {
+   "key": "baseline27/case-009|flow_share_R_pct",
+   "case": "baseline27/case-009",
+   "field": "flow_share_R_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/baseline27/case-009/metrics.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 52.6316,
+   "source_file": "code/pipeline/out/baseline27/case-009/metrics.json"
+  },
+  {
+   "key": "baseline27/case-010|flow_share_L_pct",
+   "case": "baseline27/case-010",
+   "field": "flow_share_L_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/baseline27/case-010/metrics.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 97.59319219254463,
+   "source_file": "code/pipeline/out/baseline27/case-010/metrics.json"
+  },
+  {
+   "key": "baseline27/case-010|flow_share_R_pct",
+   "case": "baseline27/case-010",
+   "field": "flow_share_R_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/baseline27/case-010/metrics.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 2.4068078074553756,
+   "source_file": "code/pipeline/out/baseline27/case-010/metrics.json"
+  },
+  {
+   "key": "baseline27/case-014|flow_share_L_pct",
+   "case": "baseline27/case-014",
+   "field": "flow_share_L_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/baseline27/case-014/metrics.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 48.7356,
+   "source_file": "code/pipeline/out/baseline27/case-014/metrics.json"
+  },
+  {
+   "key": "baseline27/case-014|flow_share_R_pct",
+   "case": "baseline27/case-014",
+   "field": "flow_share_R_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/baseline27/case-014/metrics.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 51.2644,
+   "source_file": "code/pipeline/out/baseline27/case-014/metrics.json"
+  },
+  {
+   "key": "baseline27/case-015|flow_share_L_pct",
+   "case": "baseline27/case-015",
+   "field": "flow_share_L_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/baseline27/case-015/metrics.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 11.421635431345829,
+   "source_file": "code/pipeline/out/baseline27/case-015/metrics.json"
+  },
+  {
+   "key": "baseline27/case-015|flow_share_R_pct",
+   "case": "baseline27/case-015",
+   "field": "flow_share_R_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/baseline27/case-015/metrics.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 88.57836456865418,
+   "source_file": "code/pipeline/out/baseline27/case-015/metrics.json"
+  },
+  {
+   "key": "baseline27/case-016|flow_share_L_pct",
+   "case": "baseline27/case-016",
+   "field": "flow_share_L_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/baseline27/case-016/metrics.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 48.1728,
+   "source_file": "code/pipeline/out/baseline27/case-016/metrics.json"
+  },
+  {
+   "key": "baseline27/case-016|flow_share_R_pct",
+   "case": "baseline27/case-016",
+   "field": "flow_share_R_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/baseline27/case-016/metrics.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 51.8272,
+   "source_file": "code/pipeline/out/baseline27/case-016/metrics.json"
+  },
+  {
+   "key": "baseline27/case-017|flow_share_L_pct",
+   "case": "baseline27/case-017",
+   "field": "flow_share_L_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/baseline27/case-017/metrics.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 55.4752,
+   "source_file": "code/pipeline/out/baseline27/case-017/metrics.json"
+  },
+  {
+   "key": "baseline27/case-017|flow_share_R_pct",
+   "case": "baseline27/case-017",
+   "field": "flow_share_R_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/baseline27/case-017/metrics.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 44.5248,
+   "source_file": "code/pipeline/out/baseline27/case-017/metrics.json"
+  },
+  {
+   "key": "baseline27/case-019|flow_share_L_pct",
+   "case": "baseline27/case-019",
+   "field": "flow_share_L_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/baseline27/case-019/metrics.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 11.491129192903355,
+   "source_file": "code/pipeline/out/baseline27/case-019/metrics.json"
+  },
+  {
+   "key": "baseline27/case-019|flow_share_R_pct",
+   "case": "baseline27/case-019",
+   "field": "flow_share_R_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/baseline27/case-019/metrics.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 88.50887080709666,
+   "source_file": "code/pipeline/out/baseline27/case-019/metrics.json"
+  },
+  {
+   "key": "baseline27/case-020|flow_share_L_pct",
+   "case": "baseline27/case-020",
+   "field": "flow_share_L_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/baseline27/case-020/metrics.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 68.42109052625514,
+   "source_file": "code/pipeline/out/baseline27/case-020/metrics.json"
+  },
+  {
+   "key": "baseline27/case-020|flow_share_R_pct",
+   "case": "baseline27/case-020",
+   "field": "flow_share_R_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/baseline27/case-020/metrics.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 31.578909473744837,
+   "source_file": "code/pipeline/out/baseline27/case-020/metrics.json"
+  },
+  {
+   "key": "baseline27/case-021|flow_share_L_pct",
+   "case": "baseline27/case-021",
+   "field": "flow_share_L_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/baseline27/case-021/metrics.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 64.3824515059612,
+   "source_file": "code/pipeline/out/baseline27/case-021/metrics.json"
+  },
+  {
+   "key": "baseline27/case-021|flow_share_R_pct",
+   "case": "baseline27/case-021",
+   "field": "flow_share_R_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/baseline27/case-021/metrics.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 35.6175484940388,
+   "source_file": "code/pipeline/out/baseline27/case-021/metrics.json"
+  },
+  {
+   "key": "baseline27/case-023|flow_share_L_pct",
+   "case": "baseline27/case-023",
+   "field": "flow_share_L_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/baseline27/case-023/metrics.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 61.01324881059905,
+   "source_file": "code/pipeline/out/baseline27/case-023/metrics.json"
+  },
+  {
+   "key": "baseline27/case-023|flow_share_R_pct",
+   "case": "baseline27/case-023",
+   "field": "flow_share_R_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/baseline27/case-023/metrics.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 38.986751189400955,
+   "source_file": "code/pipeline/out/baseline27/case-023/metrics.json"
+  },
+  {
+   "key": "baseline27/case-024|flow_share_L_pct",
+   "case": "baseline27/case-024",
+   "field": "flow_share_L_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/baseline27/case-024/metrics.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 0.870926885213587,
+   "source_file": "code/pipeline/out/baseline27/case-024/metrics.json"
+  },
+  {
+   "key": "baseline27/case-024|flow_share_R_pct",
+   "case": "baseline27/case-024",
+   "field": "flow_share_R_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/baseline27/case-024/metrics.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 99.12907311478641,
+   "source_file": "code/pipeline/out/baseline27/case-024/metrics.json"
+  },
+  {
+   "key": "baseline27/case-025|flow_share_L_pct",
+   "case": "baseline27/case-025",
+   "field": "flow_share_L_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/baseline27/case-025/metrics.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 35.85549736879579,
+   "source_file": "code/pipeline/out/baseline27/case-025/metrics.json"
+  },
+  {
+   "key": "baseline27/case-025|flow_share_R_pct",
+   "case": "baseline27/case-025",
+   "field": "flow_share_R_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/baseline27/case-025/metrics.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 64.14450263120422,
+   "source_file": "code/pipeline/out/baseline27/case-025/metrics.json"
+  },
+  {
+   "key": "baseline27/case-026|flow_share_L_pct",
+   "case": "baseline27/case-026",
+   "field": "flow_share_L_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/baseline27/case-026/metrics.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 40.7968,
+   "source_file": "code/pipeline/out/baseline27/case-026/metrics.json"
+  },
+  {
+   "key": "baseline27/case-026|flow_share_R_pct",
+   "case": "baseline27/case-026",
+   "field": "flow_share_R_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/baseline27/case-026/metrics.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 59.2032,
+   "source_file": "code/pipeline/out/baseline27/case-026/metrics.json"
+  },
+  {
+   "key": "baseline27/case-027|flow_share_L_pct",
+   "case": "baseline27/case-027",
+   "field": "flow_share_L_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/baseline27/case-027/metrics.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 51.782799999999995,
+   "source_file": "code/pipeline/out/baseline27/case-027/metrics.json"
+  },
+  {
+   "key": "baseline27/case-027|flow_share_R_pct",
+   "case": "baseline27/case-027",
+   "field": "flow_share_R_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/baseline27/case-027/metrics.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 48.2172,
+   "source_file": "code/pipeline/out/baseline27/case-027/metrics.json"
+  },
+  {
+   "key": "pA|left_min_layer",
+   "case": "pA",
+   "field": "left_min_layer",
+   "valid": false,
+   "reason": "septum_grouping_failed",
+   "why": "鼻中隔分组失效，left_* 恒为 0",
+   "ref": "code/pipeline/out/step1/metrics_v2.json：left_min_mm2 == 0.0 且 left_right_asymmetry == 1.0",
+   "read_as": "该字段不可用（前端显示『—』）",
+   "observed": 1,
+   "source_file": "code/pipeline/out/step1/metrics_v2.json"
+  },
+  {
+   "key": "pA|left_min_mm2",
+   "case": "pA",
+   "field": "left_min_mm2",
+   "valid": false,
+   "reason": "septum_grouping_failed",
+   "why": "鼻中隔分组失效，left_* 恒为 0",
+   "ref": "code/pipeline/out/step1/metrics_v2.json：left_min_mm2 == 0.0 且 left_right_asymmetry == 1.0",
+   "read_as": "该字段不可用（前端显示『—』）",
+   "observed": 0.0,
+   "source_file": "code/pipeline/out/step1/metrics_v2.json"
+  },
+  {
+   "key": "pA|left_right_asymmetry",
+   "case": "pA",
+   "field": "left_right_asymmetry",
+   "valid": false,
+   "reason": "septum_grouping_failed",
+   "why": "鼻中隔分组失效，left_* 恒为 0",
+   "ref": "code/pipeline/out/step1/metrics_v2.json：left_min_mm2 == 0.0 且 left_right_asymmetry == 1.0",
+   "read_as": "该字段不可用（前端显示『—』）",
+   "observed": 1.0,
+   "source_file": "code/pipeline/out/step1/metrics_v2.json"
+  },
+  {
+   "key": "pA|right_min_layer",
+   "case": "pA",
+   "field": "right_min_layer",
+   "valid": false,
+   "reason": "septum_grouping_failed",
+   "why": "鼻中隔分组失效，left_* 恒为 0",
+   "ref": "code/pipeline/out/step1/metrics_v2.json：left_min_mm2 == 0.0 且 left_right_asymmetry == 1.0",
+   "read_as": "该字段不可用（前端显示『—』）",
+   "observed": 266,
+   "source_file": "code/pipeline/out/step1/metrics_v2.json"
+  },
+  {
+   "key": "pA|right_min_mm2",
+   "case": "pA",
+   "field": "right_min_mm2",
+   "valid": false,
+   "reason": "septum_grouping_failed",
+   "why": "鼻中隔分组失效，left_* 恒为 0",
+   "ref": "code/pipeline/out/step1/metrics_v2.json：left_min_mm2 == 0.0 且 left_right_asymmetry == 1.0",
+   "read_as": "该字段不可用（前端显示『—』）",
+   "observed": 114.8,
+   "source_file": "code/pipeline/out/step1/metrics_v2.json"
+  },
+  {
+   "key": "pA-v1|split_L_pct",
+   "case": "pA-v1",
+   "field": "split_L_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/postprocess/contract-pA-v1.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 39.0,
+   "source_file": "code/pipeline/out/postprocess/contract-pA-v1.json"
+  },
+  {
+   "key": "pA-v1|split_R_pct",
+   "case": "pA-v1",
+   "field": "split_R_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/postprocess/contract-pA-v1.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 61.0,
+   "source_file": "code/pipeline/out/postprocess/contract-pA-v1.json"
+  },
+  {
+   "key": "pB|left_min_layer",
+   "case": "pB",
+   "field": "left_min_layer",
+   "valid": false,
+   "reason": "septum_grouping_failed",
+   "why": "鼻中隔分组失效，left_* 恒为 0",
+   "ref": "code/pipeline/out/step1/metrics_pB_v2.json：left_min_mm2 == 0.0 且 left_right_asymmetry == 1.0",
+   "read_as": "该字段不可用（前端显示『—』）",
+   "observed": 72,
+   "source_file": "code/pipeline/out/step1/metrics_pB_v2.json"
+  },
+  {
+   "key": "pB|left_min_mm2",
+   "case": "pB",
+   "field": "left_min_mm2",
+   "valid": false,
+   "reason": "septum_grouping_failed",
+   "why": "鼻中隔分组失效，left_* 恒为 0",
+   "ref": "code/pipeline/out/step1/metrics_pB_v2.json：left_min_mm2 == 0.0 且 left_right_asymmetry == 1.0",
+   "read_as": "该字段不可用（前端显示『—』）",
+   "observed": 0.0,
+   "source_file": "code/pipeline/out/step1/metrics_pB_v2.json"
+  },
+  {
+   "key": "pB|left_right_asymmetry",
+   "case": "pB",
+   "field": "left_right_asymmetry",
+   "valid": false,
+   "reason": "septum_grouping_failed",
+   "why": "鼻中隔分组失效，left_* 恒为 0",
+   "ref": "code/pipeline/out/step1/metrics_pB_v2.json：left_min_mm2 == 0.0 且 left_right_asymmetry == 1.0",
+   "read_as": "该字段不可用（前端显示『—』）",
+   "observed": 1.0,
+   "source_file": "code/pipeline/out/step1/metrics_pB_v2.json"
+  },
+  {
+   "key": "pB|right_min_layer",
+   "case": "pB",
+   "field": "right_min_layer",
+   "valid": false,
+   "reason": "septum_grouping_failed",
+   "why": "鼻中隔分组失效，left_* 恒为 0",
+   "ref": "code/pipeline/out/step1/metrics_pB_v2.json：left_min_mm2 == 0.0 且 left_right_asymmetry == 1.0",
+   "read_as": "该字段不可用（前端显示『—』）",
+   "observed": 326,
+   "source_file": "code/pipeline/out/step1/metrics_pB_v2.json"
+  },
+  {
+   "key": "pB|right_min_mm2",
+   "case": "pB",
+   "field": "right_min_mm2",
+   "valid": false,
+   "reason": "septum_grouping_failed",
+   "why": "鼻中隔分组失效，left_* 恒为 0",
+   "ref": "code/pipeline/out/step1/metrics_pB_v2.json：left_min_mm2 == 0.0 且 left_right_asymmetry == 1.0",
+   "read_as": "该字段不可用（前端显示『—』）",
+   "observed": 257.8,
+   "source_file": "code/pipeline/out/step1/metrics_pB_v2.json"
+  },
+  {
+   "key": "pB-v1|split_L_pct",
+   "case": "pB-v1",
+   "field": "split_L_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/postprocess/contract-pB-v1.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 46.8,
+   "source_file": "code/pipeline/out/postprocess/contract-pB-v1.json"
+  },
+  {
+   "key": "pB-v1|split_R_pct",
+   "case": "pB-v1",
+   "field": "split_R_pct",
+   "valid": false,
+   "reason": "imposed_by_area_BC",
+   "why": "左右流量由入口边界条件按开口面积设定，非求解得到的生理分流",
+   "ref": "code/pipeline/step2_make_ofcase.py:1548（Qi = Q_TOTAL * A / (A_L + A_R)）；:1563-1564 同式，代码自注『Run-A…按开口面积比例分配，声明为建模假设（审计R2）』；本条读数取自 code/pipeline/out/postprocess/contract-pB-v1.json",
+   "read_as": "只能读作『按面积输入的假设』，不得读作患者真实分流",
+   "observed": 53.2,
+   "source_file": "code/pipeline/out/postprocess/contract-pB-v1.json"
+  },
+  {
+   "key": "pN|left_min_layer",
+   "case": "pN",
+   "field": "left_min_layer",
+   "valid": false,
+   "reason": "septum_grouping_failed",
+   "why": "鼻中隔分组失效，left_* 恒为 0",
+   "ref": "code/pipeline/out/step1/metrics_pN_v2.json：left_min_mm2 == 0.0 且 left_right_asymmetry == 1.0",
+   "read_as": "该字段不可用（前端显示『—』）",
+   "observed": 33,
+   "source_file": "code/pipeline/out/step1/metrics_pN_v2.json"
+  },
+  {
+   "key": "pN|left_min_mm2",
+   "case": "pN",
+   "field": "left_min_mm2",
+   "valid": false,
+   "reason": "septum_grouping_failed",
+   "why": "鼻中隔分组失效，left_* 恒为 0",
+   "ref": "code/pipeline/out/step1/metrics_pN_v2.json：left_min_mm2 == 0.0 且 left_right_asymmetry == 1.0",
+   "read_as": "该字段不可用（前端显示『—』）",
+   "observed": 0.0,
+   "source_file": "code/pipeline/out/step1/metrics_pN_v2.json"
+  },
+  {
+   "key": "pN|left_right_asymmetry",
+   "case": "pN",
+   "field": "left_right_asymmetry",
+   "valid": false,
+   "reason": "septum_grouping_failed",
+   "why": "鼻中隔分组失效，left_* 恒为 0",
+   "ref": "code/pipeline/out/step1/metrics_pN_v2.json：left_min_mm2 == 0.0 且 left_right_asymmetry == 1.0",
+   "read_as": "该字段不可用（前端显示『—』）",
+   "observed": 1.0,
+   "source_file": "code/pipeline/out/step1/metrics_pN_v2.json"
+  },
+  {
+   "key": "pN|right_min_layer",
+   "case": "pN",
+   "field": "right_min_layer",
+   "valid": false,
+   "reason": "septum_grouping_failed",
+   "why": "鼻中隔分组失效，left_* 恒为 0",
+   "ref": "code/pipeline/out/step1/metrics_pN_v2.json：left_min_mm2 == 0.0 且 left_right_asymmetry == 1.0",
+   "read_as": "该字段不可用（前端显示『—』）",
+   "observed": 96,
+   "source_file": "code/pipeline/out/step1/metrics_pN_v2.json"
+  },
+  {
+   "key": "pN|right_min_mm2",
+   "case": "pN",
+   "field": "right_min_mm2",
+   "valid": false,
+   "reason": "septum_grouping_failed",
+   "why": "鼻中隔分组失效，left_* 恒为 0",
+   "ref": "code/pipeline/out/step1/metrics_pN_v2.json：left_min_mm2 == 0.0 且 left_right_asymmetry == 1.0",
+   "read_as": "该字段不可用（前端显示『—』）",
+   "observed": 109.9,
+   "source_file": "code/pipeline/out/step1/metrics_pN_v2.json"
+  }
+ ]
+}
