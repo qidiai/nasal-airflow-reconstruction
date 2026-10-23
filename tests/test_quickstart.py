@@ -56,7 +56,8 @@ def _run_script(rel):
     env.pop("P0_DICOM_DIR", None)
     return subprocess.run(
         [sys.executable, os.path.join(ROOT, rel)],
-        capture_output=True, text=True, env=env, cwd=ROOT, timeout=180)
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        env=env, cwd=ROOT, timeout=180)
 
 
 def test_step1_bare_run_friendly_error():
@@ -80,6 +81,7 @@ def test_cli_capabilities_runs():
     env = dict(os.environ)
     r = subprocess.run(
         [sys.executable, "-m", "pipeline.cli", "capabilities"],
-        capture_output=True, text=True, env=env, cwd=code_dir, timeout=180)
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        env=env, cwd=code_dir, timeout=180)
     assert r.returncode == 0
     assert "capabilities" in r.stdout

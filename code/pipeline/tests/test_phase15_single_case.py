@@ -39,20 +39,38 @@ def test_placeholder_only_fields_pinned():
         assert core not in run_all.PLACEHOLDER_ONLY_FIELDS
 
 
+# ------------------------------------------------- 子进程编码自洽（T3a F1 / 根因 R-A）
+def _child_env_utf8():
+    """给子进程注入 UTF-8 环境，让它按 utf-8 写 stdout/stderr。
+
+    根因（本机实测）：默认环境（GBK 控制台）下子进程 sys.stdout.encoding=gbk，
+    print 中文 → GBK 字节（如 '层' = 0xb2 0xe3）→ 父进程 encoding="utf-8" 解码在
+    _readerthread 抛 UnicodeDecodeError → CompletedProcess.stdout/stderr 变成 None
+    → 断言里 `'x' in None` 抛 TypeError，把真失败伪装成怪错误。
+    只动 env/解码兜底，被测命令 argv、timeout、capture 语义一律不变。
+    """
+    env = os.environ.copy()
+    env["PYTHONUTF8"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
+    return env
+
+
 def test_run_all_cli_exposes_allow_partial_viewer():
     out = subprocess.run([sys.executable, os.path.join(PIPELINE, "run_all.py"), "--help"],
-                         capture_output=True, text=True, encoding="utf-8", timeout=120)
-    assert out.returncode == 0, out.stderr[-800:]
-    assert "--allow-partial-viewer" in out.stdout
+                         capture_output=True, text=True, encoding="utf-8", errors="replace",
+                         env=_child_env_utf8(), timeout=120)
+    assert out.returncode == 0, (out.stderr or "")[-800:]
+    assert "--allow-partial-viewer" in (out.stdout or "")
 
 
 def test_step5_cli_exposes_single_case_and_mask_override():
     out = subprocess.run([sys.executable,
                           os.path.join(PIPELINE, "step5_export_viewer_data.py"), "--help"],
-                         capture_output=True, text=True, encoding="utf-8", timeout=120)
-    assert out.returncode == 0, out.stderr[-800:]
-    assert "--single-case" in out.stdout
-    assert "--mask-npz" in out.stdout
+                         capture_output=True, text=True, encoding="utf-8", errors="replace",
+                         env=_child_env_utf8(), timeout=120)
+    assert out.returncode == 0, (out.stderr or "")[-800:]
+    assert "--single-case" in (out.stdout or "")
+    assert "--mask-npz" in (out.stdout or "")
 
 
 # ---------------------------------------------------------------- API 层

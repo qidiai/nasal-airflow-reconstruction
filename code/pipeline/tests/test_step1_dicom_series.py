@@ -34,6 +34,24 @@ from airway_geom import read_ct_series, Z_DEDUP_TOL_MM  # noqa: E402
 
 STEP1 = os.path.join(PIPELINE, "step1_airway_segment.py")
 
+
+# ------------------------------------------------- 子进程编码自洽（T3a F1 / 根因 R-A）
+def _child_env_utf8():
+    """给子进程注入 UTF-8 环境，让它按 utf-8 写 stdout/stderr。
+
+    根因（本机实测）：默认环境（GBK 控制台）下子进程 sys.stdout.encoding=gbk，
+    print 中文 → GBK 字节（如 '层' = 0xb2 0xe3）→ 父进程 encoding="utf-8" 解码在
+    _readerthread 抛 UnicodeDecodeError → CompletedProcess.stdout/stderr 变成 None
+    → 断言里 `'x' in None` 抛 TypeError，把真失败伪装成怪错误。
+    只动 env/解码兜底：被测 argv、timeout、capture 语义不变；step1 产物一律显式
+    encoding="utf-8"（step1_airway_segment.py:513）或二进制写，故 metrics 字节不受影响。
+    """
+    env = os.environ.copy()
+    env["PYTHONUTF8"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
+    return env
+
+
 SERIES_A = "1.2.840.10008.5.1.4.1.1.2.1.1"      # scout（定位像）
 SERIES_B = "1.2.840.10008.5.1.4.1.1.2.1.2"      # 轴位（要留下的那套）
 STUDY_UID = "1.2.840.10008.5.1.4.1.1.2.1.0"
@@ -304,9 +322,10 @@ def test_clean_dir_metrics_byte_identical_to_pre_change(tmp_path):
     out = tmp_path / "step1_out"
     r = subprocess.run([sys.executable, STEP1, "--dicom-dir", CLEAN_DICOM_DIR,
                         "--out-dir", str(out)],
-                       capture_output=True, text=True, encoding="utf-8", timeout=1800)
-    assert r.returncode == 0, r.stderr[-2000:]
-    assert "[1/7] 读取 230 层 DICOM ..." in r.stdout
+                       capture_output=True, text=True, encoding="utf-8", errors="replace",
+                       env=_child_env_utf8(), timeout=1800)
+    assert r.returncode == 0, (r.stderr or "")[-2000:]
+    assert "[1/7] 读取 230 层 DICOM ..." in (r.stdout or "")
 
     blob = (out / "metrics_v2.json").read_bytes()
     got = hashlib.sha256(blob).hexdigest()
