@@ -3,6 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- 内联 favicon（SVG data URI，不新增二进制文件）：没有 <link rel="icon"> 时
+     浏览器会默认探测 /favicon.ico（实测 Edge headless 必发）→ 控制台 404 红字 -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Ccircle cx=%2216%22 cy=%2216%22 r=%2213%22 fill=%22%23FAFAF7%22 stroke=%22%232A9D8F%22 stroke-width=%222%22/%3E%3Cpath d=%22M10 22 Q16 6 22 22%22 fill=%22none%22 stroke=%22%232A9D8F%22 stroke-width=%222.5%22/%3E%3C/svg%3E">
 <title>鼻腔气流分析工作台</title>
 <style>
 /* ================= 设计系统（T16 暖色重设计） =================
