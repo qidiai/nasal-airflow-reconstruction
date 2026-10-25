@@ -50,6 +50,18 @@ import threading
 import time
 from datetime import datetime
 
+# [T3g] E10：启动路径编码自崩。本机默认控制台 GBK（cp936），而 server.py:222 的启动
+#   自检 print 含 ⚠️（U+26A0，GBK 不可编码）⇒ 有 stale 上报病例时 build_app() 在
+#   scan_stale_cases() 处 UnicodeEncodeError 直接起不来。口径（T3e 实测裁决）：
+#   只把 stdout 编码切到 utf-8；**禁止** errors="replace"（实测会把 cm³ 变 cm?，等于
+#   改文案），也不许改文案做 ASCII 降级。位置必须早于任何 print（含 import run_all 时的
+#   副作用）：run_all.py:73 的 UTF-8 wrapper 目前顺带遮住了这条打印，但那只是 import
+#   顺序的副作用——本文件的输出不该依赖它。
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+except (AttributeError, ValueError, OSError):  # 没有 reconfigure 的流（部分测试捕获器）不阻断 import
+    pass
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
@@ -72,8 +84,53 @@ STEP3 = os.path.join(HERE, "step3_make_narrowing.py")
 STEP5 = os.path.join(HERE, "step5_export_viewer_data.py")
 VIEWER_TEMPLATE = os.path.join(WEBAPP_DIR, "viewer_template", "viewer.html")
 BUILD_SINGLE = os.path.join(WEBAPP_DIR, "tools", "build_single_file.py")
+
+# 可选数据层：step6（CT 体渲染 volume_data.js）/ step7（皮肤壳 skin_data.js）的产物，
+# 不是每个病例都有——单算例（快速档）部分导出根本不产出它们。viewer.html/single 里若
+# 照旧留着 <script src>，浏览器就会对不存在的文件发请求，控制台留 404 红字（客户 F12
+# 一眼可见）。数据契约（viewer_data.js 的 meta）不携带这两层的可用性字段，前端无法
+# 在"不发请求"的前提下判断——所以由服务端在落地时按实体文件决定（见 strip_absent_layer_tags）。
+OPTIONAL_LAYER_SCRIPTS = ("volume_data.js", "skin_data.js")
+
+# 内联 favicon（SVG data URI，不新增二进制文件）：页面若没有 <link rel="icon">，
+# Edge/Chrome 会默认探测 /favicon.ico → 404 红字（实测：headless Edge 无 icon 即请求）。
+FAVICON_DATA_URI = (
+    "data:image/svg+xml,"
+    "%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E"
+    "%3Ccircle cx=%2216%22 cy=%2216%22 r=%2213%22 fill=%22%230b1016%22 "
+    "stroke=%22%2367d5bd%22 stroke-width=%222%22/%3E"
+    "%3Cpath d=%22M10 22 Q16 6 22 22%22 fill=%22none%22 stroke=%22%2367d5bd%22 "
+    "stroke-width=%222.5%22/%3E%3C/svg%3E")
+
+
+def strip_absent_layer_tags(html, base_dir):
+    """按"实体文件是否已部署"剔除可选层的 <script src> 标签。
+
+    返回 (新 html, 被剔除的文件名列表)。文件在的层原样保留（plus/演示构建仍靠这两个
+    标签做内联）；文件不在的层整条标签移除，不留悬空引用 → 浏览器不再请求 → 无 404。
+    """
+    dropped = []
+    for name in OPTIONAL_LAYER_SCRIPTS:
+        if os.path.isfile(os.path.join(base_dir, name)):
+            continue
+        tag = '<script src="%s"></script>' % name
+        if tag not in html:
+            continue
+        html = html.replace(tag + "\n", "").replace(tag, "")
+        dropped.append(name)
+    return html, dropped
+
 # 共享几何产物落点（内置病例历史 run_all OUT_ROOT=HERE/out；上传病例在 state cases/<cid>）
 SHARED_STEP2 = os.path.join(HERE, "out", "step2")
+# 可选数据层产物落点兜底（R-B 部署链）：step6/step7 把输出根**写死**在 HERE/out
+# （step6_build_volume_data.py:26 OUT_STEP6、:198 js_path；step7_build_skin_data.py:57
+#  OUT_STEP7、:580 js_path），两支脚本都没有 --out-root 参数，run_all.py 也不调用它们
+# （run_all.py 内 step6_build_volume_data/step7_build_skin_data 命中 0 次）⇒ 现阶段
+# 唯一可部署的层文件源就是这个默认 out 根。口径与 SHARED_STEP2 完全一致：本例
+# run_out_root 优先、共享默认根兜底；**这不等于支持多病例并发部署互不串味**——
+# 走兜底时所有病例都会拿到同一份层文件（step6/7 不在本任务可改清单，已上报）。
+SHARED_STEP6 = os.path.join(HERE, "out", "step6")
+SHARED_STEP7 = os.path.join(HERE, "out", "step7")
 
 
 def post_cfd_path(cfg=None):
@@ -423,10 +480,19 @@ DISCLOSURE = ("层流下界估计，不确定度±20-50%；科研与康复参考
 # ---------------------------------------------------------------- 配置
 class ServerConfig:
     def __init__(self, mode="m1-local", base_dir=None, state_dir=None,
-                 solve="skip", presenter=False, host="127.0.0.1", port=8080):
+                 solve="skip", presenter=False, host="127.0.0.1", port=8080,
+                 optional_layers=False):
         self.mode = mode
         self.only_synthetic = (mode == "m2-cloud")
         self.presenter = bool(presenter) or os.environ.get("P0_PRESENTER") == "1"
+        # [T3g] 可选展示层生成开关（step6 CT 体渲染 / step7 皮肤壳）：**默认关**。
+        # 关闭时 run_chain_thread 不向 run_all 追加 --optional-layers（S7b/S7c 写
+        # disabled_by_default，见 run_all.run_optional_layers）。开启方式二选一：
+        #   --optional-layers  |  P0_OPTIONAL_LAYERS=1
+        # 只对参考数据集（内置演示病例）开启：CENTER / SX_FULL / FREE_AREA_REF_CM2
+        # 是写死的几何，逐例对齐中心尚无推导来源（run_all.py 同款注释）。
+        self.optional_layers = bool(optional_layers) or \
+            os.environ.get("P0_OPTIONAL_LAYERS") == "1"
         self.solve_default = solve if solve in ("skip", "laptop") else "skip"
         self.host = host
         self.port = int(port)
@@ -1298,8 +1364,60 @@ def stage_viewer_if_exported(cfg, rec, mode="standard"):
     case_web = os.path.join(WEBAPP_DIR, "cases", rec["case_id"])
     os.makedirs(case_web, exist_ok=True)
     shutil.copy2(vd, os.path.join(case_web, "viewer_data.js"))
+    # 可选数据层部署（R-B 根因）：step6 的 volume_data.js / step7 的 skin_data.js 此前
+    # 没有任何环节进病例 web 目录，而 strip_absent_layer_tags 只看 case_web 下的实体文件
+    # ⇒ 那两条 <script src> 恒被剔除 ⇒“控制台无 404”是靠“功能不出现”达成的（P1 静默
+    # 功能丢失）。必须在下面裁剪**之前**把它们落到 case_web —— 这个目录同时是
+    # ① 路由 _optional_case_layer 的读取目录（server.py 的 /static/cases/<cid>/{volume,
+    # skin}_data.js）、② 模板里相对路径标签的解析基准（viewer.html:409-410 是裸相对 src，
+    # 而本页就发布在 /static/cases/<cid>/）、③ build_single_file.py 的 base
+    # （dirname(html)，:60）—— 三者同源，故 canonical 落点就是 cases/<cid>/。
+    # 源路径口径与本例产物根一致（run_out_root，quick 走 <out>/quick 子根），共享默认
+    # out 根兜底；文件缺失一律跳过不抛错（行为退回“剔除标签 + 进度日志”）。
+    for _layer_name, _layer_shared in (("volume_data.js", SHARED_STEP6),
+                                       ("skin_data.js", SHARED_STEP7)):
+        _layer_step = os.path.basename(_layer_shared)          # step6 / step7
+        _dst = os.path.join(case_web, _layer_name)
+        if os.path.isfile(_dst):
+            continue                                           # 已部署，不重复覆盖
+        # [T3g] 来源可观测：out_dir 本例根命中 = 本例产物；落到 SHARED_STEP6/7 = 跨病例
+        #   共用的兜底根（所有病例会拿到同一份层文件，:112-120 已自陈串味风险）——必须
+        #   在进度日志里显式写清来源，免得把"别人的层"当成"本病例的层"。
+        _case_root = os.path.join(out_dir, _layer_step) if out_dir else ""
+        _roots = ([_case_root] if _case_root else []) + [_layer_shared]
+        for _i, _src_root in enumerate(_roots):
+            if not _src_root:
+                continue
+            _src = os.path.join(_src_root, _layer_name)
+            if not os.path.isfile(_src):
+                continue
+            try:
+                shutil.copy2(_src, _dst)
+            except OSError:
+                continue
+            if _i == 0 and _case_root:
+                append_progress(out_dir,
+                                "[W] 可选层已部署（%s ← %s）" % (_layer_name, _src))
+            else:
+                append_progress(out_dir,
+                                "[W] 可选层已部署（%s ← %s）来源=共享兜底根"
+                                "（跨病例共用同一份层文件，非本例产物）"
+                                % (_layer_name, _src))
+            break
     if os.path.isfile(VIEWER_TEMPLATE):
-        shutil.copy2(VIEWER_TEMPLATE, os.path.join(case_web, "viewer.html"))
+        # 落地时按本例实际部署的文件定稿 viewer.html：未部署的可选层（volume/skin）
+        # 不写 <script src>，浏览器不会去请求不存在的文件（控制台无 404）。后续
+        # build_single_file 也在这份已裁剪的 html 上内联，单文件版同样干净。
+        with open(VIEWER_TEMPLATE, encoding="utf-8") as f:
+            html = f.read()
+        html, dropped = strip_absent_layer_tags(html, case_web)
+        with open(os.path.join(case_web, "viewer.html"), "w",
+                  encoding="utf-8", newline="") as f:
+            f.write(html)
+        if dropped:
+            append_progress(out_dir,
+                            "[W] viewer.html 未部署可选层，已移除其 <script> 引用："
+                            + ", ".join(dropped))
         if os.path.isfile(BUILD_SINGLE):
             try:
                 subprocess.run(
@@ -1345,6 +1463,14 @@ def run_chain_thread(cfg, case_id, solve, result_dir, mode="standard"):
                                       "只降步数，预计更慢")
     if result_dir:
         cmd += ["--result-dir", result_dir]
+    if getattr(cfg, "optional_layers", False):
+        # [T3g] 下传链路：cfg.optional_layers（--optional-layers / P0_OPTIONAL_LAYERS=1）
+        #   → run_all 的 S7b step6 + S7c step7。默认关，不传时 run_all 行为逐字节不变。
+        cmd.append("--optional-layers")
+        append_progress(out_root,
+                        "[W] 可选展示层生成已启用（--optional-layers）：run_all 将执行 "
+                        "S7b step6 体渲染层 + S7c step7 皮肤壳（CENTER/SX_FULL 为参考"
+                        "数据集写死几何，仅对参考数据集开启）")
     if rec.get("anatomy_inclusion"):
         cmd += ["--allow-anatomy-inclusion"]
     append_progress(out_root, "[W] $ " + " ".join(cmd))
@@ -2018,16 +2144,22 @@ def _register_case(cfg, dicom_dir, prefix, case_name, label, kind, case_id_val,
         rec["survey"] = {k: survey.get(k) for k in
                          ("file_count", "rows", "columns", "pixel_spacing",
                           "slice_gap_measured", "z_monotonic_increasing",
-                          "filename_order_matches_physical")}
+                          "filename_order_matches_physical", "z_structurally_ok",
+                          "z_distinct_count", "z_duplicate_count",
+                          "z_distinct_gap_median", "z_missing_ipp")}
     except SystemExit as e:
         survey = None
         rec["survey_error"] = str(e)
     except Exception as e:  # noqa: BLE001
         survey = None
         rec["survey_error"] = repr(e)
-    if rec.get("survey_error") or (survey and not survey["filename_order_matches_physical"]):
-        reason = rec.get("survey_error") or "层序方向断言 FAIL：z 序列非单调——层序混乱"
-        rec.update(status="blocked", gate="DICOM 头普查（层序方向断言）",
+    # #56：致命判据改为"z 本身是否良构"；文件名序≠扫描序只记录不拦（下游按 z 重排）
+    if rec.get("survey_error") or (survey and not survey.get("z_structurally_ok")):
+        reason = rec.get("survey_error") or (
+            "层序结构断言 FAIL：有效不同层数=%s 层间距中位=%smm 缺IPP=%s"
+            % (survey.get("z_distinct_count"), survey.get("z_distinct_gap_median"),
+               survey.get("z_missing_ipp")) if survey else "层序结构断言 FAIL")
+        rec.update(status="blocked", gate="DICOM 头普查（层序结构断言）",
                    gate_failures=[reason], exit_code=2)
         reg[rec["case_id"]] = rec
         save_registry(cfg, reg)
@@ -2372,6 +2504,28 @@ def build_app(cfg):
     @app.route("/")
     def index():
         return send_file(os.path.join(WEBAPP_DIR, "index.html"))
+
+    def _optional_case_layer(case_id, name):
+        """可选层静态文件兜底：文件缺席 → 204（不是 404）。
+
+        新病例的 viewer.html / viewer_single.html 已不含这两条 <script src>（舞台化剔除），
+        本路由兜住"修复前构建的旧病例页"和手工拷贝的模板：浏览器收到 204 不执行脚本、
+        也不在控制台记红字（404 会）。文件存在则原样送出，行为与静态路由一致。
+        """
+        p = os.path.join(WEBAPP_DIR, "cases", case_id, name)
+        if not os.path.isfile(p):
+            return "", 204
+        return send_file(p, mimetype="application/javascript")
+
+    # 只匹配这两个确定的文件名：不能写成 <layer> 通配，否则会截走
+    # /static/cases/<cid>/viewer_single.html 等真实静态文件（更具体的规则优先于 /static/<path>）
+    @app.route("/static/cases/<case_id>/volume_data.js")
+    def case_volume_layer(case_id):
+        return _optional_case_layer(case_id, "volume_data.js")
+
+    @app.route("/static/cases/<case_id>/skin_data.js")
+    def case_skin_layer(case_id):
+        return _optional_case_layer(case_id, "skin_data.js")
 
     @app.route("/api/results/<case_id>/<fn>")
     def api_results(case_id, fn):
@@ -3179,6 +3333,7 @@ def build_app(cfg):
         html = f"""<!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="{FAVICON_DATA_URI}">
 <title>{title} · 查看器</title>
 <style>
 body{{margin:0;background:#0d1117;color:#c9d1d9;font-family:system-ui,sans-serif}}
@@ -3190,6 +3345,7 @@ iframe{{width:100vw;height:100vh;border:0}}
     def _gate_html(msg, code):
         return f"""<!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="utf-8">
+<link rel="icon" href="{FAVICON_DATA_URI}">
 <title>访问受限 · 数据边界</title>
 <style>
 body{{margin:0;background:#0d1117;color:#c9d1d9;font-family:system-ui,sans-serif;
@@ -3213,6 +3369,7 @@ p{{line-height:1.7}}
             ev += f"<li><code>{e}</code></li>"
         return f"""<!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="utf-8">
+<link rel="icon" href="{FAVICON_DATA_URI}">
 <title>查看器待解算 · {rec.get('case_id')}</title>
 <style>
 body{{margin:0;background:#0d1117;color:#c9d1d9;font-family:system-ui,sans-serif;
@@ -3491,12 +3648,18 @@ def main():
                     help="POST /api/run 默认求解模式（默认 skip：只到算例+断言）")
     ap.add_argument("--presenter", action="store_true",
                     help="presenter 定向演示模式（解锁 pB 详情，R-01 授权分级）")
+    # [T3g] 可选展示层生成开关（默认关）：开启后后台链向 run_all 追加 --optional-layers
+    #   （S7b step6 体渲染层 + S7c step7 皮肤壳）。等价环境变量 P0_OPTIONAL_LAYERS=1。
+    ap.add_argument("--optional-layers", action="store_true",
+                    help="后台链追加 --optional-layers（生成 step6 体渲染层/step7 皮肤壳；"
+                         "默认关，仅对参考数据集开启：几何常量为患者A 写死值）")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8080)
     args = ap.parse_args()
     cfg = ServerConfig(mode=args.mode, base_dir=args.base_dir,
                        state_dir=args.state_dir, solve=args.solve,
-                       presenter=args.presenter, host=args.host, port=args.port)
+                       presenter=args.presenter, host=args.host, port=args.port,
+                       optional_layers=args.optional_layers)
     app = build_app(cfg)
     print(f"[T15 server] 形态={cfg.mode} ONLY_SYNTHETIC={cfg.only_synthetic} "
           f"presenter={cfg.presenter} 端口={cfg.port}")

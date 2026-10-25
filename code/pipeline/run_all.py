@@ -76,6 +76,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 STEP1 = os.path.join(HERE, "step1_airway_segment.py")
 STEP2 = os.path.join(HERE, "step2_make_ofcase.py")
 STEP5 = os.path.join(HERE, "step5_export_viewer_data.py")
+STEP6 = os.path.join(HERE, "step6_build_volume_data.py")   # T3f：可选层 CT 体渲染
+STEP7 = os.path.join(HERE, "step7_build_skin_data.py")     # T3f：可选层皮肤壳
 
 # ---------------------------------------------------------------- PII 断言口径
 # 沿用《匿名化核验记录-20261002》（患者A）与 anon_verify_T12.py（赛方CT）口径
@@ -201,9 +203,24 @@ def survey_dicom(dicom_dir):
         "rescale_intercept": str(getattr(ds0, "RescaleIntercept", "")),
         "first_file": files[0],
     }
-    # 文件名序与物理序关系（如实记录，断言不预设）
+    # 文件名序与物理序关系（如实记录，不断言；#56：无零填充命名会让字典序打乱物理序，
+    # 而下游 airway_geom.read_ct_series 自己按 IPP z 重排 ⇒ 这不是致命条件）
     rec["filename_order_matches_physical"] = (
         rec["z_monotonic_increasing"] or rec["z_monotonic_decreasing"]
+    )
+    # ---- 结构判据：只看 z 本身是否良构（排序后），不要求文件名序 == 扫描序 ----
+    z_real = [z for z in zs if z == z]                            # 剔除缺 IPP 的 NaN
+    rec["z_missing_ipp"] = len(zs) - len(z_real)
+    u = sorted({round(z, 4) for z in z_real})                     # 同 z 去重（重叠重建）
+    rec["z_distinct_count"] = len(u)
+    rec["z_duplicate_count"] = len(z_real) - len(u)
+    ug = [u[i + 1] - u[i] for i in range(len(u) - 1)]
+    ug_med = sorted(ug)[len(ug) // 2] if ug else 0.0
+    rec["z_distinct_gap_median"] = round(ug_med, 6)
+    rec["z_structurally_ok"] = (
+        len(u) >= 2
+        and ug_med > 0.0
+        and rec["z_missing_ipp"] <= max(1, int(0.05 * len(files)))
     )
     return rec
 
@@ -636,6 +653,13 @@ def main():
     ap.add_argument("--hu-head", type=int, default=-300, help="透传 step1：头部组织阈值 HU")
     ap.add_argument("--ph-dir", default=None, help="透传 step5：占位体 STL 目录")
     ap.add_argument("--skin-data-js", default=None, help="透传 step5：皮肤层数据")
+    # [T3f] 可选展示层（CT 体渲染 step6 + 皮肤壳 step7）默认关：
+    #   step6 的 CENTER / step7 的 SX_FULL / FREE_AREA_REF_CM2=971.4 都是参考数据集
+    #   （内置演示病例）的写死几何，现流水线没有逐例推导对齐中心的环节 ⇒ 对其它病例
+    #   生成 = 几何错位且 QC FAIL 不退出（"看起来对的错数据"）。只对参考数据集显式开启。
+    ap.add_argument("--optional-layers", action="store_true",
+                    help="S7b/S7c：生成 step6 体渲染层 + step7 皮肤壳（默认关；"
+                         "仅用于参考数据集，几何常量为患者A 写死值）")
     # [T-P1.5] 单算例 viewer 部分导出：患者快速档 / 单算例病例只跑一次求解，三档
     #   占位体字段（dP_1/2/3mm、pressure-flow curve）天然缺失。核心红线不变——
     #   缺核心字段仍中止；只允许"占位档三档"缺项，缺项一律不写、由 viewer 标"本次未做"。
@@ -718,8 +742,12 @@ def main():
         f"实测层间距 {sz} mm（头值 {survey['slice_thickness_header']} mm）；"
         f"z 单调{'增' if survey['z_monotonic_increasing'] else '减' if survey['z_monotonic_decreasing'] else '？'}；"
         f"文件名序{'=' if survey['filename_order_matches_physical'] else '≠'}物理序")
+    if not survey.get("z_structurally_ok"):
+        die(2, f"层序结构断言 FAIL：有效不同层数={survey.get('z_distinct_count')} "
+               f"层间距中位={survey.get('z_distinct_gap_median')}mm "
+               f"缺IPP层数={survey.get('z_missing_ipp')} ——几何不可重建，停工上报")
     if not survey["filename_order_matches_physical"]:
-        die(2, "层序方向断言 FAIL：z 序列非单调——层序混乱，停工上报")
+        log("  ⚠ 文件名序≠物理扫描序（下游按 z 重排处理，不影响重建，仅记录）")
 
     # patient-label 默认：前缀字母 + 面内间距（pA 与原版默认逐字节兼容）
     if ARGS.patient_label:
@@ -1476,6 +1504,104 @@ def run_laptop_handover(manifest, OUT_ROOT, PREFIX, CASE, CASE_NAME, CASE_NAME_B
     log("  后处理/step5 已标记「待解算后补导出」（严禁患者A metrics 顶替）")
 
 
+# ---------------------------------------------------------------- S7b/S7c 可选展示层
+# [T3f]（T3e 第 2 段）step6 CT 体渲染 / step7 皮肤壳的生成调用点。
+#   默认关：step6 CENTER、step7 SX_FULL/FREE_AREA_REF_CM2=971.4 是参考数据集写死的
+#   几何，现流水线没有逐例推导对齐中心的环节 ⇒ 对其它病例生成 = 几何错位且 QC FAIL
+#   不退出（"看起来对的错数据"）。未启用时 manifest + 进度日志必须显式留痕。
+def optional_layer_cmds(out_root, dicom_dir, mask_npz):
+    """本例 S7b(step6) / S7c(step7) 的 argv 清单。纯函数：不执行、不落盘，便于单测。
+
+    依赖链 step6 → step7 不可交换（step7 读 step6 的 volume_data.js 做 S0 帧校验）。
+    quick 档的 `<out>/quick` 子根语义由调用方传入的 out_root 决定
+    （server.py:537-543 run_out_root；run_all 的 OUT_ROOT 即该值，不再二次拼 quick）。
+    返回 [{stage, cmd, out_dir, qc}]，顺序即执行顺序。
+    """
+    vjs = os.path.join(out_root, "step5", "viewer_data.js")
+    o6 = os.path.join(out_root, "step6")
+    o7 = os.path.join(out_root, "step7")
+    c6 = [sys.executable, STEP6,
+          "--dicom-dir", dicom_dir, "--mask-npz", mask_npz,
+          "--viewer-js", vjs, "--out-dir", o6]
+    c7 = [sys.executable, STEP7,
+          "--dicom-dir", dicom_dir, "--mask-npz", mask_npz,
+          "--viewer-js", vjs, "--volume-js", os.path.join(o6, "volume_data.js"),
+          "--out-dir", o7]
+    return [{"stage": "S7b_step6", "cmd": c6, "out_dir": o6,
+             "qc": os.path.join(o6, "volume_qc.json")},
+            {"stage": "S7c_step7", "cmd": c7, "out_dir": o7,
+             "qc": os.path.join(o7, "skin_qc.json")}]
+
+
+def _qc_all_pass(path):
+    """读子步 QC 的 all_pass；读不到返回 None（不把缺 QC 当成通过）。"""
+    try:
+        with open(path, encoding="utf-8") as f:
+            return bool(json.load(f).get("all_pass"))
+    except Exception:
+        return None
+
+
+def run_optional_layers(manifest, enabled, out_root, dicom_dir, mask_npz, runner=None):
+    """S7b step6 → S7c step7。失败只记不 abort（可选展示层不得阻断主链产物完备性）。
+
+    - enabled=False：写 disabled_by_default + 进度日志（不许静默跳过）。
+    - step6 任何非零退出/异常 ⇒ step7 记 skipped_dependency_step6。
+    - runner 可注入（测试用），默认 subprocess.run。
+    """
+    if not enabled:
+        manifest["stages"]["S7b_step6"] = {
+            "status": "disabled_by_default",
+            "reason": "geometry_constants_are_case_specific",
+        }
+        log("[S7b] 可选层未启用（需 --optional-layers）：不生成 step6 体渲染层 / "
+            "step7 皮肤壳——CENTER/SX_FULL/FREE_AREA_REF_CM2 为参考数据集写死几何，"
+            "逐例对齐中心尚无推导来源")
+        return
+
+    run = runner or subprocess.run
+    step6_ok = False
+    for item in optional_layer_cmds(out_root, dicom_dir, mask_npz):
+        stage, cmd = item["stage"], item["cmd"]
+        if stage == "S7c_step7" and not step6_ok:
+            manifest["stages"][stage] = {"status": "skipped_dependency_step6"}
+            log("[S7c] 跳过 step7 皮肤壳：依赖的 S7b step6 未成功")
+            continue
+        log(f"[{stage}] 可选层生成：{os.path.basename(cmd[1])} -> {item['out_dir']}")
+        log("  $ " + " ".join(cmd))
+        t0 = time.time()
+        rc, err = None, None
+        # 子进程按 UTF-8 出流（本机默认控制台 GBK，T3a 根因），父进程按 UTF-8 解码
+        env = os.environ.copy()
+        env["PYTHONIOENCODING"] = "utf-8"
+        env["PYTHONUTF8"] = "1"
+        try:
+            r = run(cmd, capture_output=True, text=True, encoding="utf-8",
+                    errors="replace", env=env)
+            rc = r.returncode
+            for ln in (r.stdout or "").strip().splitlines()[-3:]:
+                log("    " + ln)
+            if rc != 0:
+                err = ((r.stderr or "").strip().splitlines() or [""])[-1]
+        except Exception as exc:          # 可选层不得中断主链
+            err = f"{type(exc).__name__}: {exc}"
+        elapsed = round(time.time() - t0, 1)
+        ok = (rc == 0)
+        entry = {"status": "exported" if ok else "failed",
+                 "returncode": rc,
+                 "elapsed_sec": elapsed,
+                 "out_dir": os.path.relpath(item["out_dir"], out_root),
+                 "qc_all_pass": _qc_all_pass(item["qc"])}
+        if err:
+            entry["error"] = err
+        manifest["stages"][stage] = entry
+        if ok:
+            step6_ok = True
+            log(f"  PASS：{stage} 完成（{elapsed}s，QC all_pass={entry['qc_all_pass']}）")
+        else:
+            log(f"  [W] {stage} 失败（rc={rc}）：{err}——可选层不阻断主链，继续")
+
+
 # ---------------------------------------------------------------- 后处理 + step5
 def run_postprocess_and_step5(manifest, result_dir, OUT_ROOT, PREFIX, CASE,
                               letter, CASE_NAME, DICOM_DIR, sx, ARGS):
@@ -1574,6 +1700,12 @@ def run_postprocess_and_step5(manifest, result_dir, OUT_ROOT, PREFIX, CASE,
         "out_dir": os.path.relpath(os.path.join(OUT_ROOT, "step5"), OUT_ROOT),
     }
     log("  PASS：step5 导出完成（full 模式）")
+
+    # ---- S7b step6 / S7c step7 可选展示层（默认关；未启用也显式留痕）----
+    # 依赖：step2 mask（S3）+ step5 viewer_data.js（上一步）→ step6 → step7。
+    # 失败只记 manifest + 进度日志，不 die：可选层不得阻断主链产物完备性。
+    run_optional_layers(manifest, bool(getattr(ARGS, "optional_layers", False)),
+                        OUT_ROOT, DICOM_DIR, mask_npz)
 
 
 # ---------------------------------------------------------------- S9 交付物回传
