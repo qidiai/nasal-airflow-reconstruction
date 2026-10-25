@@ -55,7 +55,26 @@ def log(msg):
 ap = argparse.ArgumentParser()
 ap.add_argument("--spacing", type=float, default=0.7, help="各向同性重采样间距 mm")
 ap.add_argument("--thumb-size", type=int, default=256)
+# [T3f] 输入/输出路径参数（T3e 第 2 段）：全部 default=None ⇒ 不传时沿用上面 :26-29 的
+#   常量字面量（逐字节不变）；只在 argparse 之后重绑定，常量行一字未改。
+ap.add_argument("--out-dir", default=None, help="产物目录（默认 pipeline/out/step6）")
+ap.add_argument("--mask-npz", default=None,
+                help="气道掩码 npz（默认 out/step2/mask_full.npz；ROI 裁剪基准）")
+ap.add_argument("--viewer-js", default=None,
+                help="step5 viewer_data.js（V1 对齐 QC 用；默认 out/step5/viewer_data.js）")
+ap.add_argument("--dicom-dir", default=None,
+                help="DICOM 目录（默认环境变量 DATA_ROOT 下患者A 的 0.35mm 合并序列）")
+ap.add_argument("--meta-patient", default=None,
+                help="META.patient 展示串（默认 A（数据捐献者授权））")
 args = ap.parse_args()
+# [T3f] 重绑定：必须在全部使用点之前（OUT_STEP6 写盘/QC、MASK_NPZ 读取、
+#   VIEWER_JS V1 对齐、DATA_DIR 读盘与产物头部均在本块之后）
+OUT_STEP6 = args.out_dir or OUT_STEP6
+MASK_NPZ = args.mask_npz or MASK_NPZ
+VIEWER_JS = args.viewer_js or VIEWER_JS
+DATA_DIR = args.dicom_dir or DATA_DIR
+if args.meta_patient:
+    META["patient"] = args.meta_patient
 SP = float(args.spacing)
 TS = int(args.thumb_size)
 log(f"参数: spacing={SP}mm, thumb_size={TS}")

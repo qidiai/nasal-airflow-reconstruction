@@ -93,7 +93,25 @@ ap.add_argument("--near-airway-mm", type=float, default=0.0,
 ap.add_argument("--frame-shift", choices=["voxel_center", "uncorrected"], default="voxel_center")
 ap.add_argument("--preview-faces", type=int, default=12000)
 ap.add_argument("--no-preview", action="store_true")
+# [T3f] 输入/输出路径参数（T3e 第 2 段）：全部 default=None ⇒ 不传时沿用上面 :57-61 的
+#   常量字面量（逐字节不变）；只在 argparse 之后重绑定，常量行一字未改。
+ap.add_argument("--out-dir", default=None, help="产物目录（默认 pipeline/out/step7）")
+ap.add_argument("--mask-npz", default=None,
+                help="气道掩码 npz（默认 out/step2/mask_full.npz；近气道诊断用）")
+ap.add_argument("--viewer-js", default=None,
+                help="step5 viewer_data.js（默认 out/step5/viewer_data.js）")
+ap.add_argument("--volume-js", default=None,
+                help="step6 volume_data.js（S0 帧校验/预览叠加用；默认 out/step6/volume_data.js）")
+ap.add_argument("--dicom-dir", default=None,
+                help="DICOM 目录（默认环境变量 DATA_ROOT 下患者A 的 0.35mm 合并序列）")
 args = ap.parse_args()
+# [T3f] 重绑定：必须在全部使用点之前（OUT_STEP7 全部写盘点、MASK_NPZ 读取、
+#   VOLUME_JS S0 校验/预览叠加、VIEWER_JS 对拍、DATA_DIR 读盘与 QC 记账均在本块之后）
+OUT_STEP7 = args.out_dir or OUT_STEP7
+MASK_NPZ = args.mask_npz or MASK_NPZ
+VIEWER_JS = args.viewer_js or VIEWER_JS
+VOLUME_JS = args.volume_js or VOLUME_JS
+DATA_DIR = args.dicom_dir or DATA_DIR
 F = int(args.factor)
 TARGET = int(args.target_faces)
 SIGMA = float(args.smooth_sigma)
@@ -799,7 +817,13 @@ qc["params"] = {"factor": F, "target_faces": TARGET, "smooth_sigma": SIGMA, "agg
                 "hu_skin": HU_SKIN, "mc_level": MC_LEVEL, "frame_shift": args.frame_shift,
                 "near_airway_mm": NEAR_AIRWAY_MM}
 def _rel(p):
-    return os.path.relpath(p, HERE).replace(os.sep, "/")
+    try:
+        return os.path.relpath(p, HERE).replace(os.sep, "/")
+    except ValueError:
+        # [T3f] 跨盘符（如 --out-dir/输入指到另一盘的 %TEMP%）时 relpath 抛 ValueError。
+        # 只回退到 basename：既不让 QC 记账崩掉，也不把患者数据的绝对路径写进产物
+        # （与上面 path_policy 一致）。同盘符时走原分支，输出逐字节不变。
+        return os.path.basename(p).replace(os.sep, "/")
 
 
 qc["inputs"] = {"dicom_dir_name": os.path.basename(DATA_DIR),

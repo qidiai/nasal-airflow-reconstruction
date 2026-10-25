@@ -15,6 +15,15 @@ import numpy as np
 import pydicom
 from scipy import ndimage
 
+# [T3g] E10：本脚本被 server 以 '-X utf8' 调用时无碍，但人工直跑（如 `py step3...py`）
+#   走的是本机默认控制台编码 GBK（cp936），:728 的 log() 文案含 ⊆（U+2286，GBK 不可编码）
+#   ⇒ UnicodeEncodeError 直接中断。口径（T3e 实测裁决）：只把 stdout 切到 utf-8；
+#   **禁止** errors="replace"（会把 cm³ 变 cm?，等于改文案），也不许改文案做 ASCII 降级。
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+except (AttributeError, ValueError, OSError):  # 没有 reconfigure 的流不阻断 import
+    pass
+
 WS = os.path.dirname(os.path.abspath(__file__))
 # T11 开源脱敏：CT 数据目录由环境变量 P0_DICOM_DIR 指定（默认相对路径 ./dicom）
 DATA_DIR = os.environ.get("P0_DICOM_DIR", "./dicom")
