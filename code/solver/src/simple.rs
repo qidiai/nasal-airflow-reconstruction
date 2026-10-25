@@ -1595,6 +1595,61 @@ pub const MU: f64 = MU_AIR;
 
 
 #[cfg(test)]
+mod analytic_gate_tests {
+    //! 解析门**断言**（#44 / 根因 RC-2）。
+    //!
+    //! 背景：`run_poiseuille_adv` 早就在算三条解析式（中心速度 1.5U、压降梯度 12νU/h²、
+    //! WSS 6μU/h）并打印误差，`gate_pass` 也只是**返回值**——21 条 `cargo test` 里
+    //! 没有任何一条调用它。于是"求解器改动悄悄改变流动量"这件事，测试拦不住。
+    //! 本模块把它变成会红的断言。
+    //!
+    //! 配置依据（指挥官 2026-10-25 实测，非沿用 S-1 二进制上的旧数）：
+    //! nx=100 / ny=41 / max_iter=4000 是同时满足"秒级"与"三项全过"的组合；
+    //! ny=21 系 WSS 恒 >2.4%，nx=40 时压降梯度 2.07% 贴线。
+    //! 渠道 Re = U·H/ν = 0.02×0.02/1.8e-5 ≈ 22 ⇒ 发展段 ≈ 22 mm ≪ L=500 mm，
+    //! 全段已发展，Poiseuille 前提成立（与 #42 裁定的 L=200 mm 基准是两回事）。
+    use super::*;
+
+    /// 解析式**接线**校验：极小网格、极少迭代，只钉"三条 exact 是否等于手算常数"。
+    /// 毫秒级 ⇒ 每次 `cargo test` 都跑。防的是"有人改了公式/常数而没人发现"，
+    /// 不防收敛退化（那由下面的 release 门负责）。
+    #[test]
+    fn t_poiseuille_analytic_formulas_wired_correctly() {
+        let (h, u) = (0.02f64, 0.02f64);
+        let r = run_poiseuille(8, 9, 1, h, 0.5, 0.02, u, 5, false).expect("run_poiseuille 失败");
+        let uc = 1.5 * u;
+        let dpdx = 12.0 * NU_AIRWAY * u / (h * h);
+        let wss = 6.0 * MU_AIR * u / h;
+        assert!((r.u_center_exact - uc).abs() < 1e-15, "中心速度式变了：{}", r.u_center_exact);
+        assert!((r.dpdx_exact - dpdx).abs() < 1e-15, "压降梯度式变了：{}", r.dpdx_exact);
+        assert!((r.wss_exact_pa - wss).abs() < 1e-18, "WSS 式变了：{}", r.wss_exact_pa);
+        assert!(
+            (MU_AIR - RHO_AIR * NU_AIRWAY).abs() < 1e-24,
+            "μ_eff 与 ρ·ν 不再自洽（物性口径漂移）"
+        );
+    }
+
+    /// 三条解析判据的**收敛性**门。发版前必跑：`cargo test --release`。
+    /// ignore 的原因是被测代价，不是可靠性：release 36 s / debug 187 s（本机实测）。
+    #[test]
+    #[ignore = "需 --release（实测 36 s；debug 187 s）；发版前必跑 cargo test --release"]
+    fn t_poiseuille_analytic_three_criteria_hold() {
+        let r = run_poiseuille(100, 41, 1, 0.02, 0.5, 0.02, 0.02, 4000, false)
+            .expect("run_poiseuille 返回 Err");
+        // 先钉"解析式本身非退化"，否则误差判据可能因分母为 0 而空过
+        assert!(r.u_center_exact > 0.0, "中心速度解析值退化");
+        assert!(r.dpdx_exact > 0.0, "压降梯度解析值退化");
+        assert!(r.wss_exact_pa > 0.0, "WSS 解析值退化");
+        assert!(r.iterations > 0, "未迭代，误差无意义");
+        // 三条与 gate 同阈值的硬断言
+        assert!(r.u_center_rel_err < 0.01, "中心速度误差 {:.4}% 超 1%", r.u_center_rel_err * 100.0);
+        assert!(r.dpdx_rel_err < 0.02, "压降梯度误差 {:.4}% 超 2%", r.dpdx_rel_err * 100.0);
+        assert!(r.wss_rel_err < 0.02, "WSS 误差 {:.4}% 超 2%", r.wss_rel_err * 100.0);
+        assert!(r.gate_pass, "gate_pass=false，但上面三条 individually 应全过");
+    }
+}
+
+#[cfg(test)]
 mod dp_stop_tests {
     //! dP 稳定性停车判据的**行为**测试（审计 [16][17] 整改）。
     //!
