@@ -120,6 +120,199 @@ def md5_of(path):
     return h.hexdigest()
 
 
+# ------------------------------------------------- 输入指纹（#65/#66：复用前校验）
+# 病灶：旧代码只凭 os.path.isfile(后处理/metrics.json) 就"不重跑求解"——换 DICOM
+# 或改阈值后 step1/step2 重算了，ΔP/WSS 却沿用**旧几何**的解，manifest 只标
+# "reused"。现在复用前必须比对"本次 step2 算例目录"的输入指纹。
+#
+# #66 加固（上一轮规格的漏洞）：指纹原先只覆盖 constant/polyMesh/ 五件 → 改入口流量、
+#   改 0/p、0/U、改 ν 之后仍会判"几何未变"而**复用旧解**，而改流量重建 ΔP–Q 曲线恰恰
+#   是最常见的重跑场景。故拆成两个子摘要分别比对：
+#     geometry_fp = polyMesh 五件（规则与 #65 逐字节一致，未变）
+#     bc_fp       = constant/transportProperties + 0/ 下全部文件（边界条件与物性）
+#     input_fp    = md5(geometry_fp + "|" + bc_fp)
+#   文件/目录缺失、0/ 为空一律以字面量 MISSING / EMPTY 参与摘要，不静默跳过。
+POLYMESH_FP_FILES = ["boundary", "faces", "neighbour", "owner", "points"]
+BC_FP_FILES = [os.path.join("constant", "transportProperties")]   # 物性（运动黏度 ν）
+BC_FP_DIR = "0"                                                   # 边界条件场目录
+FP_JSON_REL = os.path.join("后处理", "input_fingerprint.json")  # 不写进 metrics（字节级回归）
+
+
+def _fp_digest(parts):
+    """拼接项 → 32 位 hex 摘要（各子摘要与总摘要共用同一拼接口径）。"""
+    return hashlib.md5("|".join(parts).encode("utf-8")).hexdigest()
+
+
+def geometry_fingerprint(case_dir):
+    """本次算例目录 → 几何子摘要：polyMesh 五件逐文件 md5 → 拼接 → 再 md5。
+
+    返回 {"fingerprint": 32 位 hex, "files": {相对路径: md5 | "MISSING"}}。
+    缺失文件以字面量 "MISSING" 参与拼接——缺失本身就是几何变化，必须改变指纹。
+    拼接项为 "<文件名>:<md5>"（#65 原规则，一字未改），同目录算出的值与前版相同。
+    """
+    files = {}
+    parts = []
+    for name in sorted(POLYMESH_FP_FILES):          # 字典序排序后逐文件 md5
+        rel = os.path.join("constant", "polyMesh", name)
+        p = os.path.join(case_dir, rel)
+        h = md5_of(p) if os.path.isfile(p) else "MISSING"
+        files[rel] = h
+        parts.append(f"{name}:{h}")
+    return {"fingerprint": _fp_digest(parts), "files": files}
+
+
+def bc_fingerprint(case_dir):
+    """本次算例目录 → 边界条件/物性子摘要（#66 新增）。
+
+    覆盖 constant/transportProperties（ν）与 0/ 目录下**全部文件**（p/U/k/...）。
+    返回 {"fingerprint": 32 位 hex, "files": {相对路径: md5 | "MISSING" | "EMPTY"}}。
+    0/ 不存在记 "MISSING"、存在但无文件记 "EMPTY"——这两种状态都进摘要
+    （否则"删掉 0/ 目录"或"清空 0/"会算出同一指纹 ⇒ 静默复用旧解）。
+    """
+    files = {}
+    parts = []
+    for rel in BC_FP_FILES:
+        p = os.path.join(case_dir, rel)
+        h = md5_of(p) if os.path.isfile(p) else "MISSING"
+        files[rel] = h
+        parts.append(f"{rel}:{h}")
+    zero_dir = os.path.join(case_dir, BC_FP_DIR)
+    if not os.path.isdir(zero_dir):
+        state, names = "MISSING", []
+    else:
+        # 只认常规文件（0/ 下出现子目录属异常输入，不递归、不静默吞掉——目录本身
+        # 的状态已由 "<BC_FP_DIR>/:<state>" 进摘要，此处按空目录口径记 EMPTY）
+        names = sorted(n for n in os.listdir(zero_dir)
+                       if os.path.isfile(os.path.join(zero_dir, n)))
+        state = "DIR" if names else "EMPTY"
+    files[BC_FP_DIR + "/"] = state
+    parts.append(f"{BC_FP_DIR}/:{state}")
+    for n in names:
+        rel = os.path.join(BC_FP_DIR, n)
+        h = md5_of(os.path.join(zero_dir, n))
+        files[rel] = h
+        parts.append(f"{rel}:{h}")
+    return {"fingerprint": _fp_digest(parts), "files": files}
+
+
+def input_fingerprint(case_dir):
+    """本次算例目录 → 输入指纹三元组（#66：几何 + 边界条件/物性）。
+
+    返回 {"input_fp", "geometry_fp", "bc_fp", "files"}；
+    input_fp = md5(geometry_fp + "|" + bc_fp)。分项保留下来是为了复用闸能
+    分别比对并给出"几何已变 / BC·物性已变 / 两者都变"的区分文案。
+    """
+    geo = geometry_fingerprint(case_dir)
+    bc = bc_fingerprint(case_dir)
+    files = {}
+    files.update(geo["files"])
+    files.update(bc["files"])
+    return {
+        "input_fp": _fp_digest([geo["fingerprint"], bc["fingerprint"]]),
+        "geometry_fp": geo["fingerprint"],
+        "bc_fp": bc["fingerprint"],
+        "files": files,
+    }
+
+
+def write_input_fingerprint(result_dir, fp, case_dir_rel):
+    """把输入指纹落到 <result_dir>/后处理/input_fingerprint.json（与 metrics 分离）。"""
+    path = os.path.join(result_dir, FP_JSON_REL)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    payload = {
+        "input_fp": fp["input_fp"],
+        "geometry_fp": fp["geometry_fp"],           # 分项落盘：复用闸逐项比对
+        "bc_fp": fp["bc_fp"],
+        "files": fp["files"],
+        "case_dir": case_dir_rel,
+        "rule": "input_fp = md5(geometry_fp + '|' + bc_fp)；"
+                "geometry_fp = md5('|'.join(sorted(name:md5 of constant/polyMesh/"
+                "{boundary,faces,neighbour,owner,points})))，缺失记字面量 MISSING；"
+                "bc_fp = md5('|'.join(constant/transportProperties 与 0/ 下全部文件的"
+                "'<相对路径>:<md5>'))，文件缺失记 MISSING、0/ 不存在记 MISSING、"
+                "0/ 为空记 EMPTY",
+        "written": time.strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=1)
+    return path
+
+
+def read_input_fingerprint(result_dir):
+    """读结果目录记录的输入指纹；缺失/不可解析/旧格式 → None（不得静默复用）。"""
+    path = os.path.join(result_dir, FP_JSON_REL)
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            rec = json.load(f)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(rec, dict):
+        return None
+    if not all(rec.get(k) for k in ("input_fp", "geometry_fp", "bc_fp")):
+        # 旧格式（只有 "fingerprint"/"files"，无 #66 分项）→ 视为"无指纹"：走重跑。
+        # 不写旧格式分项迁移：猜错分项（比如把旧的几何摘要当 bc_fp）比不猜更危险。
+        if rec.get("fingerprint"):
+            log(f"  结果目录的输入指纹为 #66 之前的旧格式（只有 fingerprint 键，"
+                f"无 geometry_fp/bc_fp 分项）：按「无指纹」处理，不静默复用"
+                f"（{path}）")
+        return None
+    return rec
+
+
+def reuse_old_result(manifest, result_dir, case_dir):
+    """#65/#66 复用闸：输入指纹（几何 + 边界条件/物性）一致才允许复用旧求解结果。
+
+    返回 (fp, reuse)：reuse=True → manifest 标 "reused"（不重跑）；
+    reuse=False → 调用方必须重跑求解（无 metrics / 历史结果无指纹两种情形）。
+    分项**任一不一致 → die(2) 硬停**：旧 ΔP/WSS 不可用。
+    """
+    fp = input_fingerprint(case_dir)
+    manifest["stages"]["S5_solve"]["input_fingerprint"] = fp["input_fp"]
+    # 分项同步留痕（manifest 仅供审计/排障，不进 metrics，不影响字节级回归）
+    manifest["stages"]["S5_solve"]["input_fingerprint_parts"] = {
+        "geometry_fp": fp["geometry_fp"], "bc_fp": fp["bc_fp"]}
+    metrics_json = os.path.join(result_dir, "后处理", "metrics.json")
+    if not os.path.isfile(metrics_json):
+        return fp, False                              # 没结果，正常求解
+    _fp_path = os.path.join(result_dir, FP_JSON_REL)
+    rec = read_input_fingerprint(result_dir)
+    if rec is None:
+        # 历史遗留：有 metrics.json 但无指纹文件 → 不允许静默复用，走重跑
+        log(f"  结果目录含 metrics.json 但无输入指纹（历史结果），"
+            f"按新算例重跑（不静默复用；期望文件 {_fp_path} 缺失或不可解析）")
+        return fp, False
+    geo_changed = rec["geometry_fp"] != fp["geometry_fp"]
+    bc_changed = rec["bc_fp"] != fp["bc_fp"]
+    if geo_changed or bc_changed:
+        if geo_changed and bc_changed:
+            what = "几何已变，且边界条件或物性也已变（入口流量、0/ 场、ν）"
+        elif geo_changed:
+            what = "几何已变"
+        else:
+            what = "边界条件或物性已变（入口流量、0/ 场、ν）"
+        die(2, f"复用旧结果被拒：{what}——旧 ΔP/WSS 不可用。\n"
+               f"        几何指纹   记录 = {rec['geometry_fp']}"
+               f"（{_fp_path}）\n"
+               f"                   当前 = {fp['geometry_fp']}"
+               f"（本次算例 {case_dir} 的 constant/polyMesh 五件）\n"
+               f"        BC/物性指纹 记录 = {rec['bc_fp']}\n"
+               f"                   当前 = {fp['bc_fp']}"
+               f"（本次算例的 constant/transportProperties 与 0/ 全部文件）\n"
+               "        处置：换几何/改阈值/改入口流量/改 ν 后必须重跑求解；"
+               "确需沿用旧结果请换 --result-dir 或先移走旧指标。")
+        # 不可达（上面的 die 内部 sys.exit 不返回），但**显式 return** 防 fail-open：
+        # 若将来 die 改成"记错误后继续跑"，没有这行就会掉进下面的"复用成功"分支，
+        # 把旧解当本次解报出去。这行是 fail-closed 的护栏，不要删。
+        return fp, False
+    log(f"  复用已有 custom 结果目录：{result_dir}（不重跑求解；"
+        f"输入指纹 {fp['input_fp'][:8]} 一致：geometry {fp['geometry_fp'][:8]} / "
+        f"bc {fp['bc_fp'][:8]}）")
+    manifest["stages"]["S5_solve"]["status"] = "reused"
+    return fp, True
+
+
 def die(code, msg):
     log(f"!!! FATAL (exit {code}): {msg}")
     sys.exit(code)
@@ -378,7 +571,7 @@ HANDOVER_DOC = """# 交接文档：@CASE_NAME@ 算例（台式机 → 笔记本�
 ## 0.5 分割 QC 披露（@SEQ_KIND@序列，如实记录保真度局限）
 
 - 气道掩码：@QC_MASKVOX@ 体素 = @QC_VOL@ cm³；z 跨度 @QC_ZSPAN@ mm（@QC_NAIR@/@QC_NLAYER@ 层含气）；合并后连通域 **@QC_COMPONENTS@**（散在气腔未并入主组件）
-- 入口面积 inletL @QC_INLET_L@ / inletR @QC_INLET_R@ mm²；最小截面积 @QC_MINAREA@ mm²（层 @QC_MINLAYER@/@QC_NLAYER@，z=@QC_MINZ@ mm）
+- 入口面积 inletL @QC_INLET_L@ / inletR @QC_INLET_R@ mm²；最小截面积（门限内最小，非解剖值）@QC_MINAREA@ mm²（层 @QC_MINLAYER@/@QC_NLAYER@，z=@QC_MINZ@ mm）
 - STL 水密性：**@QC_WATERTIGHT@**
 - **体积回归比 @QC_VOLRATIO@**（step2 回归校验闸门 0.94–1.06，@QC_VOLREG_VERDICT@）——@QC_VOLREG_NOTE@
 - **保真度局限（如实披露）**：@QC_FIDELITY_NOTE@
@@ -910,6 +1103,10 @@ def main():
     #           这类退化在台式机侧就地拦截，不下发笔记本）。
     out_faces = int(stats["patch_face_counts"]["outlet"])
     out_area = float(stats.get("outlet_area_mm2", 0.0))
+    # 参照量口径（#64）：min_area = min_raw（门限内最小 = step1 产物字段
+    #   min_axial_area_mm2，`>= 0.1×max_area` 门限筛出的层里取最小，**非解剖值**）。
+    #   故意不换成"无门限真实最小"（三例实测 2.9/1.5/0.5 mm²）：那会把参照量缩小
+    #   约 84 倍（244.2 → 2.9），等于把这道出口多面闸大幅削弱。现量是**更严格**的一侧。
     min_area = float(m1["min_axial_area_mm2"])
     if out_faces < 50 or out_area < 0.3 * min_area:
         die(2, f"出口多面断言 FAIL：outlet {out_faces} 面（需 ≥50）/ "
@@ -997,14 +1194,24 @@ def main():
             result_dir = (os.path.abspath(ARGS.result_dir) if ARGS.result_dir
                           else os.path.join(OUT_ROOT, "结果",
                                             f"P0-result-{PREFIX}-{CASE}"))
-            metrics_json = os.path.join(result_dir, "后处理", "metrics.json")
-            if os.path.isfile(metrics_json):
-                log(f"  复用已有 custom 结果目录：{result_dir}（不重跑求解）")
-                manifest["stages"]["S5_solve"]["status"] = "reused"
-            else:
+            # ---- #65：复用前校验输入几何指纹（判据不再只是"文件在不在"）----
+            fp, reuse_ok = reuse_old_result(manifest, result_dir, case_dir)
+            _solve_started_at = None                # 项2：本次求解起始时间戳（复用路径不求解）
+            if not reuse_ok:
                 os.makedirs(result_dir, exist_ok=True)
+                _rel_case = case_dir
+                try:
+                    _rel_case = os.path.relpath(case_dir, OUT_ROOT)
+                except ValueError:
+                    pass                                # 跨盘符无法相对化，存绝对路径
+                _fp_written = write_input_fingerprint(result_dir, fp, _rel_case)
+                log(f"  输入指纹 {fp['input_fp'][:8]} 已登记（geometry "
+                    f"{fp['geometry_fp'][:8]} / bc {fp['bc_fp'][:8]}）：{_fp_written}")
                 log(f"  custom 求解：{case_dir} -> {result_dir}"
                     f"（{ARGS.max_iter} 步上限）")
+                # 项2：真正调求解之前记起始时间戳——后处理阶段据此校验"被选中的
+                # VTK 时刻目录"不是历史遗留（见 run_postprocess_and_step5）。
+                _solve_started_at = time.time()
                 rc, metrics_path = SB.run_custom(
                     case_dir, result_dir, max_iter=ARGS.max_iter,
                     progress=log, tag="custom " + CASE_NAME)
@@ -1019,7 +1226,8 @@ def main():
                         f"custom 求解失败（rc={rc}）；日志："
                         f"{os.path.join(result_dir, 'solver.log')}")
             run_postprocess_and_step5(manifest, result_dir, OUT_ROOT, PREFIX, CASE,
-                                      letter, CASE_NAME, DICOM_DIR, sx, ARGS)
+                                      letter, CASE_NAME, DICOM_DIR, sx, ARGS,
+                                      solve_started_at=_solve_started_at)
         else:
             probe = probe_openfoam()
             manifest["stages"]["S5_solve"]["probe"] = probe
@@ -1076,6 +1284,44 @@ def find_vtu(result_dir):
     return cands[-1] if cands else None
 
 
+def verify_vtk_freshness(vtu, result_dir, solve_started_at):
+    """项2（#65 同类 fail-open 加固）：选中的 VTK 时刻目录必须不早于本次求解起始。
+
+    find_vtu 取 sorted(glob("VTK/*/internal.vtu"))[-1]：若本次重跑比历史跑**停得更早**
+    （--max-iter 调小 / 提前收敛 / 提前触发停车判据），历史遗留的更大编号时刻目录会被
+    选中 ⇒ 把旧解当新解报出去。故校验被选中时刻目录 mtime ≥ 本次求解起始时间戳。
+    **只校验、不移动也不删除任何文件**（结果目录的处置权在指挥官）。
+    solve_started_at is None = 本次未求解（复用旧结果 / 读回传结果目录）→ 不校验。
+    """
+    if solve_started_at is None:
+        return
+    _vtk_dir = os.path.dirname(vtu)
+    _dir_mtime = os.path.getmtime(_vtk_dir)
+    _file_mtime = os.path.getmtime(vtu)
+    # 取二者较大值：**原地覆写** internal.vtu 不更新目录 mtime（只有新建/删除条目才更新），
+    # 只看目录 mtime 会把"同一时刻目录被本次重跑覆写"误判成历史遗留；而历史遗留目录的
+    # 目录与文件 mtime 都早于本次起始，取较大值照样拦得住（不削弱本条闸门）。
+    _vtk_mtime = max(_dir_mtime, _file_mtime)
+    _fmt = "%Y-%m-%d %H:%M:%S"
+    if _vtk_mtime < solve_started_at:
+        die(2, "选中的 VTK 时刻目录早于本次求解，疑为历史遗留目录遮蔽"
+               "（本次重跑比历史跑停得更早，find_vtu 按编号取到了历史目录）"
+               "——拒绝把旧解当新解报出。\n"
+               f"        选中 VTU       = {vtu}\n"
+               f"        该目录路径     = {_vtk_dir}\n"
+               f"        该目录 mtime   = "
+               f"{time.strftime(_fmt, time.localtime(_dir_mtime))}；"
+               f"该文件 mtime = "
+               f"{time.strftime(_fmt, time.localtime(_file_mtime))}\n"
+               f"        本次求解起始   = "
+               f"{time.strftime(_fmt, time.localtime(solve_started_at))}\n"
+               "        处置：移走/改名历史 VTK 目录后用更大步数重跑"
+               "（本脚本不自行删改结果目录）；或换 --result-dir。")
+    log(f"  VTK 新鲜度校验 PASS：选中 {os.path.relpath(vtu, result_dir)}"
+        f"（mtime {time.strftime(_fmt, time.localtime(_vtk_mtime))} ≥ 本次求解起始 "
+        f"{time.strftime(_fmt, time.localtime(solve_started_at))}）")
+
+
 # ---------------------------------------------------------------- laptop 交接
 def run_laptop_handover(manifest, OUT_ROOT, PREFIX, CASE, CASE_NAME, CASE_NAME_B,
                         letter, stats, survey, pii, mask, m1, sx, sy, sz,
@@ -1125,13 +1371,23 @@ def run_laptop_handover(manifest, OUT_ROOT, PREFIX, CASE, CASE_NAME, CASE_NAME_B
         volreg_note = ("CFD 域体积与分割掩码体积之比越出 0.94–1.06——"
                        "T13b 起闸门 1 硬停：越带即中止算例下发，"
                        "QC 证据链随报错信息上报指挥官裁决")
+    # #64：本段原先把 m1['min_axial_area_mm2'] 当解剖量用（"约为细层厚软组织窗
+    #   序列先例的二分之一"）。该字段是**门限内最小**（step1_airway_segment.py:402
+    #   `main_body = valid & (areas >= max(areas)*0.1)`），三例实测只比门限高
+    #   1.15%/0.47%/1.31%，测的是那个 0.1 系数而不是鼻子；extract_compare.py 的
+    #   axial_area_minima docstring 明文禁它冒充 min_anatomic。故此处只报"门限内
+    #   最小"口径并保留容积效应披露意图，不做跨序列解剖量比较。
     fidelity_note = (f"{seq_kind}：部分容积效应使狭窄处（鼻瓣区）HU 抬高可能越过 "
-                     f"-400 空气阈值，最小截面积与体积被低估（本例最小截面积 "
-                     f"{m1['min_axial_area_mm2']} mm²，约为细层厚软组织窗序列先例的"
-                     f"二分之一）；CFD ΔP 绝对值预期系统性偏高，不可与细层厚序列结果"
-                     f"直接对照。拓扑（连通域 {m1['n_components_merged']}、朝向 6 项、"
-                     f"{'水密' if m1['stl_watertight'] else '非水密'}、入口面积 "
-                     f"{al}/{ar} mm²）正常——可解算，保真度局限披露在案")
+                     f"-400 空气阈值，截面积与体积被低估。本例产物字段「最小截面积 "
+                     f"{m1['min_axial_area_mm2']} mm²」的口径是**门限内最小**"
+                     f"（先按 `max(面积)×0.1` 门限筛层、再在筛出的层里取最小）——"
+                     f"它是**非解剖值**，量的是那道 10% 门限而不是鼻瓣本身（该值通常"
+                     f"紧贴门限，故对真实狭窄程度不具判读意义）；无门限的真实最小值"
+                     f"本阶段不产出（挂 T7），因此此处不给任何跨序列/跨病例的解剖量"
+                     f"比较。受此低估影响，CFD ΔP 绝对值预期系统性偏高，不可与细层厚"
+                     f"序列结果直接对照。拓扑（连通域 {m1['n_components_merged']}、"
+                     f"朝向 6 项、{'水密' if m1['stl_watertight'] else '非水密'}、"
+                     f"入口面积 {al}/{ar} mm²）正常——可解算，保真度局限披露在案")
     _t14_arch = stats.get("t14_arch")
     # ---- 患者C 专项注记（T13b；其他病例为空串，渲染后留空行无碍） ----
     # T14d 修复（T14c 潜伏 bug）：merge_mode_block 仅在
@@ -1604,8 +1860,14 @@ def run_optional_layers(manifest, enabled, out_root, dicom_dir, mask_npz, runner
 
 # ---------------------------------------------------------------- 后处理 + step5
 def run_postprocess_and_step5(manifest, result_dir, OUT_ROOT, PREFIX, CASE,
-                              letter, CASE_NAME, DICOM_DIR, sx, ARGS):
-    """S6 后处理（契约汇编+完备性）→ S7 step5 条件导出。"""
+                              letter, CASE_NAME, DICOM_DIR, sx, ARGS,
+                              solve_started_at=None):
+    """S6 后处理（契约汇编+完备性）→ S7 step5 条件导出。
+
+    solve_started_at：本次进程内**真正求解**的起始时间戳（time.time()）。
+      None = 本次未求解（复用旧结果 / 用 --result-dir 读回传结果），不校验 VTK 新鲜度；
+      非 None = 本次求解过，必须校验 step5 选中的 VTK 时刻目录不早于该时间戳。
+    """
     log("[S6] 后处理：读本例 metrics.json ...")
     metrics_json = os.path.join(result_dir, "后处理", "metrics.json")
     if not os.path.isfile(metrics_json):
@@ -1667,6 +1929,8 @@ def run_postprocess_and_step5(manifest, result_dir, OUT_ROOT, PREFIX, CASE,
     vtu = find_vtu(result_dir)
     if vtu is None:
         die(2, f"契约完备但 VTU 缺失：{result_dir}/VTK/*/internal.vtu")
+    # ---- 项2（#65 同类 fail-open）：旧 VTK 时刻目录不得遮蔽本次新解 ----
+    verify_vtk_freshness(vtu, result_dir, solve_started_at)
     # [修复] step5 的 --mask-npz 默认按 HERE/out/step2/<mask> 推导（内置病例位置），
     #   上传病例的掩码实际在 <run_out_root>/step2/，故必须显式传入；否则 step5 到
     #   内置病例目录找掩码而 FileNotFoundError。命名规则与 S3（main 内 mask_npz）一致。
