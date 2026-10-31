@@ -363,17 +363,29 @@ def scan_pii(dicom_dir):
 
 # ---------------------------------------------------------------- S1 DICOM 头普查
 def survey_dicom(dicom_dir):
-    """层数/维度/间距/层序方向实测（不臆断层序）。"""
+    """层数/维度/间距/层序方向实测（不臆断层序）。
+    层数口径 = 下游 step1 实际读入的同一批层（`airway_geom.read_ct_series`）。"""
+    import airway_geom as AG
     files = sorted(f for f in os.listdir(dicom_dir) if f.lower().endswith(".dcm"))
-    ds0 = pydicom.dcmread(os.path.join(dicom_dir, files[0]), stop_before_pixels=True)
-    zs = []
-    for fn in files:
-        ds = pydicom.dcmread(os.path.join(dicom_dir, fn), stop_before_pixels=True)
-        ipp = getattr(ds, "ImagePositionPatient", None)
-        zs.append(float(ipp[2]) if ipp is not None else float("nan"))
-    ps = [round(float(x), 6) for x in ds0.PixelSpacing]
-    st = float(ds0.SliceThickness)
-    gaps = [zs[i + 1] - zs[i] for i in range(len(zs) - 1)]
+    try:
+        slices, rep = AG.read_ct_series([os.path.join(dicom_dir, fn) for fn in files])
+    except SystemExit:
+        die(2, f"无有效轴位切片：目录内 {len(files)} 个 .dcm，可用轴位层不足 2 层")
+    ds_rep = slices[0]                       # 代表元 = 被选中序列的首层（z 最小）
+    ps_raw = getattr(ds_rep, "PixelSpacing", None)
+    if ps_raw is None:
+        die(2, "无有效轴位切片：被选中序列缺 PixelSpacing")
+    st_raw = getattr(ds_rep, "SliceThickness", None)
+    if st_raw is None:
+        die(2, "无有效轴位切片：被选中序列缺 SliceThickness")
+    src_name = getattr(ds_rep, "filename", None)
+    if not src_name:
+        die(2, "无有效轴位切片：读层器未回报来源文件名")
+    ps = [round(float(x), 6) for x in ps_raw]
+    st = float(st_raw)
+    # read_ct_series 已按 IPP z 升序排好、并已同 z 去重 ⇒ 差值恒正
+    zs_phys = [float(s.ImagePositionPatient[2]) for s in slices]
+    gaps = [zs_phys[i + 1] - zs_phys[i] for i in range(len(zs_phys) - 1)]
     gaps_sorted = sorted(gaps)
     # 中位数取绝对值：文件名序可与物理序相反（如 1mm 序列 z 单调降），
     # 层间距恒为正（T13 修复：此前负值使朝向断言 A6 的 z 物理坐标翻转、
@@ -382,37 +394,49 @@ def survey_dicom(dicom_dir):
     sz_measured = abs(gaps_sorted[len(gaps_sorted) // 2])  # 中位数（重叠重建时≠SliceThickness）
     rec = {
         "file_count": len(files),
-        "rows": int(ds0.Rows), "columns": int(ds0.Columns),
+        "n_slices_selected": rep["n_valid"],
+        "series_uid": rep["series_uid"],
+        "survey_skip_reasons": rep["skip_reasons"],
+        "ignored_series": rep["ignored"],
+        "rows": int(getattr(ds_rep, "Rows", 0)),
+        "columns": int(getattr(ds_rep, "Columns", 0)),
         "pixel_spacing": ps, "slice_thickness_header": st,
         "slice_gap_measured": round(sz_measured, 6),
-        "z_first": zs[0], "z_last": zs[-1],
-        "z_monotonic_increasing": all(zs[i] < zs[i + 1] for i in range(len(zs) - 1)),
-        "z_monotonic_decreasing": all(zs[i] > zs[i + 1] for i in range(len(zs) - 1)),
-        "modality": str(getattr(ds0, "Modality", "")),
-        "convolution_kernel": str(getattr(ds0, "ConvolutionKernel", "")),
-        "patient_position": str(getattr(ds0, "PatientPosition", "")),
-        "iop": [str(x) for x in getattr(ds0, "ImageOrientationPatient", [])],
-        "rescale_slope": str(getattr(ds0, "RescaleSlope", "")),
-        "rescale_intercept": str(getattr(ds0, "RescaleIntercept", "")),
-        "first_file": files[0],
+        "z_first": zs_phys[0], "z_last": zs_phys[-1],
+        # 换源后 zs_phys 由读层器升序给出：这两个键是构造性恒真/恒假，
+        # 永远不得加进任何门（无判别力字段变判据 = 假闸门，§21-5）
+        "z_monotonic_increasing": all(zs_phys[i] < zs_phys[i + 1]
+                                      for i in range(len(zs_phys) - 1)),
+        "z_monotonic_decreasing": all(zs_phys[i] > zs_phys[i + 1]
+                                      for i in range(len(zs_phys) - 1)),
+        "modality": str(getattr(ds_rep, "Modality", "")),
+        "convolution_kernel": str(getattr(ds_rep, "ConvolutionKernel", "")),
+        "patient_position": str(getattr(ds_rep, "PatientPosition", "")),
+        "iop": [str(x) for x in getattr(ds_rep, "ImageOrientationPatient", [])],
+        "rescale_slope": str(getattr(ds_rep, "RescaleSlope", "")),
+        "rescale_intercept": str(getattr(ds_rep, "RescaleIntercept", "")),
+        "first_file": os.path.basename(str(src_name)),
     }
     # 文件名序与物理序关系（如实记录，不断言；#56：无零填充命名会让字典序打乱物理序，
     # 而下游 airway_geom.read_ct_series 自己按 IPP z 重排 ⇒ 这不是致命条件）
+    # 换源后不得用 z_monotonic_*（已构造性恒真）：按文件名次序重新取 z 判单调
+    z_by_name = {os.path.basename(str(s.filename)): float(s.ImagePositionPatient[2])
+                 for s in slices}
+    zs_name = [z_by_name[n] for n in files if n in z_by_name]
     rec["filename_order_matches_physical"] = (
-        rec["z_monotonic_increasing"] or rec["z_monotonic_decreasing"]
+        all(zs_name[i] < zs_name[i + 1] for i in range(len(zs_name) - 1))
+        or all(zs_name[i] > zs_name[i + 1] for i in range(len(zs_name) - 1))
     )
     # ---- 结构判据：只看 z 本身是否良构（排序后），不要求文件名序 == 扫描序 ----
-    z_real = [z for z in zs if z == z]                            # 剔除缺 IPP 的 NaN
-    rec["z_missing_ipp"] = len(zs) - len(z_real)
-    u = sorted({round(z, 4) for z in z_real})                     # 同 z 去重（重叠重建）
-    rec["z_distinct_count"] = len(u)
-    rec["z_duplicate_count"] = len(z_real) - len(u)
-    ug = [u[i + 1] - u[i] for i in range(len(u) - 1)]
-    ug_med = sorted(ug)[len(ug) // 2] if ug else 0.0
-    rec["z_distinct_gap_median"] = round(ug_med, 6)
+    # z_missing_ipp 口径已换：从"数 IPP 为 NaN 的层"变成"读层器实际跳过的文件总数"
+    # （含非图像对象 / 缺几何 / 读取失败），与 n_slices_selected 同一来源
+    rec["z_missing_ipp"] = rep["n_skipped"]
+    rec["z_duplicate_count"] = rep["dedup"]          # 读层器报的同 z 去重层数
+    rec["z_distinct_count"] = len(zs_phys)
+    rec["z_distinct_gap_median"] = round(sz_measured, 6)
     rec["z_structurally_ok"] = (
-        len(u) >= 2
-        and ug_med > 0.0
+        len(zs_phys) >= 2
+        and rec["z_distinct_gap_median"] > 0.0
         and rec["z_missing_ipp"] <= max(1, int(0.05 * len(files)))
     )
     return rec
@@ -926,7 +950,7 @@ def main():
     log("[S1] DICOM 头普查 ...")
     survey = survey_dicom(DICOM_DIR)
     manifest["stages"]["S1_dicom_survey"] = survey
-    n_layers, rows, cols = survey["file_count"], survey["rows"], survey["columns"]
+    n_layers, rows, cols = survey["n_slices_selected"], survey["rows"], survey["columns"]
     if n_layers < 1 or rows < 1 or cols < 1:
         die(2, f"维度动态断言 FAIL：层数/行/列 = {n_layers}/{rows}/{cols}")
     sx, sy = round(survey["pixel_spacing"][0], 4), round(survey["pixel_spacing"][1], 4)
@@ -1153,7 +1177,7 @@ def main():
     if orient_fail:
         die(2, "朝向几何断言 FAIL ×" + str(len(orient_fail))
             + "（层序方向未验证或数据异常）——停工上报，不许默认层序正确")
-    zdir_desc = "与文件名序一致（z 单调增）" if survey["z_monotonic_increasing"] \
+    zdir_desc = "与文件名序一致（z 单调增）" if survey["filename_order_matches_physical"] \
         else "与文件名序相反（z 单调降，step1 按物理 z 排序不受影响）"
     log(f"  全部 6 项 PASS；mask 形状 {mask.shape} == DICOM 维度（动态确认）")
 
@@ -1669,7 +1693,7 @@ def run_laptop_handover(manifest, OUT_ROOT, PREFIX, CASE, CASE_NAME, CASE_NAME_B
         "QTOT": str(stats.get("Q_total_Lmin", 15.0)),
         "AL": str(al), "AR": str(ar), "QL": str(ql), "QR": str(qr),
         "MASKVOX": f"{mask_vox:,}", "MASKVOL": str(mask_vol_cm3),
-        "NZ": str(survey["file_count"]),
+        "NZ": str(survey["n_slices_selected"]),
         "VOLRATIO": str(stats.get("volume_regression_ratio")),
         "VOLRATIO_VERDICT": volreg_verdict,
         "VOXELMM": "×".join(str(v) for v in stats["voxel_mm"]),
@@ -1685,7 +1709,7 @@ def run_laptop_handover(manifest, OUT_ROOT, PREFIX, CASE, CASE_NAME, CASE_NAME_B
         "QC_VOL": str(mask_vol_cm3),
         "QC_ZSPAN": str(round(mask_zspan_mm, 1)),
         "QC_NAIR": str(m1["n_slices_with_air"]),
-        "QC_NLAYER": str(survey["file_count"]),
+        "QC_NLAYER": str(survey["n_slices_selected"]),
         "QC_COMPONENTS": str(m1["n_components_merged"]),
         "QC_INLET_L": str(al),
         "QC_INLET_R": str(ar),
