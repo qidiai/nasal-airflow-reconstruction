@@ -385,13 +385,12 @@ def survey_dicom(dicom_dir):
     st = float(st_raw)
     # read_ct_series 已按 IPP z 升序排好、并已同 z 去重 ⇒ 差值恒正
     zs_phys = [float(s.ImagePositionPatient[2]) for s in slices]
-    gaps = [zs_phys[i + 1] - zs_phys[i] for i in range(len(zs_phys) - 1)]
-    gaps_sorted = sorted(gaps)
+    greport = AG.z_gap_report(zs_phys)
     # 中位数取绝对值：文件名序可与物理序相反（如 1mm 序列 z 单调降），
     # 层间距恒为正（T13 修复：此前负值使朝向断言 A6 的 z 物理坐标翻转、
     # 数值失真——患者C 实测 A6 out_z 报 -24.33，正确值 +24.33，
     # 结论虽碰巧一致但判别力被削弱，修复后重跑验证）
-    sz_measured = abs(gaps_sorted[len(gaps_sorted) // 2])  # 中位数（重叠重建时≠SliceThickness）
+    sz_measured = greport["gap_median"]  # 中位数（重叠重建时≠SliceThickness）
     rec = {
         "file_count": len(files),
         "n_slices_selected": rep["n_valid"],
@@ -439,6 +438,19 @@ def survey_dicom(dicom_dir):
         and rec["z_distinct_gap_median"] > 0.0
         and rec["z_missing_ipp"] <= max(1, int(0.05 * len(files)))
     )
+    rec["z_gap_max_abs_dev_mm"] = round(greport["max_abs_dev_mm"], 6)
+    rec["z_gap_max_rel_dev"] = round(greport["max_rel_dev"], 8)
+    rec["z_gap_tol_mm"] = round(greport["tol_mm"], 6)
+    rec["z_gap_bad_pairs"] = greport["bad_pairs"]
+    # 为什么 uniformity 不折进上面的 z_structurally_ok：停工门在 return 之前 die，
+    # 能返回的 rec 必然 uniform=True —— 把这个条件写进布尔就是**构造性恒真的假闸门**
+    # （§21-5 已因 z_monotonic_* 踩过一次，见 :406-407 注释）。
+    # 故 z_structurally_ok 一字节不动，一致性只做独立门 + 上面四个量化键。
+    if not greport["uniform"]:
+        die(2, f"层间距不一致：中位间隙 {greport['gap_median']:.4f}mm，"
+               f"最大偏差 {greport['max_abs_dev_mm']:.4f}mm > 容差 {greport['tol_mm']:.4f}mm；"
+               f"异常间隙对（升序 z 链下标）{greport['bad_pairs'][:5]}"
+               f"（共 {len(greport['bad_pairs'])} 处）—— 几何不可重建，停工上报")
     return rec
 
 

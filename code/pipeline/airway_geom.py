@@ -67,6 +67,8 @@ def centroid_split_x(airway):
 # 干净输入（单一序列、无杂质、无重复 z）走的是同一条主路径，过滤/分组/去重都是
 # 恒等变换，体数据逐体素不变。
 Z_DEDUP_TOL_MM = 1e-3          # 同 z 判定容差（mm）
+Z_GAP_REL_TOL = 0.01          # 逐层间隙相对容差；真数据 16 目录实测最大相对偏差 2.033e-04（§23-6）
+Z_GAP_ABS_FLOOR_MM = 0.005    # 极薄层时的绝对下限 mm；真数据实测最大绝对偏差 1.2e-04（§23-6）
 _NO_UID_LABEL = "(无 SeriesInstanceUID)"
 
 # 非图像 DICOM 对象的常见 SOP Class -> 跳过原因（用于摘要里的分类计数）
@@ -143,6 +145,34 @@ def _series_label(ds):
     desc = getattr(ds, "SeriesDescription", None)
     desc = str(desc).strip() if desc is not None else ""
     return desc or _series_key(ds)
+def z_gap_report(zs):
+    """升序 z 链（mm）的逐层间隙体检 → dict。"""
+    if len(zs) < 2:
+        raise ValueError("z_gap_report：不足两个 z，无法构成层间隙")
+    zs_sorted = sorted(float(z) for z in zs)          # 内部自排序，不假设调用方已升序
+    gaps = [zs_sorted[i + 1] - zs_sorted[i] for i in range(len(zs_sorted) - 1)]
+    n_gaps = len(gaps)
+    # 上中位 + 取绝对值：与 run_all.py survey_dicom 的 slice_gap_measured 逐字同式，
+    # 预检与重建共用同一个数（层间距恒为正，T13 教训）
+    gap_median = abs(sorted(gaps)[len(gaps) // 2])
+    tol_mm = max(Z_GAP_REL_TOL * gap_median, Z_GAP_ABS_FLOOR_MM)
+    bad_pairs = [i for i, g in enumerate(gaps) if abs(g - gap_median) > tol_mm]
+    max_abs_dev_mm = max(abs(g - gap_median) for g in gaps)
+    max_rel_dev = (max_abs_dev_mm / gap_median) if gap_median > 0 else float("inf")
+    uniform = not bad_pairs
+    gap_min = min(gaps)
+    gap_max = max(gaps)
+    return {
+        "n_gaps": n_gaps,
+        "gap_median": gap_median,
+        "gap_min": gap_min,
+        "gap_max": gap_max,
+        "max_abs_dev_mm": max_abs_dev_mm,
+        "max_rel_dev": max_rel_dev,
+        "tol_mm": tol_mm,
+        "bad_pairs": bad_pairs,
+        "uniform": uniform,
+    }
 
 
 def read_ct_series(files):

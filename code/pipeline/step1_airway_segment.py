@@ -6,7 +6,7 @@ P0 阶段1 v2：鼻腔气道三维重建（修正版）
 """
 import os, json, glob, argparse
 import numpy as np
-from airway_geom import centroid_split_x, read_ct_series  # 与回归测试共用同一份实现：x 向质心/左右分界、DICOM 读入规则
+from airway_geom import centroid_split_x, read_ct_series, z_gap_report  # 与回归测试共用同一份实现：x 向质心/左右分界、DICOM 读入规则、逐层间隙体检
 import pydicom
 from scipy import ndimage
 from skimage.measure import marching_cubes
@@ -86,7 +86,15 @@ if not files:
 slices, _slices_sel = read_ct_series(files)
 nz, rows, cols = len(slices), slices[0].Rows, slices[0].Columns
 ps = [float(x) for x in slices[0].PixelSpacing]
-dz = abs(float(slices[1].ImagePositionPatient[2]) - float(slices[0].ImagePositionPatient[2]))
+zs = [float(s.ImagePositionPatient[2]) for s in slices]
+greport = z_gap_report(zs)
+dz = round(greport["gap_median"], 6)      # 与预检 slice_gap_measured 同一个数
+if not greport["uniform"]:
+    print("[错误] 层间距不一致：中位间隙 %.4fmm，最大偏差 %.4fmm > 容差 %.4fmm；"
+          "异常间隙对（升序 z 链下标）%s（共 %d 处）—— 几何不可重建，停工上报"
+          % (greport["gap_median"], greport["max_abs_dev_mm"], greport["tol_mm"],
+             greport["bad_pairs"][:5], len(greport["bad_pairs"])))
+    raise SystemExit(2)
 vol = np.zeros((nz, rows, cols), dtype=np.int16)
 for i, s in enumerate(slices):
     vol[i] = s.pixel_array.astype(np.int16) * int(s.RescaleSlope) + int(s.RescaleIntercept)
