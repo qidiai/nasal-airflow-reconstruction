@@ -8,6 +8,17 @@
 
 ## QUICKSTART（10 分钟开箱）
 
+**一条命令装机自检（推荐，2026-11 新增）**：
+
+```bash
+powershell -ExecutionPolicy Bypass -File scripts\bootstrap.ps1   # Windows（Linux/Mac: bash scripts/bootstrap.sh）
+```
+
+自动完成 venv/依赖安装/FlowScope 求解器构建（无 cargo 则降级跳过 CFD）/
+合成 CT 生成/pytest 冒烟/`run_all` 全链路冒烟，每步打印 [OK]/[FAIL] 与耗时。
+分步命令、上传自有 CT 的两种方式（Web 工作台 / 命令行）与常见报错排错，
+见 [从零复现.md](从零复现.md)。
+
 ```bash
 py -3 -m venv .venv && .venv\Scripts\activate   # ① 虚拟环境（Linux/Mac: python3 -m venv .venv && source .venv/bin/activate）
 pip install -r requirements.txt                 # ② 装依赖（numpy/scipy/pydicom/scikit-image/trimesh/matplotlib/pytest）
@@ -97,10 +108,11 @@ python code/pipeline/run_all.py --dicom-dir <CT目录>  # 一键总控编排（s
 - `tests/test_api.py`：工作台 API 测试五类 36 项（契约 / 数据边界拒绝 / exit 2/3 闸门映射 /
   指标一致性，含双口径不可互换断言）。需工作台服务端 `code/pipeline/server.py`（随仓库发布；CT 根经 `P0_CT_BASE` 注入，不含患者数据；
   未配置该环境变量时内置用例跳过）。
+- `code/pipeline/tests/test_z_gap_consistency.py`：逐层间隙一致性门锁定测试 13 项（门常量与中位口径、纯函数正/负例、总控预检停工、放行病例量化键留痕、step1 独立执行停工与阴性对照）。
 
 ### 3c. 一键管线与 Web 工作台
 
-- `code/pipeline/run_all.py`：一键总控（step1→step7 顺序链路 + 五闸门；`--ext/--iso/--voxel-z/--merge-mode/--publish` 透传）。
+- `code/pipeline/run_all.py`：一键总控（step1→step7 顺序链路 + 五闸门；`--ext/--iso/--voxel-z/--merge-mode/--publish` 透传）；总控预检另含 DICOM 层间距一致性门（不一致 exit 2 停工上报，口径见 code/pipeline/README-输入规范.md）。
 - `code/pipeline/server.py` + `code/pipeline/webapp/`：多患者 Web 工作台（Flask 后端 + 前端；CT 根经 `P0_CT_BASE` 注入，不含患者数据）。
 - 工作台默认仅监听本机（`--host` 默认 `127.0.0.1`，演示安全）；同网投屏 / 多机访问可显式 `--host 0.0.0.0`。
 - `code/pipeline/标注协议-KHub鼻腔气道-20261009.md`：KHub 标注协议 v1（出口标志写死 / 冻结参数表）。
