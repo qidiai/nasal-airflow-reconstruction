@@ -85,3 +85,6 @@ code/pipeline/webapp/plus/
 
 # CLI 工具自动保存目录
 .codely-cli/
+
+# 仓库根临时目录（提交拆分补片等一次性产物）
+/target/
