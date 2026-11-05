@@ -408,3 +408,14 @@ OpenFOAM 退役（M3）须待以下条件闭合——退役不可逆（永久失
 | bootstrap 环境敏感性 | `py -3` 在装有 Python 3.15 的机器上解析到 3.15，requirements 钉版（numpy 2.5.4 等）不支持 → pip 安装失败（实测）；本机 F3 用 Python 3.12 复现通过。bootstrap 的 Python 版本下限约束需另批明确（QUICKSTART 现称 3.10+，与钉版实际口径不符） |
 | 产物性质 | 干净克隆形态下 pA 查看器为合成占位（非 20261002 冻结资产），已在 `从零复现.md` 披露；`server.py:424` 的 15,069,209 B 证据串与本地 15,036,993 B 至少一处过期（未改，另批核实） |
 | 关闭证据 | F3 两段式命令与输出见派工记录；套件 238 passed / 16 skipped（叠加态，本机 DATA_ROOT 未设） |
+
+## 2026-11-05 补审登记：T2/T1 独立实现审计（step-5 席，646s）
+
+**裁决：T2（fc2ed80）可签结；T1（bc884e7）可签结；0 BLOCKING。** 审计范围：T2 准入五条逻辑逐行核对（Modality 归一化/IOP 三态/n_z 公式与 0.9 闭边界/去重后 n 口径/全组被拒路径）+ 两处消费点 + 白名单 12 键 + 绝对门无回潮 + 红线 intact；T1 fixture 六条 + 生成链九条 + bootstrap 两脚本 + 测试机审可判性。对抗性边界输入（空目录/单层/同 UID 混朝向/IOP NaN/inf/"abc"/并列层数）均未发现与规格不符。
+
+**非阻断遗留（登记备查，不阻断签结）**：
+- N-1：`scripts/build_pa_placeholder.py` 与 `tests/test_clean_clone_artifact.py` 共 6 处注释行号 off-by-one（test_api.py 断言值实为 :329-332）——**本次已修**（commander 机械修正，审计席给定值）；
+- N-2：本段以上 :264 等对 `run_all.py` 的行号引用因 T3（+138 行）已漂移，下次触碰时更新；
+- N-3（规格澄清）：T2 对「IOP 分量不足 6 个」的口径 = missing 披露放行（代码 `airway_geom.py:210-211` docstring 已有，任务书未写明）——后续修订任务书时补；
+- N-4（归因不对称）：run_all 适用性门在层序门前（:1149 vs :1159）、server 相反（层序卡 :2157-2170 在前）——双败输入的归因文案两端口径不同，统一或文档化列为后续项；
+- N-5（验证局限）：审计席无 shell，diff 边界已由指挥官实核补上——`git diff --stat` 两提交范围（T2 6 文件 +878/−31；T1 7 文件 +438/−29）、`tests/test_api.py` 两提交零触碰、`git ls-files` 全仓 >1MB 仅 3 个历史在位文件（webapp/demo/viewer.html、webapp/demo/viewer_data.js、code/viewer/viewer_data.js），两任务均未新增/修改大文件入库。

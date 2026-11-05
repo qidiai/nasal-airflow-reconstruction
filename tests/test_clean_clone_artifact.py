@@ -5,7 +5,7 @@
   1. 产物必须存在（**不允许 skip**）：`tests/conftest.py` 的 session autouse
      fixture 若生成失败，本用例给出一条明确红，而不是"看起来全绿"；
   2. 产物必须满足消费方判据：`server.extract_viewer_meta` 可解析 + 四个库内
-     已公开聚合数在位（`tests/test_api.py:329-331` 的断言值；本机有 15MB 冻结
+     已公开聚合数在位（`tests/test_api.py:329-332` 的断言值；本机有 15MB 冻结
      副本时同样成立，因该副本内嵌的就是这四个数）；
   3. 合成占位形态的诚实声明在位：临时目录里真跑一次生成链，逐字节确认两行式
      声明与 metrics 覆盖（`gen_demo_data.py:205-216` 的 23.7/50.0/50.0/78.5
@@ -65,8 +65,8 @@ def test_clean_clone_artifact_public_aggregates():
     R = SRV.parse_resistance(mm.get("resistance_total"))
     assert dP == 18.45, "dP_baseline_Pa=%r（期望 18.45，来源 tests/test_api.py:329）" % dP
     assert split_l == 51.9, "split_L_pct=%r（期望 51.9，来源 tests/test_api.py:330）" % split_l
-    assert split_r == 48.1, "split_R_pct=%r（期望 48.1，来源 tests/test_api.py:330）" % split_r
-    assert R == 66.2, ("resistance_total=%r → %r（期望 66.2，来源 tests/test_api.py:331）"
+    assert split_r == 48.1, "split_R_pct=%r（期望 48.1，来源 tests/test_api.py:331）" % split_r
+    assert R == 66.2, ("resistance_total=%r → %r（期望 66.2，来源 tests/test_api.py:332）"
                        % (mm.get("resistance_total"), R))
 
 

@@ -53,15 +53,15 @@ SUBMISSION_SRC = os.path.expandvars(
 )
 
 # ------------------------------------------------------------------ 内嵌数字（来源见行内注释）
-# 四项为**库内已公开**的 pA 聚合数：tests/test_api.py:329-331 断言值，
+# 四项为**库内已公开**的 pA 聚合数：tests/test_api.py:329-332 断言值，
 # 亦见 code/data-governance/consent-ledger.md:24（A2 归档 ΔP=18.45 Pa）。
 # 内嵌不构成新增泄露；gen_demo_data.py:205-216 自带的 23.7/50.0/50.0/78.5
 # 必须在此覆盖（复用其几何函数 ≠ 可直接拿其输出）。
 PUBLISHED_METRICS = {
     "dP_baseline_Pa": 18.45,      # 库内已公开（tests/test_api.py:329）
     "split_L_pct": 51.9,          # 库内已公开（tests/test_api.py:330）
-    "split_R_pct": 48.1,          # 库内已公开（tests/test_api.py:330）
-    "resistance_total": "66.2 Pa/(L/s)",  # 库内已公开（tests/test_api.py:331）
+    "split_R_pct": 48.1,          # 库内已公开（tests/test_api.py:331）
+    "resistance_total": "66.2 Pa/(L/s)",  # 库内已公开（tests/test_api.py:332）
 }
 # 其余字段沿用 gen_demo_data.py:206-215 的合成演示值（参数化，非解算结果）。
 SYNTHETIC_FILL_METRICS = {
