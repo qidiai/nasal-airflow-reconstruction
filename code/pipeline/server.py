@@ -2169,6 +2169,22 @@ def _register_case(cfg, dicom_dir, prefix, case_name, label, kind, case_id_val,
                         "gate_failures": rec["gate_failures"],
                         "message": "数据未通过质量闸门（DICOM 头普查）——已生成 ⛔ 拦截卡"})
 
+    # ---- 重建适用性断言（A2-Q1，与 run_all S1 同一个纯函数）----
+    # 被选中的序列能不能当诊断轴位 CT 用：面内间距/实测层间距的物理合理性。
+    # 只做 web 侧消费，不在 survey_dicom 内部 die（锁定测试直接调它）。
+    suit_fails = RA.suitability_failures(survey) if survey else []
+    if suit_fails:
+        rec.update(status="blocked", gate="重建适用性断言",
+                   gate_failures=list(suit_fails), exit_code=2)
+        reg[rec["case_id"]] = rec
+        save_registry(cfg, reg)
+        append_progress(out_dir, "[W] ⛔ 门禁拦截：重建适用性断言 FAIL："
+                        + "；".join(suit_fails))
+        return jsonify({"case_id": rec["case_id"], "status": "blocked",
+                        "gate": rec["gate"],
+                        "gate_failures": rec["gate_failures"],
+                        "message": "数据未通过质量闸门（重建适用性断言）——已生成 ⛔ 拦截卡"})
+
     # ---- step1 气道分割（子进程，隔离 out-dir） ----
     preview_dir = os.path.join(out_dir, "preview")
     sx = (survey or {}).get("pixel_spacing") or [None, None]

@@ -454,6 +454,47 @@ def survey_dicom(dicom_dir):
     return rec
 
 
+# ---------------------------------------------------------------- S1 重建适用性断言（A2-Q1）
+# 允许区间来源：诊断轴位 CT 的物理体素尺度（面内 0.05–1.5 mm、层间距 0.05–3.0 mm）。
+# 明确**不设**的门（已否决，见 conditions-ledger T2 登记）：
+#   矩阵绝对门 rows/cols >= 256 —— 仓库自合成演示数据即 96×96
+#     （scripts/make_synthetic_ct.py:56 `ROWS = COLS = 96`），该门会拦掉全部演示/e2e；
+#   最少层数绝对门 n_slices >= 30 —— "20 层序列缺 1 层 IPP ⇒ selected=19" 是真实放行病例。
+PIXEL_SPACING_RANGE_MM = (0.05, 1.5)
+SLICE_GAP_RANGE_MM = (0.05, 3.0)
+
+
+def suitability_failures(rec):
+    """重建适用性断言（纯函数）：入参 = survey_dicom 返回的 rec。
+
+    返回失败项的人话文案列表；空列表 = 通过。只判"被选中的序列能不能当诊断
+    轴位 CT 用"（面内间距 / 实测层间距的物理合理性），不判层数、不判矩阵大小。
+    """
+    fails = []
+    lo, hi = PIXEL_SPACING_RANGE_MM
+    ps = rec.get("pixel_spacing") or []
+    for i in range(2):
+        try:
+            v = float(ps[i])
+        except (IndexError, TypeError, ValueError):
+            fails.append("面内像素间距缺第 %d 分量——无法确认体素尺度" % (i + 1))
+            continue
+        if not (lo <= v <= hi):
+            fails.append("面内像素间距 %.2fmm 超出 CT 合理范围 [%.2f, %.2f]mm"
+                         "——被选中的序列可能不是诊断轴位 CT" % (v, lo, hi))
+    lo, hi = SLICE_GAP_RANGE_MM
+    try:
+        gap = float(rec.get("slice_gap_measured"))
+    except (TypeError, ValueError):
+        gap = None
+    if gap is None:
+        fails.append("实测层间距缺失——无法确认 z 向体素尺度")
+    elif not (lo <= gap <= hi):
+        fails.append("实测层间距 %.3fmm 超出 CT 合理范围 [%.2f, %.2f]mm"
+                     "——被选中的序列可能不是诊断轴位 CT" % (gap, lo, hi))
+    return fails
+
+
 # ---------------------------------------------------------------- S4 朝向几何断言
 def orientation_assertions(case_stats, mask, sx, sy, sz,
                            merge_mode="largest"):
@@ -965,6 +1006,11 @@ def main():
     n_layers, rows, cols = survey["n_slices_selected"], survey["rows"], survey["columns"]
     if n_layers < 1 or rows < 1 or cols < 1:
         die(2, f"维度动态断言 FAIL：层数/行/列 = {n_layers}/{rows}/{cols}")
+    # A2-Q1：被选中的序列还得"能用"——面内间距/实测层间距必须在 CT 物理合理区间内
+    # （放在 survey_dicom 之外：锁定测试直接调 survey_dicom，4×4 体模不许被误杀）
+    fails = suitability_failures(survey)
+    if fails:
+        die(2, "重建适用性断言 FAIL：" + "；".join(fails) + "——几何不可重建，停工上报")
     sx, sy = round(survey["pixel_spacing"][0], 4), round(survey["pixel_spacing"][1], 4)
     sz = round(survey["slice_gap_measured"], 4)
     log(f"  {n_layers} 层 {rows}x{cols}；面内间距 {sx}x{sy} mm；"

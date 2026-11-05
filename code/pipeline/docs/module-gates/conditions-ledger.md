@@ -173,3 +173,170 @@ OpenFOAM 退役（M3）须待以下条件闭合——退役不可逆（永久失
   simple.rs 循环后兜底写，case-026（iter 199 提前收敛）复验 PASS
 - 合同已修订注记（判据不变：仅收敛路径改变；env 可回退）
 - 证据：solver/docs/W6-验收.md v3 章节；W6 正式收官
+
+## 2026-11-01 预检门登记：#76 逐层间隙一致性（停工）与 #79 头普查读层
+
+### 登记表一（#76）
+
+| 项 | 内容 |
+|---|---|
+| 编号 | **#76**（编号沿用项目侧缺陷台账） |
+| 来源 | `step1_airway_segment.py` 旧 `dz` 只取最底两层 |
+| 定级 | P0（患者数值正确性） |
+| 现象 | 体积换算 `vox_vol`、`marching_cubes` spacing、QC 图 aspect 所用 `dz` 取最底两层间隙，缺层时数字静默失真：首间隙翻倍会让气道体积恰好变 2.0 倍（体积 ∝ dz），且旧预检 `z_structurally_ok` 全程放行 |
+| 修复动作 | commit `561ef2c`：加逐层间隙一致性门（停工）——判定式 tol = max(1% × 中位间隙, 0.005 mm)（`code/pipeline/airway_geom.py#Z_GAP_REL_TOL` `:70`、`#Z_GAP_ABS_FLOOR_MM` `:71`、判定函数 `#z_gap_report` `:148`），不一致即预检与 step1 双双 exit 2 停工上报；step1 的 `dz` 改取中位间隙（`step1_airway_segment.py:91`），与预检 `slice_gap_measured` 同一个数 |
+| 责任人 | 管线轨编码手（T2 = `561ef2c`） |
+| 验证人 | 指挥官 + 审计官 |
+| 状态 | **已修复 · 待签结**（本文件 `:3` 纪律：签结权在审计官/指定验证人，指挥官与编码手均不得自宣关闭） |
+
+### 登记表二（#79）
+
+| 项 | 内容 |
+|---|---|
+| 编号 | **#79**（编号沿用项目侧缺陷台账） |
+| 来源 | DICOM 头普查与 step1 读的不是同一批层 |
+| 定级 | P0 相邻（真患者目录假拒绝） |
+| 现象 | 总控预检 `run_all.py#survey_dicom` 的头普查与 step1 实际读取不是同一批层，真患者目录被假拒绝（误停工） |
+| 修复动作 | commit `6fca6ee`：DICOM 头普查改读 step1 同一批层（2 files changed, +295/−36；新增 `code/pipeline/tests/test_survey_series_select.py`）；复跑真实数据 16 个序列目录：放行 16 / 停工 0 |
+| 责任人 | 管线轨编码手（T1 = `6fca6ee`） |
+| 验证人 | 指挥官 + 审计官 |
+| 状态 | **已修复 · 待签结**（同上，本文件 `:3` 纪律） |
+
+### 关闭证据
+
+口径：下表 md5 一律 `git show <rev>:<path> | md5sum`（**blob 空间**；前 = 该缺陷修复提交之前、后 = 之后）。实测上表五个 `.py`/测试文件的**工作树 md5 与该 blob md5 逐位相同**（行尾取证用 `tr -cd '\r' | wc -c`，口径=CR 字节数，五个文件均为 0）。本仓 `.md` 文档工作树多为 CRLF 而 blob 为 LF（`git ls-files --eol` 实测 `i/lf w/crlf`），两者 md5 不相等，引用 `.md` 的 md5 须注明取的是哪个空间。
+
+| 文件 | md5 前 → 后 |
+|---|---|
+| `code/pipeline/airway_geom.py` | `eabe7e4bf5de558b5c243d1dabad69bc` → `a77229406ddaa2c63131f6ca1c56e262` |
+| `code/pipeline/run_all.py` | `f298535f81afe4a5b6c9f2c08394a546` → `cabbd9f6be02f1a6405a01e9e3d84a27`（#76 前/后；#79 前值 `efd6beb9597d687842161de1b07e8747`，#79 的后值即 #76 的前值） |
+| `code/pipeline/step1_airway_segment.py` | `ab43679b9b6a58a668e25312cef55f87` → `bcf9c9c6cb93100a9a5bdb7557d0cdad` |
+| `code/pipeline/tests/test_survey_series_select.py` | 新增（`6fca6ee^` 无此文件，`git show` 原文 `fatal: path '…' exists on disk, but not in '6fca6ee^'`）→ `fb3bff1bb56ead7d212c66a5fd67e441` |
+| `code/pipeline/tests/test_z_gap_consistency.py` | 新增 → md5 `e556367f0e03d48e9600963a09353fd1` / sha1 `25d2264b3ea72c2b784512f83c66d86c184b7aef` |
+
+改动性质（`561ef2c` 内各文件 `git diff --numstat`，删/加）：`airway_geom.py` 30 0（纯新增）、`run_all.py` 15 3、`step1_airway_segment.py` 10 2、`tests/test_z_gap_consistency.py` 新增。
+两提交：`6fca6ee fix(precheck): DICOM 头普查改读 step1 同一批层，修掉真患者目录的假拒绝`（2 files changed, +295/−36）；`561ef2c fix(precheck): 加逐层间隙一致性门（停工），step1 的 dz 改取中位间隙`（4 files changed, +354/−5）。
+
+### 反例 / 谁接住 / 实质判别 / 未折进恒真布尔
+
+- **反例**（反例证据一律用仓内可指的 `code/pipeline/tests/test_z_gap_consistency.py` 用例名）：首间隙翻倍形态由纯函数、预检、step1 三处钉死——`test_gap_report_flags_doubled_first_gap`、`test_survey_stops_work_on_doubled_first_gap`、`test_step1_standalone_stops_on_non_uniform_gap`；中间跳层形态——`test_gap_report_flags_mid_stack_hole`、`test_survey_stops_work_on_mid_stack_hole`；短链防御——`test_gap_report_rejects_short_input`；口径钉死——`test_gate_constants_match_measured_basis`、`test_gap_report_median_is_upper_median_abs`、`test_step1_dz_is_median_not_first_pair`。
+- **谁接住**：总控预检 `run_all.py:450` `die(2, "层间距不一致：中位间隙 …停工上报")`；单独执行 step1 时 `step1_airway_segment.py:93-97` 同措辞 print + `raise SystemExit(2)`，位于 `:98` 体素数组分配之前（停工不分配体素、不产出 `metrics*_v2.json`）；web 上传路径 `server.py:2150-2152` `except SystemExit` 记录 `survey_error`，`server.py:2157-2163` 落 `status="blocked"`、`gate="DICOM 头普查（层序结构断言）"`、`exit_code=2` ⛔ 拦截卡。
+- **实质判别**：真实数据 16 个序列目录实测放行 16 / 停工 0，最大 `z_gap_max_rel_dev` = 2.033e-04（= 0.020%）、其余 ≤ 3.2e-13，`z_gap_tol_mm` 实测落点 0.005 / 0.006 / 0.00625 mm；阴性对照用例 `test_gap_report_accepts_uniform_stack`、`test_step1_control_uniform_runs_clean` 证明均匀链放行——停工侧与放行侧都不是恒真。
+- **未折进恒真布尔**：uniformity 不写进 `z_structurally_ok`——停工门在 `survey_dicom` `return rec` 之前 `die`，能返回的 rec 该布尔恒为真，做成门的一部分就是构造性恒真的假闸门；此理由仓内已有代码注释可指：`run_all.py:445-448`。故 `z_structurally_ok` 一字节不动，一致性只做独立门 + 四个量化键。
+
+### 对外开放边界
+
+四个 `z_gap_*` 量化键（`z_gap_max_abs_dev_mm`、`z_gap_max_rel_dev`、`z_gap_tol_mm`、`z_gap_bad_pairs`）当前只在预检 rec / manifest 内；`server.py:2144-2149` 的 survey 键白名单不含它们（`grep -cF "z_gap_" server.py` = 0）⇒ 工作台不展示偏差/容差数值，属开放项 #81。
+
+### 开放项（未修，勿据此理解现状）
+
+- #77 选组并列仍按输入顺序（`airway_geom.py:204-206` 注释：dict 保序，并列时先出现的组胜出）；
+- #81 四个 `z_gap_*` 量化键无消费者；
+- #84 `die` 不带消息（web 卡显示 "2"）；
+- #85 停工前 `makedirs` 留空目录；
+- #86 `层厚 {dz}mm` 打印现带 6 位圆整。
+
+## 2026-11-05 选序列「重建适用性」准入（A2-Q1）+ S1 适用性断言（T2）
+
+编号沿用本台账单调口径：#86 之后的首两个空号为 **#87 / #88**。上面 #76/#79 两个段落与"开放项"列表**一字未动**。
+
+### 登记表三（#87 选序列重建适用性准入）
+
+| 项 | 内容 |
+|---|---|
+| 编号 | **#87**（沿用外审 A2 条目，台账续号） |
+| 来源 | `read_ct_series` 的"取层数最多的一组"（`code/pipeline/airway_geom.py:286`）整条链无任何判据识别"被选中的序列是否适合重建" |
+| 定级 | P0（患者数值正确性：选错序列 ⇒ 下游全错且不报错） |
+| 现象 | 多帧动态序列、定位像、另一套层数更多的非重建序列，只要**文件数更多**就被选中，预检跟着 step1 一起选错而不报错；且旧实现组间比较用**去重前** `len(grp)`，重复层多的组凭虚高文件数胜出 |
+| 修复动作 | `airway_geom.py` 新增准入判定表 `#ADMISSION_CHECKS`（`:252`；常量 `#MODALITY_FOR_REBUILD` `:194`、`#AXIAL_NZ_MIN` `:195`）、判定函数 `#admission_rejection`（`:259`）、IOP 三态分类 `#_iop_values`（`:198`，missing / unparseable / ok）、组内同 z 去重 `#_dedup_by_z`（`:268`）；**准入判在选优之前**、组间比较一律用去重后层数；被拒组进 `report["rejected_series"]`（`:386`），准入组进 `report["admitted_series"]`（含 `iop_missing`，`:338` / `:387`）；全部组被拒仍 `SystemExit(1)` 并补原因统计（`:396`） |
+| 责任人 | 管线轨编码手（T2） |
+| 验证人 | 指挥官 + 审计官 |
+| 状态 | **待签结**（本文件 `:3` 纪律：签结权在审计官/指定验证人，指挥官与编码手均不得自宣关闭） |
+
+### 登记表四（#88 S1 重建适用性断言）
+
+| 项 | 内容 |
+|---|---|
+| 编号 | **#88**（台账续号） |
+| 来源 | 选中的"层数最多"序列即使模态/朝向正确，物理尺度仍可能不是诊断轴位 CT（拼接序列、视野外重建等） |
+| 定级 | P0（体素尺度错 ⇒ 体积/面积/速度全错） |
+| 现象 | 旧链路对 `PixelSpacing` / 实测层间距不做任何合理性判定，2.4mm 面内间距的序列照常进 step1 出数 |
+| 修复动作 | `run_all.py` 纯函数 `#suitability_failures`（`:467`）+ 常量 `#PIXEL_SPACING_RANGE_MM`（`:463`）、`#SLICE_GAP_RANGE_MM`（`:464`）；两个消费点：S1 主流程 `run_all.py:1011-1013` `die(2, "重建适用性断言 FAIL：…——几何不可重建，停工上报")`（位于维度动态断言 `:1007-1008` 之后、层序门 `:1020` 之前）；web 上传路径 `server.py:2175-2186` 落 `status="blocked"`、`gate="重建适用性断言"`、`exit_code=2` ⛔ 拦截卡（在 step1 之前，`survey` 键白名单 `server.py:2144-2149` 未动） |
+| 责任人 | 管线轨编码手（T2） |
+| 验证人 | 指挥官 + 审计官 |
+| 状态 | **待签结**（同上纪律） |
+
+### 反例（合成 fixture，全部落在 `code/pipeline/tests/test_series_suitability.py`）
+
+准入侧（#87）：
+- `:109 test_sagittal_series_with_more_layers_loses` —— 12 层矢状（IOP `[0,1,0, 0,0,-1]`，n_z=0）vs 6 层轴位 ⇒ 轴位胜出；矢状进 `rejected_series`，`reason` 含 `非轴位`/`|n_z|`，且打印「准入拒绝 1 组（非轴位 1 组）」；
+- `:130 test_non_ct_modality_with_more_layers_loses` —— 14 层 `Modality=MR` vs 5 层 CT ⇒ CT 胜出，MR 进 `rejected_series`；
+- `:163 test_group_count_uses_deduped_layers` —— A 组 10 层含 5 个同 z 重复（去重后 5）vs B 组 6 层 ⇒ 选 B（旧实现 10>6 会选 A；`ignored` 记 A 的 `n=5`）；
+- `:148 test_missing_iop_is_admitted_and_disclosed` —— 无 IOP 的 8 层组准予入围，`admitted_series[0]["iop_missing"] is True` 且打印披露行；
+- `:203 test_all_groups_rejected_exits_with_reason_stats` —— 两组全非轴位 ⇒ `SystemExit(1)` + 「其中 2 组因非轴位被拒」；
+- `:229 test_admission_boundary_and_orientation_math` —— `|n_z|=0.9` 放行 / `0.8999` 拒绝；矢状与冠状都拒；
+- `:252 test_iop_unparseable_is_rejected_fail_closed` —— IOP 六分量含 NaN / ±inf / 非数值 ⇒ 标签 `IOP不可解析`、reason 含「不可解析」（R1 新增，钉死旧 `abs(n_z)<0.9` 对 NaN 恒 False 的静默放行路径）；缺失与分量不足 6 个仍按 missing 披露放行；
+- `:272 test_nan_iop_series_with_more_layers_is_rejected` —— NaN-IOP 的 **14 层**组 vs 6 层轴位 ⇒ 不得靠层数胜出，进 `rejected_series` 且不出现在 `admitted_series`；
+- `:293 test_rejected_entry_n_uses_deduped_layers` —— rejected 条目 `n` 也是去重后层数（6 文件 → 3），与 `ignored` 同口径；
+- `:221 test_admission_table_is_the_single_source_of_truth`、`:246 test_modality_check_is_case_insensitive`（`Modality="ct"` 放行）；
+- `:178 test_ignored_and_rejected_entry_schemas` —— `ignored` 条目仍是 `{"series","n","desc"}` 精确 schema，`rejected` 多一个 `reason`。
+
+断言侧（#88）：
+- `:316 test_suitability_flags_out_of_range_pixel_spacing` —— PS=2.4mm ⇒ 两条失败文案（含 `[0.05, 1.50]mm`、`被选中的序列可能不是诊断轴位 CT`）；
+- `:326 test_suitability_flags_slice_gap` —— gap=5.0mm ⇒ 失败（`[0.05, 3.00]mm`）；
+- `:332 test_suitability_flags_slice_gap_below_lower_bound` —— gap=0.01mm 低于下界 ⇒ 失败（R1 新增，补上轮只钉上界的缺口）；
+- `:353 test_suitability_fails_closed_on_missing_fields` —— rec 缺字段必须报失败，不 fail-open；
+- `:360 test_survey_dicom_does_not_die_on_4x4_bad_spacing` —— 门**不在** `survey_dicom` 内部（理由见下"被否方案③"，**不是**"放进去会打坏锁定测试"——锁定 fixture 的 0.7/1.0 本来就在门区间内）：4×4 / PS=2.4 体模照常返回 rec，但 `suitability_failures(rec)` 非空；
+- `:382 test_run_all_main_dies_with_suitability_gate` —— **真实子进程**跑 `run_all.py`：PS=2.4 序列 `returncode=2`，stdout 含「重建适用性断言 FAIL：」「面内像素间距 2.40mm」「几何不可重建，停工上报」；
+- `:401 test_server_web_path_uses_same_suitability_function` —— web 路径消费同一纯函数、`gate="重建适用性断言"`、`exit_code=2`，且门位置在 `cmd1 = [sys.executable, STEP1` 之前；
+- `:417 test_server_gate_web_path_blocks_with_card` —— **真跑** `server._register_case`（Flask app context）：PS=2.4 序列落 `status="blocked"` / `gate="重建适用性断言"` / `exit_code=2` 卡，`gate_failures` 含「面内像素间距 2.40mm…」，`survey` 白名单仍 12 键，且没有 `preview/` 目录（门确实挡在 step1 之前）。
+
+放行侧阴性对照（证明门既非恒真也非恒假）：
+- `:340 test_suitability_accepts_demo_geometry_and_closed_bounds`（0.7/1.0 与端点 0.05 / 1.5 / 3.0 都放行）；
+- `:347 test_suitability_has_no_matrix_or_layer_count_gate`（4×4 / 19 层放行 —— 被否的两条绝对门不得回潮）；
+- `:458 test_demo_synthetic_dir_passes_suitability_gate`（`out/synthetic-ct`：96×96 / PS 0.7 / gap 1.0 放行）；
+- `:469 test_local_upload_dirs_pass_suitability_gate`（`out/e2e-state-*/uploads/*` 两个目录放行）。
+
+### 谁接住
+
+- **选层器**：`airway_geom.read_ct_series` —— 不准入的组不进选优（被拒原因进 `report["rejected_series"]`）；全部不准入仍 `SystemExit(1)`（`airway_geom.py:396`）。step1 与预检共用这一份实现（`step1_airway_segment.py:98`、`run_all.py:371`）⇒ 不会再出现"预检放行、step1 选错"的分叉。
+- **总控 S1**：`run_all.py:1011-1013` `die(2, …)`，exit 2 停工（不产出任何患者数值产物）。
+- **web 上传**：`server.py:2175-2186` 落 `status="blocked"`、`gate="重建适用性断言"`、`gate_failures=[失败文案…]`、`exit_code=2` 的 ⛔ 拦截卡，与既有 PII / 层序拦截图同一机制；进度日志同步一行「⛔ 门禁拦截：重建适用性断言 FAIL：…」。
+
+### 每个条件：实义判据还是重言式
+
+| 条件 | 判定 | 依据 |
+|---|---|---|
+| `Modality.upper()=="CT"`（`:221-226`） | **实义** | 值来自 DICOM 头，不由本函数其它分支保证；去掉即选 14 层 MR（`:130` 直接红）。本机 13 目录实测 `rejected=0` ⇒ 零误停，触发侧由合成反例提供 |
+| IOP 存在但不可解析（NaN/±inf/非数值）⇒ 拒绝（`:198-226`、`:229-234`） | **实义（fail-closed）** | 旧实现 `abs(n_z) < 0.9` 对 NaN 恒 False ⇒ 损坏 IOP 的组被**静默准入**且 `iop_missing=False`（零披露）；现在按"轴向性未知"拒绝。反例 `:252`（三态单测）、`:272`（14 层 NaN 组不得胜出）。与 F2 侧 NaN fail-closed 同口径 |
+| `|n_z| >= 0.9`，仅在 IOP 可解析时判（`:237-248`） | **实义** | `n_z = iop[0]*iop[4] - iop[1]*iop[3]`；矢状 `[0,1,0,0,0,-1]`、冠状 `[1,0,0,0,0,-1]` 都得 `n_z=0`（精确拒绝），边界 0.9/0.8999 由 `:229` 钉死。阈值语义：`0.9 = cos 25.8°`，即容忍 ≤25.8° 倾斜/重排，常规机架倾斜 ≤±10°；本机 13 目录被选中序列 IOP 均 `[1,0,0,0,1,0]`（`|n_z|=1.0`，余量 0.1） |
+| IOP 缺失 ⇒ 准予入围 + `iop_missing` 披露（`:243-244`、`:338`） | **不是门，是披露位（如实登记为非判据）** | 仓内 11 条锁定测试的 `_write_ct` 不写 IOP（`test_survey_series_select.py:47-82`），做成拒绝会让所有组被拒 → `SystemExit(1)` → 这 11 条**全部失败**（这条理由经复核为**真**，与上文被否方案③的假理由不同）；老设备导出确有缺 IOP。`:148` 只钉"入围 + 打印披露"。本机 13 目录 `iop_missing=False` ⇒ 当前不触发 |
+| 组间比较用去重后层数（`:341-349`） | **实义** | 修既有错误比较（旧口径去重前 `len(grp)`）；`:163` 是直接反例（10 层含 5 重复 vs 6 层） |
+| `0.05 <= PixelSpacing[i] <= 1.5`（`:463`） | **实义** | 反例 PS=2.4（`:316`）；端点闭合；本机实测取值 0.35（10 个 synth 目录）与 0.7（演示/上传 3 目录），距上界余量 0.8mm、距下界余量 0.30mm |
+| `0.05 <= slice_gap_measured <= 3.0`（`:464`） | **实义** | 反例 gap=5.0（`:326`）与 gap=0.01（`:332`）；本机实测 0.7（synth）/ 1.0（演示），重叠重建实测 0.3mm（`README-输入规范.md:14`）也在区间内 |
+| 矩阵 / 层数绝对门 | **明确不做** | `:347` 钉死 4×4 / 19 层放行；理由见下"被否方案" |
+| `z_structurally_ok` 一类键 | **不得入新门** | 沿用 #76 段同一纪律（停工的 `die` 在 `return rec` 之前 ⇒ 能返回的 rec 该布尔恒真，属构造性恒真的假闸门，见 `run_all.py:445-448`） |
+
+### 被否方案（四条，逐条正式落点 + 数据依据）
+
+① **`rows >= 256 and cols >= 256`——否**：仓库自合成演示数据即 96×96（`scripts/make_synthetic_ct.py:56` `ROWS = COLS = 96`；`out/synthetic-ct/slice_000.dcm` 实测 `Rows=96 Columns=96`）。本机 3 个演示/上传目录全是 96×96（`out/synthetic-ct`、`out/e2e-state-20261102-234820/uploads/20261102-234836`、`out/e2e-state-20261102-235512/uploads/20261102-235527`）⇒ 该门会拦掉**全部**演示/e2e 流程。
+
+② **`n_slices_selected >= 30`——否**：派工书记录的真实放行病例「20 层序列缺 1 层 IPP ⇒ selected=19」会被该门制造新假拒绝；本机可复现的最小反例是锁定测试 fixture 8–12 层（`test_survey_series_select.py` 全 11 条直接调 `survey_dicom`）与 `:163` 里胜出的 6 层组。**限制如实记录**：19 层那条无法本机复发（见下"数据可用性"，真数据根不在本机），按派工书原始记录引用，未独立复测——两条并列写明，不用合成数据冒充真数据结论。
+
+③ **在 `survey_dicom` 内部直接 die——否**（规格决定 + 三条实义理由）：
+   - **规格明文**：任务书「被否方案」直接否掉这条（门放消费点，是规格决定，不是实现偏好）；
+   - **语术会串**：`survey_dicom` 是 run_all/server 共用的**测量原语**，它的 `SystemExit` 在 web 侧统一落进 `server.py:2150-2152` 的 `except SystemExit` → `server.py:2157-2163` 的通用「DICOM 头普查（层序结构断言）」⛔ 卡 ⇒ 用户看到的是"层序结构断言 FAIL"，而不是"重建适用性断言 FAIL"，专有诊断信息丢失；
+   - **次序有规格要求**：S1 要求本门 `die` 位于维度动态断言之后（`run_all.py:1007-1008` → `:1011-1013`），并带 exit 2。
+   - **更正（R1）**：上轮此处曾写"门放进 `survey_dicom` 会打坏那 11 条锁定测试"——**该理由与事实相反**：锁定 fixture 固定 PS=0.7 / ST=1.0 / z 整数步长（`test_survey_series_select.py:47-82`），全部落在门区间内，放进去并不会被拦；该表述已删除，今后不得据此论证。反例落点 `:360 test_survey_dicom_does_not_die_on_4x4_bad_spacing` 固定的是"门在消费点"这一事实，与被打坏的说法无关。
+
+④ **IOP 缺失即不准入——否**：仓内 11 条锁定测试的 `_write_ct` 根本不写 IOP（`test_survey_series_select.py:47-82`），做成拒绝会让所有组被拒 → `SystemExit(1)` → 这 11 条**全部失败**（这条理由经复核为**真**，与③的假理由不同，它依赖的是"缺 IOP 组会被整体拒绝"）。且老设备导出确有缺 IOP 的真实形态。改为「存在则必须轴位；缺失则准予入围 + `iop_missing` 披露」（`:243-244`），反例落点 `:148`。
+
+### 本轮开放项（不并入上文 #76/#79 那段冻结列表）
+
+- **`rejected_series` / `admitted_series` 诊断止于 stdout**：两组结构只进 `read_ct_series` 的返回值与终端摘要，未进 `manifest`（`run_all.py` S1 只把 `ignored_series` 等既有键写入 rec），也未进 web 拦截卡（`server.py:2144-2149` 白名单不含它们）⇒ 工作台上看不到"哪个组被拒、为什么被拒"。与开放项 **#84/`die` 不带消息** 同型（诊断算了但没人消费），登记为开放项，本轮不改（改它=动 manifest 契约与 web 白名单，属规格外）。
+
+### 数据可用性（本轮实测口径）
+
+- 实测脚本：`%TEMP%\T2-suit-check\check.py`（只读，直接调 `run_all.py#survey_dicom` + `airway_geom.read_ct_series`，只输出计数/数值，不落患者派生产物），结果 `%TEMP%\T2-suit-check\report.txt`。
+- 本机可复跑 **13 个目录，放行 13 / 停工 0**：`out/synthetic-ct`、`out/e2e-state-*/uploads/*` ×2（均 48 层 / 96×96 / PS 0.7 / gap 1.0）、`C:/qidi-synth-work/dicom/synth-001..010`（230–232 层 / PS 0.35 / gap 0.7 / `admitted=1 rejected=0`）。
+- `#76/#79` 段落所述"真实数据 16 个序列目录"本轮**无法复发**：交接文档给出的真数据根 `F:\比赛项目\罕见无界黑客松\赛题3-鼻腔气流分析\参赛群资料`（`交接文档-2026-10-16-管线线.md:21`）在本机不存在（`os.path.isdir(...) = False`）。该限制如实登记，不以合成数据冒充真数据结论。

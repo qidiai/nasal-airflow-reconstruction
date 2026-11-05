@@ -93,8 +93,8 @@ if not files:
     raise SystemExit(1)
 # 真实上传目录的匹配规则（airway_geom.read_ct_series，与回归测试共用同一份实现）：
 #   逐文件过滤（读不开 / 非图像 / 缺 IPP 或 Rows,Columns）并计数，绝不中断；
-#   按 SeriesInstanceUID 只留层数最多的一组（scout、报告、DICOMDIR 全部挡在外面）；
-#   同 z 去重；有效层 < 2 直接报错退出。两行摘要（[1/7] 与序列选择）由它打印。
+#   按 SeriesInstanceUID 分组 → 组内同 z 去重 → 重建适用性准入（CT+轴位；IOP 缺失披露、
+#   损坏拒绝）→ 准入组内按去重后层数选优；有效层 < 2 直接报错退出（摘要两行由它打印）。
 slices, _slices_sel = read_ct_series(files)
 nz, rows, cols = len(slices), slices[0].Rows, slices[0].Columns
 ps = [float(x) for x in slices[0].PixelSpacing]
