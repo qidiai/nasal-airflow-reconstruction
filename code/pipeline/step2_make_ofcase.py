@@ -51,7 +51,20 @@ ARGS = _ap.parse_args()
 PREFIX = ARGS.case_prefix
 
 DATA_DIR = os.path.expandvars(ARGS.dicom_dir)
-WS_OUT = os.path.expandvars(ARGS.out_root or r"%QIDI_WORKSPACE%\contest3_workspace\pipeline\out")
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+def _expand_or_repo_default(raw, *fallback_parts):
+    """expandvars 展开；环境变量未设（残留 % 字面量）时回退到仓库内默认目录，
+    避免在未配置环境的机器上创建字面量 %VAR% 目录。"""
+    p = os.path.expandvars(raw)
+    if "%" in p:
+        return os.path.join(_REPO_ROOT, *fallback_parts)
+    return p
+
+
+WS_OUT = os.path.expandvars(ARGS.out_root) if ARGS.out_root else _expand_or_repo_default(
+    r"%QIDI_WORKSPACE%\contest3_workspace\pipeline\out", "out")
 CASE_DIR = os.path.join(WS_OUT, "step2", f"P0-OF-case-{PREFIX}-{ARGS.case}")
 MESH_DIR = os.path.join(CASE_DIR, "constant", "polyMesh")
 os.makedirs(MESH_DIR, exist_ok=True)

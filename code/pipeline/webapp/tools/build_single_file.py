@@ -11,7 +11,11 @@
       '<script src="viewer_data.js"></script>'   -> '<script>' + viewer_data.js 全文 + '</script>'
       '<script src="volume_data.js"></script>'   -> '<script>' + volume_data.js 全文 + '</script>'
       '<script src="skin_data.js"></script>'     -> '<script>' + skin_data.js 全文 + '</script>'  （T9-2 补：漏掉即离线单文件静默丢皮肤层）
-    三个数据文件均做：
+    数据文件缺席时不保留占位标签：
+      volume_data.js / skin_data.js 不在同目录 → 把该标签替换为注释
+      （留着 <script src> 会让浏览器请求不存在的文件，控制台 404；单算例
+       partial 病例本来就没有这两层数据）。
+   三个数据文件均做：
       - '</script' / '<!--' 注入防护（命中即拒绝生成）
       - 头部源码路径注释剥离（避免外发泄露作者目录结构与项目路径）
 """
@@ -45,11 +49,15 @@ def guard(data, label):
 
 
 def main():
-    base = os.path.dirname(os.path.abspath(__file__))
+    script_dir = os.path.dirname(os.path.abspath(__file__))
     argv = sys.argv[1:]
-    html_path = argv[0] if len(argv) > 0 else os.path.join(base, 'viewer.html')
-    data_path = argv[1] if len(argv) > 1 else os.path.join(base, 'viewer_data.js')
-    out_path = argv[2] if len(argv) > 2 else os.path.join(base, 'viewer_single.html')
+    html_path = argv[0] if len(argv) > 0 else os.path.join(script_dir, 'viewer.html')
+    data_path = argv[1] if len(argv) > 1 else os.path.join(script_dir, 'viewer_data.js')
+    out_path = argv[2] if len(argv) > 2 else os.path.join(script_dir, 'viewer_single.html')
+    # volume/skin 取 viewer.html 同目录（与文件头 docstring「显式指定路径时 volume/skin
+    # 取同目录」一致）。旧实现固定取脚本目录（webapp/tools/），而舞台化传入的是病例目录
+    # 里的 viewer.html —— 于是永远找不到这两份数据、标签残留、浏览器请求不存在文件 404。
+    base = os.path.dirname(os.path.abspath(html_path))
     vol_path = os.path.join(base, 'volume_data.js')
     skin_path = os.path.join(base, 'skin_data.js')
 
@@ -86,7 +94,11 @@ def main():
             single = single.replace(TAG2, '<script>\n' + vdata + '\n</script>', 1)
             print('OK: volume_data.js 已内联（CT 体渲染层可用）')
         else:
-            print('WARN: 未找到 volume_data.js，单文件版将不含 CT 层（V0 门控会隐藏该卡片）')
+            # 未部署该层：删掉悬空引用（保留 <script src> = 浏览器请求不存在的文件 = 404 红字）
+            single = single.replace(
+                TAG2, '<!-- CT 体渲染层未部署（无 volume_data.js）：不发起请求 -->')
+            print('WARN: 未找到 volume_data.js，单文件版将不含 CT 层'
+                  '（V0 门控会隐藏该卡片；已移除悬空引用）')
 
     # T9-2：内联 skin_data.js（头部外形皮肤壳）——不内联则离线单文件残留外部引用、皮肤层静默丢失
     if TAG3 in single:
@@ -99,7 +111,10 @@ def main():
             single = single.replace(TAG3, '<script>\n' + sdata + '\n</script>', 1)
             print('OK: skin_data.js 已内联（头部外形皮肤壳层可用）')
         else:
-            print('WARN: 未找到 skin_data.js，单文件版将不含皮肤壳层（T9-2 门控会隐藏该图层）')
+            single = single.replace(
+                TAG3, '<!-- 皮肤壳层未部署（无 skin_data.js）：不发起请求 -->')
+            print('WARN: 未找到 skin_data.js，单文件版将不含皮肤壳层'
+                  '（T9-2 门控会隐藏该图层；已移除悬空引用）')
 
     with open(out_path, 'w', encoding='utf-8', newline='') as f:
         f.write(single)

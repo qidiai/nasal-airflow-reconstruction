@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """环节③④交付：占位量-ΔP曲线图"""
+import os
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
@@ -28,6 +29,9 @@ ax.set_title("Patient A - Personalized Nasal Plug Design Curve (Occupancy vs Air
 ax.set_xlim(0, 12); ax.set_ylim(0, 80)
 ax.legend(fontsize=8.5, loc="upper left"); ax.grid(alpha=0.3)
 fig.tight_layout()
-out = r"%QIDI_WORKSPACE%\contest3_workspace\pipeline\out\step4\占位量-ΔP曲线.png"
+_ws = os.environ.get("QIDI_WORKSPACE")
+if not _ws:
+    raise SystemExit("[错误] 环境变量 QIDI_WORKSPACE 未设置——请设置后再运行本脚本")
+out = os.path.join(_ws, "contest3_workspace", "pipeline", "out", "step4", "占位量-ΔP曲线.png")
 fig.savefig(out, dpi=150)
 print("saved:", out)

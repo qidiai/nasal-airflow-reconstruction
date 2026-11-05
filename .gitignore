@@ -82,3 +82,6 @@ code/.playwright-mcp/
 
 # ---- M4 整改 C2（2026-10-19）：患者衍生 viewer 数据防误提交（consent-ledger L3，230MB）----
 code/pipeline/webapp/plus/
+
+# CLI 工具自动保存目录
+.codely-cli/

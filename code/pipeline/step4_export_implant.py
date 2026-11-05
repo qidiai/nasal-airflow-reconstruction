@@ -6,8 +6,12 @@ from scipy import ndimage
 from skimage.measure import marching_cubes
 import trimesh
 
-NPZ = r"%QIDI_WORKSPACE%\contest3_workspace\pipeline\out\step2\mask_full.npz"
-OUT = r"%QIDI_WORKSPACE%\contest3_workspace\pipeline\out\step4"
+_WS = os.environ.get("QIDI_WORKSPACE")
+if not _WS:
+    raise SystemExit("[错误] 环境变量 QIDI_WORKSPACE 未设置——本一次性脚本需显式指定工作区后再运行"
+                     "（避免在未配置环境的机器上创建字面量 %QIDI_WORKSPACE% 目录）")
+NPZ = os.path.join(_WS, "contest3_workspace", "pipeline", "out", "step2", "mask_full.npz")
+OUT = os.path.join(_WS, "contest3_workspace", "pipeline", "out", "step4")
 os.makedirs(OUT, exist_ok=True)
 ZLO, ZHI = 100, 160
 VOX = 0.3496 * 0.3496 * 0.35  # mm^3（实际ps）

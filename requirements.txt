@@ -2,16 +2,21 @@
 # 安装：pip install -r requirements.txt
 # 管线（step1-7）与合成示例数据生成器所需全部第三方库；
 # 查看器（code/viewer/viewer.html）为纯静态页面，无依赖。
-numpy
-scipy
-pydicom
-scikit-image
-trimesh
-matplotlib
+#
+# 版本策略（2026-11-02 修复）：钉住本仓 venv（Python 3.12）实测全绿的版本，
+# 避免干净环境装到不兼容的新版。升级需跑 pytest tests/test_quickstart.py 验证。
+numpy==2.5.4
+scipy==1.18.1
+pydicom==3.0.2
+scikit-image==0.26.0
+trimesh==5.1.1
+matplotlib==3.11.2
 fast_simplification==0.2.0   # step7 皮肤壳抽稀（此前缺声明：干净部署会 ImportError）
+# Flask 工作台（code/pipeline/server.py；此前漏声明：干净环境装完依赖工作台起不来）
+flask==3.1.3
 # M4 报告引擎证图渲染依赖（2026-10-19 审计 C3 补入；均为宽松许可）
-meshio      # MIT——VTU/VTP 读取与场切片渲染（report/figures.py）
-pyvista     # Apache-2.0——VTK 渲染后端（report/figures.py）
+meshio==5.3.5   # MIT——VTU/VTP 读取与场切片渲染（report/figures.py）
+pyvista==0.49.1 # Apache-2.0——VTK 渲染后端（report/figures.py）
 
 # 测试（pytest 冒烟套件，见 tests/）
-pytest
+pytest==9.1.1

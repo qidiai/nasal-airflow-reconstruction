@@ -22,13 +22,25 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+def _expand_or_repo_default(raw, *fallback_parts):
+    """expandvars 展开；环境变量未设（残留 % 字面量）时回退到仓库内默认目录，
+    避免在未配置环境的机器上创建字面量 %VAR% 目录。"""
+    p = os.path.expandvars(raw)
+    if "%" in p:
+        return os.path.join(_REPO_ROOT, *fallback_parts)
+    return p
+
+
 # T12 补丁（多患者通用化）：DICOM 目录/输出目录/病例前缀/分割阈值全部 CLI 参数化。
 # 默认值 = 患者A 路径与阈值（向后兼容：默认参数输出与原版逐字节一致）。
 _ap = argparse.ArgumentParser(description="P0 阶段1 v2：鼻腔气道三维重建（逐层2D头部填充法）")
 _ap.add_argument("--dicom-dir", default=os.path.expandvars(r"%DATA_ROOT%\参赛群资料\患者A\脱敏后图像数据\ISO_Soft_0.35mm_合并"),
                  help="DICOM 目录（默认患者A 序列，向后兼容）")
-_ap.add_argument("--out-dir", default=os.path.expandvars(r"%QIDI_WORKSPACE%\contest3_workspace\pipeline\out\step1"),
-                 help="输出目录（默认 pipeline/out/step1）")
+_ap.add_argument("--out-dir", default=_expand_or_repo_default(r"%QIDI_WORKSPACE%\contest3_workspace\pipeline\out\step1", "out", "step1"),
+                 help="输出目录（默认 $QIDI_WORKSPACE$/pipeline/out/step1；环境变量未设时回退 <仓库>/out/step1）")
 _ap.add_argument("--case-prefix", default="pA",
                  help="病例前缀（默认 pA；输出文件名 airway_<prefix>_v2.stl 等）")
 _ap.add_argument("--hu-air", type=int, default=-400,
