@@ -60,8 +60,10 @@ import json
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
+import threading
 import time
 import zipfile
 
@@ -362,13 +364,149 @@ def scan_pii(dicom_dir):
 
 
 # ---------------------------------------------------------------- S1 DICOM 头普查
+# A2-Q2：头普查只吃头字段（airway_geom.read_ct_series 的分组 / 去重 / 准入 / 取代表层
+# 都只看头 + hasattr(ds, "PixelData")），却整读每个文件的像素 -> 整个目录的像素驻留
+# 内存；web 后端还在请求路径里同步调它（server.py:2143）。下面这层**作用域拦截**让
+# 同一份读层器只读头：占位判定全在文件原始字节上做，不重建 pydicom 的分组 / 准入，
+# 故 slices 集合与整读逐位一致（T3 等价性第一约束）。
+#
+# 三条硬纪律（改动前先读）：
+#   * **不吞读失败**：头读抛什么就抛什么，调用方照旧走 airway_geom.py:133-138 的
+#     "读取失败"原路径 —— 下面一次 except 都没有；
+#   * **不在真正读不到的元素上打占位**：元素头不完整的文件交给**整读**定夺
+#     （宁可慢，不可与今天分叉）；
+#   * **作用域化 + thread-local**：threaded=True（server.py:3704）下其它线程看到的
+#     dcmread 行为一字不变。
+_HDR_LOCAL = threading.local()
+_HDR_LOCK = threading.Lock()
+_HDR_ACTIVE = 0                     # 全局在册作用域数（跨线程，锁保护）
+_HDR_SAVED = None                   # 首个作用域进入时的原函数
+_HDR_DELEGATE = object()            # "元素头不完整，交整读定夺"哨兵
+# 注：元素头不完整时 pydicom 在取 32 位长度处先抛 struct.error，
+# 本哨兵实际不可达，保留作防御。
+# 像素族：注入**文件里实际存在的那个 tag** 的同名属性。FloatPixelData-only 文件今天
+# 两侧都跳过（_read_slice 只认 PixelData）；一律按 0010 注入就会制造分叉。
+_HDR_PIXEL_FAMILY = {(0x7FE0, 0x0010): "PixelData",
+                     (0x7FE0, 0x0008): "FloatPixelData",
+                     (0x7FE0, 0x0009): "DoubleFloatPixelData"}
+# 显式 VR 里值长占 32 位的 VR（元素头 = tag 4 + VR 2 + 保留 2 + 长 4 = 12 字节）
+_HDR_VR_LEN32 = frozenset((b"OB", b"OW", b"OF", b"SQ", b"UT", b"UN", b"OD", b"OL",
+                           b"OV", b"SV", b"UV", b"UC", b"UR"))
+
+
+def _hdr_original():
+    """当前线程实际生效的原 dcmread（作用域内 = 进入时那个，其余线程 = 全局留存）。"""
+    orig = getattr(_HDR_LOCAL, "orig", None)
+    return _HDR_SAVED if orig is None else orig
+
+
+def _hdr_pixel_name(fh, ts):
+    """fh 停在像素元素 tag 起点 -> 要注入的属性名 / None / _HDR_DELEGATE。
+
+    锚点由 pydicom 自己给出：`stop_when` 命中后会把流 seek 回 value_tell - 8
+    （filereader.data_element_generator），所以这里的 fh.tell() 正是整读开始读
+    同一元素的位置，判定与整读同锚点。
+    """
+    pos = fh.tell()
+    fh.seek(0, os.SEEK_END)
+    remaining = fh.tell() - pos
+    fh.seek(pos)
+    if remaining < 8:                  # 连 tag+VR+长 都放不下 -> 不是这里，不注入
+        return None
+    bo = "<" if getattr(ts, "is_little_endian", True) else ">"
+    head = fh.read(12)
+    group, elem = struct.unpack(bo + "HH", head[:4])
+    implicit = bool(getattr(ts, "is_implicit_VR", False))
+    if not implicit and head[4:6] in _HDR_VR_LEN32 and remaining < 12:
+        # 元素头不完整：整读会在取 32 位长度时炸（struct.error）-> 交整读定夺
+        return _HDR_DELEGATE
+    return _HDR_PIXEL_FAMILY.get((group, elem))
+
+
+def _dcmread_header_only(fp, defer_size=None, stop_before_pixels=False,
+                         force=False, specific_tags=None):
+    """survey 作用域内的 `pydicom.dcmread` 代理（规格 F1 的 1)2)3)4)）。
+
+    1) 显式只读语义（stop_before_pixels / specific_tags / defer_size / force）-> 原样透传；
+    2) 非路径入参（文件对象 / 缓冲，已被调用方消费）-> 原样透传；
+    3) 压缩或未知传输语法（元素长度语义不可裸信）-> 原样整读透传（等价性兜底；
+       仓内语料均为非压缩 Explicit VR LE，该分支只防御）；
+    4) 非压缩：读头 -> 定位像素元素 -> 元素头完整且 tag 属像素族 -> 按该 tag 注入空
+       占位；元素头不完整 -> 交整读（不注入，也不假装知道）；其余 -> 不注入。
+       返回的 dataset 除像素值外，其余元素与整读同源同值。
+    """
+    orig = _hdr_original()
+    # 保险：orig 缺失或误指代理自身（并发进入的历史窗口）-> 退回 pydicom 原生实现
+    if orig is None or orig is _dcmread_header_only:
+        orig = pydicom.filereader.dcmread
+    if getattr(_HDR_LOCAL, "depth", 0) <= 0:      # 作用域外的线程 / 已退出
+        return orig(fp, defer_size=defer_size, stop_before_pixels=stop_before_pixels,
+                    force=force, specific_tags=specific_tags)
+    if (stop_before_pixels or specific_tags is not None or defer_size is not None
+            or force or not isinstance(fp, (str, bytes, os.PathLike))):
+        return orig(fp, defer_size=defer_size, stop_before_pixels=stop_before_pixels,
+                    force=force, specific_tags=specific_tags)
+    with open(fp, "rb") as fh:
+        hdr = orig(fh, stop_before_pixels=True)   # 元信息 + 头，流停在像素元素 tag 起点
+        meta = getattr(hdr, "file_meta", None)
+        # 正向白名单：只有"确实是传输语法 UID + 非压缩 + 非 deflated"才信裸元素长度。
+        # Deflated 的 is_compressed 是 False，但它 zlib 压缩了整个 dataset 区——
+        # 整读侧会解压、头读路径拿不到像素，放行即静默分叉；未知 UID 上
+        # is_compressed / is_deflated 抛 ValueError，getattr 默认值吞不掉。
+        ts = getattr(meta, "TransferSyntaxUID", None) if meta is not None else None
+        try:
+            plain = (ts is not None and ts.is_transfer_syntax
+                     and not ts.is_compressed and not ts.is_deflated)
+        except (ValueError, AttributeError):
+            plain = False
+        if not plain:
+            return orig(fp, defer_size=defer_size, stop_before_pixels=stop_before_pixels,
+                        force=force, specific_tags=specific_tags)
+        name = _hdr_pixel_name(fh, ts)
+    if name is _HDR_DELEGATE:
+        return orig(fp, defer_size=defer_size, stop_before_pixels=stop_before_pixels,
+                    force=force, specific_tags=specific_tags)
+    if name is not None and not hasattr(hdr, name):
+        setattr(hdr, name, b"")     # 必须属性赋值：ds["PixelData"] = b"" 抛 TypeError
+    return hdr
+
+
+class _DicomHeaderOnly:
+    """`with _DicomHeaderOnly():` —— 范围内（本线程）dcmread 只读头，退出即恢复。"""
+
+    def __enter__(self):
+        global _HDR_ACTIVE, _HDR_SAVED
+        _HDR_LOCAL.depth = getattr(_HDR_LOCAL, "depth", 0) + 1
+        with _HDR_LOCK:
+            if _HDR_ACTIVE == 0:
+                _HDR_SAVED = pydicom.dcmread
+                pydicom.dcmread = _dcmread_header_only
+            _HDR_ACTIVE += 1
+            if _HDR_LOCAL.depth == 1:
+                # 采集必须在锁内、且只认 _HDR_SAVED：锁外读 pydicom.dcmread 时，
+                # 并发线程可能已把它换成代理本身 -> orig 递归爆炸。
+                _HDR_LOCAL.orig = _HDR_SAVED
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        global _HDR_ACTIVE
+        _HDR_LOCAL.depth = getattr(_HDR_LOCAL, "depth", 1) - 1
+        with _HDR_LOCK:
+            _HDR_ACTIVE -= 1
+            if _HDR_ACTIVE == 0 and _HDR_SAVED is not None:
+                pydicom.dcmread = _HDR_SAVED
+        return False                      # 异常继续上抛（不吞读失败）
+
+
 def survey_dicom(dicom_dir):
     """层数/维度/间距/层序方向实测（不臆断层序）。
     层数口径 = 下游 step1 实际读入的同一批层（`airway_geom.read_ct_series`）。"""
     import airway_geom as AG
     files = sorted(f for f in os.listdir(dicom_dir) if f.lower().endswith(".dcm"))
     try:
-        slices, rep = AG.read_ct_series([os.path.join(dicom_dir, fn) for fn in files])
+        with _DicomHeaderOnly():          # 只读头（像素占位在原始字节上判定，见上）
+            slices, rep = AG.read_ct_series(
+                [os.path.join(dicom_dir, fn) for fn in files])
     except SystemExit:
         die(2, f"无有效轴位切片：目录内 {len(files)} 个 .dcm，可用轴位层不足 2 层")
     ds_rep = slices[0]                       # 代表元 = 被选中序列的首层（z 最小）
@@ -444,7 +582,7 @@ def survey_dicom(dicom_dir):
     rec["z_gap_bad_pairs"] = greport["bad_pairs"]
     # 为什么 uniformity 不折进上面的 z_structurally_ok：停工门在 return 之前 die，
     # 能返回的 rec 必然 uniform=True —— 把这个条件写进布尔就是**构造性恒真的假闸门**
-    # （§21-5 已因 z_monotonic_* 踩过一次，见 :406-407 注释）。
+    # （§21-5 已因 z_monotonic_* 踩过一次，见 :525-526 注释）。
     # 故 z_structurally_ok 一字节不动，一致性只做独立门 + 上面四个量化键。
     if not greport["uniform"]:
         die(2, f"层间距不一致：中位间隙 {greport['gap_median']:.4f}mm，"

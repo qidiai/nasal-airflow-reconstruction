@@ -340,3 +340,44 @@ OpenFOAM 退役（M3）须待以下条件闭合——退役不可逆（永久失
 - 实测脚本：`%TEMP%\T2-suit-check\check.py`（只读，直接调 `run_all.py#survey_dicom` + `airway_geom.read_ct_series`，只输出计数/数值，不落患者派生产物），结果 `%TEMP%\T2-suit-check\report.txt`。
 - 本机可复跑 **13 个目录，放行 13 / 停工 0**：`out/synthetic-ct`、`out/e2e-state-*/uploads/*` ×2（均 48 层 / 96×96 / PS 0.7 / gap 1.0）、`C:/qidi-synth-work/dicom/synth-001..010`（230–232 层 / PS 0.35 / gap 0.7 / `admitted=1 rejected=0`）。
 - `#76/#79` 段落所述"真实数据 16 个序列目录"本轮**无法复发**：交接文档给出的真数据根 `F:\比赛项目\罕见无界黑客松\赛题3-鼻腔气流分析\参赛群资料`（`交接文档-2026-10-16-管线线.md:21`）在本机不存在（`os.path.isdir(...) = False`）。该限制如实登记，不以合成数据冒充真数据结论。
+
+## 2026-11-05 预检门登记续：T3 survey 只读头包装（A2-Q2）
+
+> 本登记由指挥官依据「编码手实证报告 + 指挥官实测 + step-5 审计席裁决」汇编——T3 编码手会话（deepseek）三次被 AMD 池 429 切断，未能自写草稿；证据链完整可复放。
+
+### 登记表（#89 本体）
+
+| 项 | 内容 |
+|---|---|
+| 编号 | **#89** |
+| 来源 | A2 对抗审计 Q2：预检把整个目录像素读进内存（+91MB，psapi/tracemalloc 双机制），web 请求路径内同步调用 |
+| 定级 | P0 相邻（web 进程 OOM / 请求超时） |
+| 修复动作 | `run_all.py` `survey_dicom` 内 `_DicomHeaderOnly` 上下文管理器：thread-local 作用域拦截 `pydicom.dcmread`（显式只读 kwarg 透传；压缩/未知语法整读透传；非压缩按文件原始字节判像素元素头完整性、按文件实际 tag `setattr` 空占位）。`airway_geom.py` 零改动 |
+| 内存实测（指挥官，基线 = `a0fe149` worktree） | synth-001/005/010：tracemalloc 50.21–52.07 → 3.40–3.43 MiB；psapi 峰值工作集 101.55–103.41 → 54.62–55.20 MiB（双机制同向，降 47–49 MiB）；`n_slices_selected` 三目录逐一相等（230/230/232） |
+| 验证 | 全量 pytest **248 passed / 8 skipped / 0 failed**（指挥官亲跑）；11 条锁定测试未动 |
+| 状态 | 已修复 · 待签结 |
+
+### 登记表（#90 返工：step-5 独立审计 3 项）
+
+| 项 | 内容 |
+|---|---|
+| 编号 | **#90** |
+| B1（BLOCKING） | 并发二次进入作用域：旧实现锁外采集 `_HDR_LOCAL.orig = pydicom.dcmread`，线程 B 进入时捕到代理自身 → RecursionError（threaded server 两并发上传必炸，被 `except Exception` 吞成假拦截）。修：orig 采集移进锁内且只认 `_HDR_SAVED`，代理头加 `orig is _dcmread_header_only` 保险 |
+| B2 | Deflated 传输语法 `is_compressed=False` 被当非压缩 → 只读头分支拿不到像素 → 静默分叉。修：正向白名单（`is_transfer_syntax and not is_compressed and not is_deflated`） |
+| B3 | 非传输语法 UID 的 `is_compressed` 抛 ValueError，`getattr` 默认值不吞 → 冲出。修：白名单判定包 `try/except (ValueError, AttributeError)` |
+| 回归钉 | `test_survey_header_only.py` 10 例：干净目录 rec 逐键相等 / 截断文件两侧都收下 / FloatPixelData-only 两侧都跳过 / 压缩透传 / kwarg 透传与作用域恢复 / 读失败不吞 / **并发二次进入不递归** / deflated rec 相等 / 垃圾 TS 不抛 ValueError / implicit VR LE 覆盖 |
+
+### 登记表（#91 实证记录与开放项）
+
+| 项 | 内容 |
+|---|---|
+| pydicom 3.0.2 截断行为实证 | 截断像素值**不抛错不告警**，`fp_read(length)` 读多少给多少 → 短 PixelData、survey 与 step1 两侧都收下（任务书 v1「EOFError→静默跳过」系据审计席读码推断，被编码手 5 组截断探针证伪——见 RUBRICS R-023） |
+| 残留开放项 | ① step1 对截断像素文件在 `pixel_array` 处崩错（既有缺陷，T3 不修）；② `rejected/admitted` 类诊断键同样未进 manifest/web 卡（与 #84 同型）；③ step1 子进程并发仍乘性放大机器总内存（N×~50MB，web 信号量延后） |
+| 关闭证据取代 | `:207-217` #76/#79 表中 `run_all.py` 行钉的 blob md5 已被 T3 改动取代，签结时以本提交 blob 为准 |
+| 墙钟纪律 | 全程未以任何墙钟比值作门（A2 实测方向随文件缓存翻转） |
+
+### 反例 / 谁接住 / 实义判定（#89 三件）
+
+- **反例**：`test_concurrent_scope_entry_no_recursion`（旧实现必 RecursionError）、`test_deflated_*`（旧实现静默跳过该层）、`test_bogus_transfer_syntax_*`（旧实现抛 ValueError）、截断/Float-only/隐式 VR 三形态
+- **谁接住**：survey 只吃头字段故拦截无消费方影响；step1 子进程整读不受影响（进程隔离）；web 路径经同一 `survey_dicom` 自动获得只读化
+- **实义判定**：包装器等价性 = 「复刻 pydicom 收录语义」而非字节数校验——截断收下、Float-only 跳过、元素头不完整交整读，均有测试逐形态钉死；实义非重言
