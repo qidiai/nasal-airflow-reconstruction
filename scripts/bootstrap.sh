@@ -9,7 +9,8 @@
 #   MAX_ITER=300   冒烟求解步数上限（默认 300；合成小算例实测几十秒内收敛）
 #
 # 步骤：Python/venv → pip 依赖 → cargo 构建 FlowScope → 合成 CT →
-#       pytest 冒烟 → run_all 全链路冒烟（合成数据）。每步打印 [OK]/[FAIL]
+#       pA 查看器产物（干净克隆补合成占位，失败仅 WARN）→ pytest 冒烟 →
+#       run_all 全链路冒烟（合成数据）。每步打印 [OK]/[FAIL]
 #       与耗时；任一步失败以非零退出并给出中文提示。幂等，可重复执行。
 #
 # 注意：冒烟全程使用合成数据（scripts/make_synthetic_ct.py 生成），
@@ -36,8 +37,8 @@ echo "=== bootstrap：罕见无界 · 一条命令装机自检 ==="
 echo "仓库根：$REPO"
 T_ALL=$(now)
 
-# ---------------------------------------------------------- [1/6] Python + venv
-echo; echo "[1/6] Python 与虚拟环境"
+# ---------------------------------------------------------- [1/7] Python + venv
+echo; echo "[1/7] Python 与虚拟环境"
 T=$(now)
 if [ -x "$VENV_PY" ]; then
     step_ok "复用已有 .venv" "$(( $(now) - T ))" "$VENV_PY"
@@ -52,14 +53,14 @@ else
     step_ok "创建 .venv" "$(( $(now) - T ))" "$PY"
 fi
 
-# ---------------------------------------------------------- [2/6] pip 依赖
-echo; echo "[2/6] pip install -r requirements.txt"
+# ---------------------------------------------------------- [2/7] pip 依赖
+echo; echo "[2/7] pip install -r requirements.txt"
 T=$(now)
 "$VENV_PY" -m pip install -q -r "$REQ_FILE" || step_fail "pip 依赖安装" "exit $?——检查网络或 requirements.txt"
 step_ok "pip 依赖" "$(( $(now) - T ))" "已装齐（重复执行为 already satisfied）"
 
-# ---------------------------------------------------------- [3/6] cargo 构建 FlowScope
-echo; echo "[3/6] Rust 求解器 FlowScope（cargo build --release）"
+# ---------------------------------------------------------- [3/7] cargo 构建 FlowScope
+echo; echo "[3/7] Rust 求解器 FlowScope（cargo build --release）"
 T=$(now)
 CAN_SOLVE=0
 if command -v cargo >/dev/null 2>&1; then
@@ -73,23 +74,32 @@ else
     step_warn "FlowScope 构建" "未安装 cargo（Rust）——CFD 求解不可用，冒烟降级为 --solve skip；装 Rust 后重跑本脚本即可解锁全链"
 fi
 
-# ---------------------------------------------------------- [4/6] 合成 CT
-echo; echo "[4/6] 生成合成 CT（冒烟专用，非真实病例）"
+# ---------------------------------------------------------- [4/7] 合成 CT
+echo; echo "[4/7] 生成合成 CT（冒烟专用，非真实病例）"
 T=$(now)
 "$VENV_PY" "$REPO/scripts/make_synthetic_ct.py" --out "$SYNTH_CT" >/dev/null \
     || step_fail "合成 CT 生成" "exit $?"
 N_DCM=$(find "$SYNTH_CT" -name '*.dcm' | wc -l | tr -d ' ')
 step_ok "合成 CT（${N_DCM} 个切片）" "$(( $(now) - T ))" "$SYNTH_CT"
 
-# ---------------------------------------------------------- [5/6] pytest 冒烟
-echo; echo "[5/6] pytest tests/test_quickstart.py"
+# ---------------------------------------------------------- [5/7] pA 查看器演示产物
+echo; echo "[5/7] 生成 pA 查看器演示产物（干净克隆占位）"
+T=$(now)
+if "$VENV_PY" "$REPO/scripts/build_pa_placeholder.py" >/dev/null 2>&1; then
+    step_ok "pA 查看器产物" "$(( $(now) - T ))" "code/pipeline/webapp/cases/pA/viewer_single.html"
+else
+    step_warn "pA 查看器产物" "生成失败（不影响装机，演示查看器降级）"
+fi
+
+# ---------------------------------------------------------- [6/7] pytest 冒烟
+echo; echo "[6/7] pytest tests/test_quickstart.py"
 T=$(now)
 ( cd "$REPO" && "$VENV_PY" -m pytest tests/test_quickstart.py -q ) \
     || step_fail "pytest 冒烟" "exit $?——运行 python -m pytest tests/test_quickstart.py 查看详情"
 step_ok "pytest 冒烟" "$(( $(now) - T ))" "test_quickstart 全绿"
 
-# ---------------------------------------------------------- [6/6] run_all 全链路冒烟
-echo; echo "[6/6] run_all 全链路冒烟（合成数据）"
+# ---------------------------------------------------------- [7/7] run_all 全链路冒烟
+echo; echo "[7/7] run_all 全链路冒烟（合成数据）"
 T=$(now)
 RUN_ALL="$REPO/code/pipeline/run_all.py"
 if [ "$CAN_SOLVE" = "1" ] && [ "$SKIP_SOLVE" != "1" ]; then

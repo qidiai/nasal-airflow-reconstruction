@@ -381,3 +381,30 @@ OpenFOAM 退役（M3）须待以下条件闭合——退役不可逆（永久失
 - **反例**：`test_concurrent_scope_entry_no_recursion`（旧实现必 RecursionError）、`test_deflated_*`（旧实现静默跳过该层）、`test_bogus_transfer_syntax_*`（旧实现抛 ValueError）、截断/Float-only/隐式 VR 三形态
 - **谁接住**：survey 只吃头字段故拦截无消费方影响；step1 子进程整读不受影响（进程隔离）；web 路径经同一 `survey_dicom` 自动获得只读化
 - **实义判定**：包装器等价性 = 「复刻 pydicom 收录语义」而非字节数校验——截断收下、Float-only 跳过、元素头不完整交整读，均有测试逐形态钉死；实义非重言
+
+## 2026-11-05 预检门登记续：T1 干净克隆测试全绿（A2-Q4）
+
+> 本登记由指挥官依据「前序编码手残留实现审查 + 指挥官 F3 实证」汇编；workbuddy 通道完成 bootstrap 两脚本同步。
+
+### 登记表（#92 本体）
+
+| 项 | 内容 |
+|---|---|
+| 编号 | **#92** |
+| 来源 | A2 对抗审计 Q4：干净克隆跑测试 5 红（3 条 webapp/tools 已修于 `33a6c77`；剩 2 条依赖故意不入库的 15MB 查看器产物） |
+| 定级 | 演示场景阻断（克隆者无法一键演示） |
+| 修复动作 | ① `tests/conftest.py` session 级 autouse fixture：产物缺失时调 `scripts/build_pa_placeholder.py` 生成最小占位（内嵌四个库内已公开聚合数 18.45/51.9/48.1/66.2 + 合成几何 + 两行式诚实声明），提交包在场则复制真产物（堵 skip→fail 迁移）；② `tests/test_clean_clone_artifact.py` 机审兜底（产物必须存在，不允许 skip）；③ `scripts/bootstrap.ps1|sh` 增 [5/7] 生成步（失败仅 Step-Warn，ps1 保留 BOM） |
+| 反例 | `tests/test_clean_clone_artifact.py`（干净克隆形态产物缺席即红）；两条目标用例本身（isfile 判据） |
+| 谁接住 | fixture 在 session 开始补齐；bootstrap 装机时补齐；两处同一生成入口（`build_pa_placeholder.py`） |
+| 实义判定 | 两条目标用例判据只有文件存在性（server.py:3432-3433），0 字节文件即可满足——本任务不放宽任何判据，只补产物；实义非重言 |
+| 验证 | F3 真克隆实证（指挥官，Python 3.12 + `P0_CT_BASE`/`DATA_ROOT` 均置空）：段 1 基线 3 failed（两条目标 + `test_check_17features_is_green` 既有红）；段 2 叠加改动后 **1 failed（仅剩那条既有红）/ 238 passed / 16 skipped**——两条目标用例由红转绿，无新增失败 |
+| 状态 | 已修复 · 待签结 |
+
+### 登记表（#93 已知限制与开放项）
+
+| 项 | 内容 |
+|---|---|
+| 既有干净克隆红（不在本任务射程） | `test_check_17features_is_green`：`webapp/plus/` 被 .gitignore 屏蔽，17 功能查看器检查在干净克隆必红——单列上报，**未为凑绿扩大改动范围** |
+| bootstrap 环境敏感性 | `py -3` 在装有 Python 3.15 的机器上解析到 3.15，requirements 钉版（numpy 2.5.4 等）不支持 → pip 安装失败（实测）；本机 F3 用 Python 3.12 复现通过。bootstrap 的 Python 版本下限约束需另批明确（QUICKSTART 现称 3.10+，与钉版实际口径不符） |
+| 产物性质 | 干净克隆形态下 pA 查看器为合成占位（非 20261002 冻结资产），已在 `从零复现.md` 披露；`server.py:424` 的 15,069,209 B 证据串与本地 15,036,993 B 至少一处过期（未改，另批核实） |
+| 关闭证据 | F3 两段式命令与输出见派工记录；套件 238 passed / 16 skipped（叠加态，本机 DATA_ROOT 未设） |
