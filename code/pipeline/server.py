@@ -2866,6 +2866,24 @@ def build_app(cfg):
                             f".dcm 文件不足 2 个（实测 {saved} 个；已保留于 "
                             + os.path.relpath(up_dir, HERE).replace("\\", "/")
                             + "）：请选择包含完整 DICOM 序列的文件夹"}), 400
+        # ---- PII 前置闸门（HR-1 修复）：落盘即扫，FAIL 即清理上传目录并返回脱敏摘要，
+        #      不再等病例注册链内的 PII 闸门才拦——避免含患者身份字段的原始 DICOM
+        #      在本机 uploads/ 目录留存。扫描器自身异常不拦上传（注册链闸门兜底）。
+        try:
+            pii_pre = RA.scan_pii(up_dir)
+        except SystemExit as e:
+            pii_pre = {"pass": False, "fail_count": 1, "files": 0,
+                       "fails": [["-", "PII", str(e), "scan_pii 停工（目录无可扫描头）"]]}
+        except Exception:  # noqa: BLE001
+            pii_pre = None
+        if pii_pre is not None and not pii_pre.get("pass", True):
+            shutil.rmtree(up_dir, ignore_errors=True)
+            return jsonify({
+                "status": "blocked",
+                "gate": "PII 头扫描（上传前置）",
+                "gate_failures": [digest_pii_fail(f) for f in pii_pre.get("fails", [])][:10],
+                "error": "数据未通过质量闸门（PII 头扫描）——检出患者身份字段，"
+                         "请先脱敏后再上传；本次上传文件已全部清理，未在本机留存"}), 422
         # 复用 source=path 建病例链（PII 闸门 → DICOM 头普查 → step1）
         # ---- 上传序列自动识别（多序列父目录 → 自动挑选最优序列）----  [SERIES-AUTOSELECT]
         sel = None
@@ -3029,7 +3047,9 @@ def build_app(cfg):
         if solve not in ("skip", "laptop", "local"):
             return jsonify({"error": "solve 须为 skip|laptop|local"
                                     "（skip=只到算例+断言；laptop=交接文档待 WSL 求解；"
-                                    "local=本机求解/后处理，需 WSL+OpenFOAM 环境）"}), 400
+                                    "local=本机求解/后处理，经 solver_backend 自动选后端："
+                                    "有 FlowScope（cargo build）即用 custom，无需 WSL；"
+                                    "否则回退 OpenFOAM（需 WSL））"}), 400
         # 结果回传区：操作员把已回传结果放到 <state>/results/P0-result-<prefix>-<case>/
         if mode == "quick":
             # 决策 3：quick 结果只在 <out_dir>/quick/结果/ 里找（有 metrics 才复用，
