@@ -2138,28 +2138,33 @@ def _register_case(cfg, dicom_dir, prefix, case_name, label, kind, case_id_val,
                         "gate_failures": rec["gate_failures"],
                         "message": "数据未通过质量闸门（PII 头扫描）——已生成 ⛔ 拦截卡"})
 
-    # ---- DICOM 头普查（同款 survey_dicom：层序方向断言） ----
+    # ---- DICOM 头普查（同款 survey_dicom：读层完整性） ----
     try:
         survey = RA.survey_dicom(dicom_dir)
+        # F2/CF3：z_monotonic_increasing 构造性恒真、非判据，移出白名单；
+        # F5/#81：补四个 z_gap_* 量化键（z_gap_bad_pairs 为 list，可 JSON 序列化）。
         rec["survey"] = {k: survey.get(k) for k in
                          ("file_count", "rows", "columns", "pixel_spacing",
-                          "slice_gap_measured", "z_monotonic_increasing",
+                          "slice_gap_measured",
                           "filename_order_matches_physical", "z_structurally_ok",
                           "z_distinct_count", "z_duplicate_count",
-                          "z_distinct_gap_median", "z_missing_ipp")}
+                          "z_distinct_gap_median", "z_missing_ipp",
+                          "z_gap_max_abs_dev_mm", "z_gap_max_rel_dev",
+                          "z_gap_tol_mm", "z_gap_bad_pairs")}
     except SystemExit as e:
         survey = None
-        rec["survey_error"] = str(e)
+        # F3/#84：die() 现抛 DieExit（str(e) 即真实停工消息，不再是裸 "2"）；
+        # 非 DieExit 的 SystemExit 仍按原 str(e) 取值，行为不变。
+        rec["survey_error"] = e.msg if isinstance(e, RA.DieExit) else str(e)
     except Exception as e:  # noqa: BLE001
         survey = None
         rec["survey_error"] = repr(e)
     # #56：致命判据改为"z 本身是否良构"；文件名序≠扫描序只记录不拦（下游按 z 重排）
     if rec.get("survey_error") or (survey and not survey.get("z_structurally_ok")):
         reason = rec.get("survey_error") or (
-            "层序结构断言 FAIL：有效不同层数=%s 层间距中位=%smm 缺IPP=%s"
-            % (survey.get("z_distinct_count"), survey.get("z_distinct_gap_median"),
-               survey.get("z_missing_ipp")) if survey else "层序结构断言 FAIL")
-        rec.update(status="blocked", gate="DICOM 头普查（层序结构断言）",
+            RA.structurally_ok_failure_message(survey)
+            if survey else "层序结构（读层完整性）门 FAIL：无可用普查结果")
+        rec.update(status="blocked", gate="DICOM 头普查（读层完整性）",
                    gate_failures=[reason], exit_code=2)
         reg[rec["case_id"]] = rec
         save_registry(cfg, reg)

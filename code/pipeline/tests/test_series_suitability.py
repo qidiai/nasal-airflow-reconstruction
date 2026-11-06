@@ -416,7 +416,7 @@ def test_server_web_path_uses_same_suitability_function():
 
 def test_server_gate_web_path_blocks_with_card(tmp_path):
     """web 上传路径**真跑一遍**（不是源码 grep）：PS=2.4 的序列落 ⛔ blocked 卡，
-    且 `survey` 键白名单（server.py:2144-2149，12 个键）一字未增、step1 未被启动。"""
+    且 `survey` 键白名单（server.py:2146-2153，15 个键：恒真键 z_monotonic_increasing 已移出、四个 z_gap_* 量化键已纳入）逐键相等、step1 未被启动。"""
     pytest.importorskip("flask")
     import server as S
 
@@ -442,9 +442,9 @@ def test_server_gate_web_path_blocks_with_card(tmp_path):
     assert rec["exit_code"] == 2
     assert sorted(rec["survey"]) == sorted([
         "file_count", "rows", "columns", "pixel_spacing", "slice_gap_measured",
-        "z_monotonic_increasing", "filename_order_matches_physical",
-        "z_structurally_ok", "z_distinct_count", "z_duplicate_count",
-        "z_distinct_gap_median", "z_missing_ipp"])
+        "filename_order_matches_physical", "z_structurally_ok", "z_distinct_count",
+        "z_duplicate_count", "z_distinct_gap_median", "z_missing_ipp",
+        "z_gap_max_abs_dev_mm", "z_gap_max_rel_dev", "z_gap_tol_mm", "z_gap_bad_pairs"])
     # 门挡在 step1 之前：没有 preview 目录（step1 只在门之后启动）
     assert not os.path.isdir(str(tmp_path / "state" / "cases" / "t2-probe" / "preview"))
 

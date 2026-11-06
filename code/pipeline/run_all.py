@@ -315,9 +315,54 @@ def reuse_old_result(manifest, result_dir, case_dir):
     return fp, True
 
 
+class DieExit(SystemExit):
+    """带可读 msg 的停工异常：.code 仍是数字退出码，msg/__str__ 给停工原因。
+
+    旧 die() 用 sys.exit(code)，异常只带 code（str(SystemExit(2)) == "2"），
+    web 侧 `except SystemExit as e: rec["survey_error"] = str(e)` 只拿到裸 "2"
+    （CF7/#84）。本类 super().__init__(code) 保证进程退出码维持 2/3 原数字
+    （既有退出码断言与 web exit_code 依赖），另存 msg 并把 __str__ 指向它，
+    使 str(e) 直接是可读停工原因；对非 DieExit 的 SystemExit 不改原行为。
+    """
+    def __init__(self, code, msg):
+        super().__init__(code)
+        self.msg = msg
+
+    def __str__(self):
+        return self.msg
+
+
 def die(code, msg):
-    log(f"!!! FATAL (exit {code}): {msg}")
-    sys.exit(code)
+    line = f"!!! FATAL (exit {code}): {msg}"
+    log(line)
+    # B11：FATAL 行除 stdout/manifest-progress（log 内）外，同行写 stderr；
+    # 不改变 stdout 既有内容，只补一条同样的行到 stderr。
+    print(f"[run_all] {line}", file=sys.stderr, flush=True)
+    raise DieExit(code, msg)
+
+
+def structurally_ok_failure_message(rec):
+    """层序（读层完整性）门停工文案：只报实际失败条件，其余数值作上下文。
+
+    z_structurally_ok 三条件里前两条构造性恒真（read_ct_series 保证 ≥2 层、
+    按 IPP z 升序去重后差值恒正），实践上唯一有判别力、能触发停工的是
+    「跳过文件数（非图像/缺几何/读取失败）超过 5% 容差上限」（A2-Q3/CF1/CF2）。
+    本函数只读 survey 已算好的诊断值做措辞呈现，**不重算也不改动任何判据**
+    （判定式见 survey_dicom 内 z_structurally_ok，逐字节未动；D5 保留+披露）。
+    """
+    failed = ["跳过文件数（非图像/缺几何/读取失败）超过 5% 容差上限"]
+    # 前两条构造性恒真；仅在（理论上）真失败时才并列为失败条件，否则只作上下文
+    if not (rec.get("z_distinct_count") or 0) >= 2:
+        failed.insert(0, "有效不同层数 < 2")
+    if not (rec.get("z_distinct_gap_median") or 0.0) > 0.0:
+        failed.insert(0, "层间距中位 ≤ 0mm")
+    context = (f"有效不同层数={rec.get('z_distinct_count')}（构造性≥2，非判据）；"
+               f"层间距中位={rec.get('z_distinct_gap_median')}mm（构造性>0，非判据）；"
+               f"跳过文件数（非图像/缺几何/读取失败）={rec.get('z_missing_ipp')}；"
+               f"文件总数={rec.get('file_count')}（5% 容差上限由门内判定，不在此重算）")
+    return ("层序结构（读层完整性）门 FAIL：实际失败条件=" + "、".join(failed) +
+            "；上下文数值（仅记录，非判据）：" + context +
+            " ——几何不可重建，停工上报")
 
 
 # ---------------------------------------------------------------- S0 PII 头扫描
@@ -1151,14 +1196,13 @@ def main():
         die(2, "重建适用性断言 FAIL：" + "；".join(fails) + "——几何不可重建，停工上报")
     sx, sy = round(survey["pixel_spacing"][0], 4), round(survey["pixel_spacing"][1], 4)
     sz = round(survey["slice_gap_measured"], 4)
+    # B10/CF3：z_monotonic_increasing 构造性恒真、无信息量，停打印；下行保留
+    # filename_order_matches_physical（有判别力，#56 反例见 test_survey_series_select.py）
     log(f"  {n_layers} 层 {rows}x{cols}；面内间距 {sx}x{sy} mm；"
         f"实测层间距 {sz} mm（头值 {survey['slice_thickness_header']} mm）；"
-        f"z 单调{'增' if survey['z_monotonic_increasing'] else '减' if survey['z_monotonic_decreasing'] else '？'}；"
         f"文件名序{'=' if survey['filename_order_matches_physical'] else '≠'}物理序")
     if not survey.get("z_structurally_ok"):
-        die(2, f"层序结构断言 FAIL：有效不同层数={survey.get('z_distinct_count')} "
-               f"层间距中位={survey.get('z_distinct_gap_median')}mm "
-               f"缺IPP层数={survey.get('z_missing_ipp')} ——几何不可重建，停工上报")
+        die(2, structurally_ok_failure_message(survey))
     if not survey["filename_order_matches_physical"]:
         log("  ⚠ 文件名序≠物理扫描序（下游按 z 重排处理，不影响重建，仅记录）")
 
