@@ -9,14 +9,18 @@ step5_export_viewer_data.py  ——  任务 T2：CFD 结果查看器数据导出
 
 T4 新增：airwayCavity（鼻腔本体表面）/ airwaySinus（鼻窦表面）两字段，
          复用 step3_make_narrowing.py 的 isolate_cavity 腔体隔离；
-         CENTER 沿用 v1（[79.22,71.87,56.98]），契约其余字段逐字节不变。
+         CENTER：T6/B8 次选——v1 种子常量 [79.22,71.87,56.98] 仅对参考数据集
+         （患者A 冻结基线，输入指纹精确匹配）有效；其它病例一律由本例 airwayMesh
+         顶点质心重算（见 :259-312），并在日志与 QC 显式标注降级，不留静默错位路径。
+         契约其余字段逐字节不变。
 
 输入（只读）：
   - 速度场 VTK：.../P0-result-pA-v5/VTK/P0-case-v5_1500/internal.vtu
   - 气道掩码： out/step2/mask_full.npz  (mask, cut)
   - 占位体 STL：阶段4-模型输出/virtual-placeholder-{1,2,3}mm*.stl
 
-坐标：mask 全分辨率体素 (k,j,i)，x=i*0.3496, y=j*0.3496, z=k*0.35 mm；
+坐标：mask 全分辨率体素 (k,j,i)，x=i*SX_FULL, y=j*SY_FULL, z=k*SZ_FULL mm
+      （SX/SY/SZ_FULL 逐例从本例 DICOM 头读取，见 :74-90；不再写死参考例体素间距）；
       VTK 几何为米，*1000 后与体素坐标同源（已验证）。全部几何统一到 mm，
       再减去 airwayMesh 质心（全局同一偏移量）。
 
@@ -281,6 +285,9 @@ _fp_key = json.dumps({"mask_md5": _md5_of(MASK_NPZ), "vtu_md5": _md5_of(VTU)}, s
 #   decimate 跨进程不确定（T4 审计发现）使重算质心在 1e-6 mm 级波动；
 #   患者A 回归逐字节一致要求 CENTER 逐位稳定，故基线输入锚定种子值；
 #   种子键=输入指纹精确匹配（mask/vtu md5），其他病例输入一律走重算分支。
+# [T6/B8 次选] 该种子**仅参考数据集有效**：其它病例指纹不匹配 → 一律走
+#   :304-312 本例质心重算分支；日志与 QC 显式标注降级，不留静默错位路径
+#   （保留种子以保证参考例回归逐字节不变，取舍理由见 ledger-draft-T6.md）。
 _SEED_CENTER_CACHE = {
     '{"mask_md5": "465bdee70a35baf2400693238e55e8c2", "vtu_md5": "acafb985314eb08f88ae2d4c243015c4"}': {
         "center_mm": [79.224894, 71.872321, 56.979602],
@@ -301,6 +308,8 @@ elif _fp_key in _SEED_CENTER_CACHE:
     _seed_dev = float(np.abs(CENTER - _center_pre).max())
     log(f"  全局质心 CENTER(mm) = {np.round(CENTER,2).tolist()} "
         f"(种子锚点=患者A 基线; 与本例重算值最大偏差 {_seed_dev:.2e} mm; 已写入磁盘缓存)")
+    log("  [T6/B8] 告警：该 v1 种子 CENTER 仅对参考数据集（患者A 冻结基线，"
+        "输入指纹精确匹配）有效；其它病例一律按本例质心重算并显式降级，非静默错位")
 else:
     CENTER = _center_pre
     _center_cache[_fp_key] = {"center_mm": [float(x) for x in CENTER],
@@ -310,6 +319,10 @@ else:
     with open(CENTER_CACHE, "w", encoding="utf-8", newline="\n") as _f:
         json.dump(_center_cache, _f, ensure_ascii=False, indent=2)
     log(f"  全局质心 CENTER(mm) = {np.round(CENTER,2).tolist()} (本例重算并缓存)")
+
+# [T6/B8] 参考数据集判据：静态种子字典命中 = 参考例（与磁盘缓存无关，故缓存复用
+#   的参考例仍判为参考）。供 QC 判定「v1 种子常量是否适用」，非参考病例不得静默套用。
+_CENTER_IS_REFERENCE = _fp_key in _SEED_CENTER_CACHE
 
 def center_round(arr_mm, nd=1):
     a = np.asarray(arr_mm, dtype=np.float64) - CENTER
@@ -773,7 +786,8 @@ else:
         f"μ={TAUBIN_MU}）；airwaySinus 豁免平滑（顶点原样保留）")
 
 
-# 同一 CENTER 居中（沿用 v1，不重算）
+# 同一 CENTER 居中（参考例=种子锚点；其它病例=本例质心重算，见 :259-312；
+#   T6/B8 不再宣称「沿用 v1，不重算」）
 cav_c = center_round(cavity_mesh.vertices, 1)
 sin_c = center_round(sinus_mesh.vertices, 1)
 airwayCavity = {"positions": [float(v) for v in cav_c.reshape(-1)],
@@ -1725,6 +1739,16 @@ qc["N3_same_center"] = {"pass": bool(n3), "CENTER_mm": [round(float(x), 2) for x
                         "expected_CENTER_mm": [79.22, 71.87, 56.98],
                         "center_matches_v1": [round(float(x), 2) for x in CENTER] == [79.22, 71.87, 56.98],
                         "samples": {"airwayMesh": sA, "airwayCavity": sC, "airwaySinus": sS}}
+# [T6/B8 次选] 非参考病例显式降级标注：v1 种子常量仅参考数据集有效，
+#   expected_CENTER_mm / center_matches_v1 对本例不适用（不是「错位判据」）。
+#   条件块只在非参考例执行 ⇒ 参考例 viewer_data_qc.json 逐字节不变。
+if not _CENTER_IS_REFERENCE:
+    qc["N3_same_center"]["center_source"] = "本例 airwayMesh 顶点质心重算（或磁盘缓存复用），非 v1 种子锚点"
+    qc["N3_same_center"]["reference_seed_applies"] = False
+    qc["N3_same_center"]["degraded_notice"] = (
+        "v1 种子 CENTER [79.22,71.87,56.98] 仅对参考数据集（患者A 冻结基线，"
+        "输入指纹精确匹配）有效；本例 CENTER 由本例质心重算，expected_CENTER_mm / "
+        "center_matches_v1 对本例不适用，不作静默错位判据（T6/B8）。")
 
 # [N4] cavity ∪ sinus == mask（拆分无损，容差 0）
 n4 = bool(np.array_equal(cavity | sinus, mask))
