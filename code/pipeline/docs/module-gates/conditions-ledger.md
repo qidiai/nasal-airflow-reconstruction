@@ -464,3 +464,13 @@ OpenFOAM 退役（M3）须待以下条件闭合——退役不可逆（永久失
 | 验证 | 新测试 32 例；套件 308 passed/8 skipped/0 failed；禁词残留 grep 零命中 |
 | 遗留 | v6 输入文件（narrowing_qc.json/诊断报告4）本机不在场，溯源链末端未闭环（T11 对账入口）；followup 侧 DF2/DF3/DF7/DF18 属 T10-b 未派 |
 | 状态 | 已修复 · 已提交（未推送，待批准） |
+
+### #98 T10-b 结论层口径批修·followup 侧（提交见 git log）
+| 项 | 内容 |
+|---|---|
+| 反例 | DF2（P1）：`conclusion.py:69` 对每对 diff 无条件写死「两例均为 1500 步平台（未达 1e-4）」而 metrics.py 已读 converged/n_iter（能判而不判）；DF3（P1）：「方向相反」守卫只判左侧×总压降，右侧进字典从不参与（假阴性）；DF7（P1）：随库分发的 examples/diff.md 用真实随访话术却无任何合成标注（course_card 无 case_kind 入参）；DF18（P3）：该副本与 HEAD 输出格式漂移 |
+| 谁接住 | `_convergence_caveat()` 四态据实生成；守卫改逐行判定只写实际触发行；`case_kind` 入参+run_diff 从 provenance.json data_class 推导，synthetic 时 headline/caveats/患者语言三处注入「本轮为合成体模、非真实患者、非临床结论」；examples/diff.md 真跑重生成 |
+| 实义判定 | 措辞/数据驱动层；metrics.py 等读数口径零改动 |
+| 验证 | 新测试 29 例；套件 337 passed/8 skipped/0 failed；examples 三处标注 grep 实证；真跑一对（generated_at 2026-11-06T11:23:02 为产物非回填） |
+| 遗留 | 前端是否消费新文案未验证；除 synth-001→005 外未跑其它对（三态由单测覆盖）；T11 对账入口本片不做 |
+| 状态 | 已修复 · 已提交（未推送，待批准） |
