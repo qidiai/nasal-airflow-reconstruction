@@ -7,9 +7,9 @@ T17-B extract_clinical.py —— 临床口径指标数据 → viewer_plus_data.j
   R_base = 66.2 Pa/(L/s)（viewer_data.js meta.metrics.resistance_total，v5C 等压法口径）
   层流线性外推：层流下 R 恒定 → R@75Pa = R@150Pa = 66.2 Pa/(L/s)（75/150Pa 工况对应流量
   68/136 L/min，已超层流适用域，前端必须标注）
-  ΔP-流量三点：15/30/45 L/min → 18.45/36.9/55.4 Pa（线性，18.45 为 v5 定流量标定点）
-  参考带：绿 ≤50 / 黄 50-80 / 红 >80 Pa（内部对照例口径；患者B 45.63 Pa @15 L/min
-  「落常人带」先例参照，正式文献参考带赛后引入）
+  ΔP-流量三点：15/30/45 L/min → 18.45/36.9/55.4 Pa（线性，18.45 为内部演示值·v5 定流量标定点）
+  参考带：绿 ≤50 / 黄 50-80 / 红 >80 Pa —— 内部工程/演示阈值（非文献参考带）；
+  患者B 45.63 Pa @15 L/min 为内部演示对照例，正式文献参考带赛后引入（T12 定稿后 T11 对账）
   鼻瓣区：metrics_v2.json（244.2 mm² @273 层）+ area_per_slice_v2.csv 逐层面积曲线
 """
 import base64
@@ -39,7 +39,38 @@ OUT = ROOT + r'\阶段5-交互查看器\升级施工-T17\viewer_plus_data.js'
 
 R_BASE = 66.2          # Pa/(L/s)，viewer_data.js meta.metrics.resistance_total
 Q_CAL = 15.0           # v5 标定点 L/min
-DP_CAL = 18.45         # v5 dP_baseline_Pa
+DP_CAL = 18.45         # 内部演示值：v5 dP_baseline_Pa（非归档真值）
+
+# ===== 单一演示带口径（T10-a / DF1 / F5；三文件同口径，正式文献参考带赛后引入）=====
+# 与 v6_curve_fit.py / v6_curve_fig.py 完全同一份：50/80 与 30 Pa 一律为
+# 「内部工程/演示阈值（非文献参考带）」；pA 基线 18.45 Pa 与 v6 曲线同为 @15 L/min 演示工况。
+# 所有 pA/ΔP/V 数值均为内部演示值（合成演示数据），非归档真值；T12 定稿后由 T11 对账。
+DEMO_BAND = {
+    "green_max_Pa": 50.0,
+    "yellow_max_Pa": 80.0,
+    "demo_lower_ref_Pa": 30.0,
+    "caliber": "内部工程/演示阈值（非文献参考带）",
+    "flow_caliber": "@15 L/min（pA 基线演示值 18.45 Pa 与 v6 曲线同工况）",
+    "demo": True,
+    "source": "内部演示阈值；正式文献参考带赛后引入；T12 定稿后 T11 对账",
+}
+TIER_BELOW = "低于内部演示参考线（30 Pa）——内部演示值，非临床判读"
+TIER_GREEN = "内部演示阈值·绿档（非文献参考带）"
+TIER_YELLOW = "内部演示阈值·黄档（非文献参考带）"
+TIER_RED = "内部演示阈值·红档（非文献参考带）"
+
+
+def classify_demo_band(dp_pa):
+    """按统一演示带口径给出档位结论（同一 pA 演示值在任何口径源结论一致）。"""
+    if dp_pa is None:
+        return "无 ΔP 数值（内部演示值缺失）"
+    if dp_pa < DEMO_BAND["demo_lower_ref_Pa"]:
+        return TIER_BELOW
+    if dp_pa <= DEMO_BAND["green_max_Pa"]:
+        return TIER_GREEN
+    if dp_pa <= DEMO_BAND["yellow_max_Pa"]:
+        return TIER_YELLOW
+    return TIER_RED
 
 
 def b64_i16(arr_f32, scale):
@@ -86,23 +117,34 @@ def main():
     }
     print('[clinical] R@75Pa=%.1f Pa/(L/s)（Q=%.1f L/min）' % (R_BASE, q75 * 60))
 
-    # --- ΔP-流量曲线 + 常人参考带 ---
+    # --- ΔP-流量曲线 + 单一演示参考带（DF1/F5）---
     qs = [15.0, 30.0, 45.0]
-    r_flow = DP_CAL / (Q_CAL / 60.0)   # 73.8 Pa/(L/s)（定流量口径线性外推）
+    r_flow = DP_CAL / (Q_CAL / 60.0)   # 73.8 Pa/(L/s)（定流量口径线性外推，演示值）
     dps = [round(r_flow * (q / 60.0), 2) for q in qs]
     dpc = {
         'Q_L_min': qs,
         'dP_Pa': dps,
-        'method': '层流线性外推（ΔP∝Q，v5 定流量标定点 15 L/min）',
+        'method': '层流线性外推（ΔP∝Q，v5 定流量标定点 15 L/min；内部演示值）',
+        # DF1/F5：与 v6_curve_fit.py / v6_curve_fig.py 同一演示带口径（非文献参考带）
         'ref_band': {
-            'green_max_Pa': 50.0, 'yellow_max_Pa': 80.0,
-            'green_label': '常人带', 'yellow_label': '临界', 'red_label': '受阻',
-            'source': '内部对照例：患者B 45.63 Pa @15 L/min（n=1，非人群参考区间）；正式文献参考带赛后引入',
-            'basis': '患者B v4 45.63 Pa @15 L/min 落常人带先例',
-            'ref_Q_note': '参考带以 30 L/min 工况为准',
+            'green_max_Pa': DEMO_BAND['green_max_Pa'],
+            'yellow_max_Pa': DEMO_BAND['yellow_max_Pa'],
+            'demo_lower_ref_Pa': DEMO_BAND['demo_lower_ref_Pa'],
+            'green_label': TIER_GREEN, 'yellow_label': TIER_YELLOW, 'red_label': TIER_RED,
+            'caliber': DEMO_BAND['caliber'],
+            'flow_caliber': DEMO_BAND['flow_caliber'],
+            'demo': DEMO_BAND['demo'],
+            'source': DEMO_BAND['source'],
+            # 显式双标（工况不对齐，如实披露）：旧「以 30 L/min 工况为准」口径已废
+            'ref_Q_note': ('显式双标（工况不对齐，如实披露）：pA 基线演示值 18.45 Pa @15 L/min '
+                           '与 v6 曲线同工况；临床卡 ΔP-流量曲线跨 15/30/45 L/min，演示阈值未做跨工况归一化；'
+                           '旧「以 30 L/min 工况为准」口径已废，不声称任何人群或文献参考带'),
+            'classify_note': ('同一 pA 演示值 18.45 在临床卡与 v6 图由 classify_demo_band 得同一档位：'
+                              + classify_demo_band(DP_CAL)),
         },
     }
     print('[clinical] ΔP-流量：Q=%s → ΔP=%s Pa（R_flow=%.1f）' % (qs, dps, r_flow))
+    print('[clinical] 统一演示带口径：pA 基线演示值 18.45 → %s' % classify_demo_band(DP_CAL))
 
     # --- 鼻瓣区（面积曲线） ---
     mj = json.loads(io.open(MJ, 'r', encoding='utf-8').read())
