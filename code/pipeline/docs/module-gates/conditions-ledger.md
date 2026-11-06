@@ -474,3 +474,14 @@ OpenFOAM 退役（M3）须待以下条件闭合——退役不可逆（永久失
 | 验证 | 新测试 29 例；套件 337 passed/8 skipped/0 failed；examples 三处标注 grep 实证；真跑一对（generated_at 2026-11-06T11:23:02 为产物非回填） |
 | 遗留 | 前端是否消费新文案未验证；除 synth-001→005 外未跑其它对（三态由单测覆盖）；T11 对账入口本片不做 |
 | 状态 | 已修复 · 已提交（未推送，待批准） |
+
+### #99 T12 片 A — solver 证据链文档冻结与更正（2026-11-06，指挥官合并）
+| 项 | 内容 |
+|---|---|
+| 反例 | E3（P1）：`equivalence-report.md:8` 写死「按当前 HEAD（`6dbb517`）重跑值为准」，T12-0 已提交文档留旧 hash 与 v1.2「派工当日 HEAD」冲突；E1（P1）：L0 D-1 状态三方矛盾（:25 表格「PASS/已解除」vs :29 判定段「门未过/开放项」vs :115 未决项表「已解除」）；E5（P2）：Backstep 验证台未实现却判「L0 部分通过」；E6（P2）：Run-B pA 失稳证据不可复核；E12（P3）：L3「044/004」笔误；#95 遗留：`structurally_ok_failure_message()` 调用契约未硬钉 |
+| 谁接住 | :8 删 `6dbb517` →「以派工当日 HEAD 重跑值为准」；§1 判定段整行更正为「Δp/dx 门已过…以实测复跑为准，D-1 已解除；L0 仅 Poiseuille 已建验证台，Backstep 未覆盖，故不构成完整通过」；§2.2 补失稳 trace 摘要未入库说明；`①044`→`①004`；W6/W8 各补 pA 版本标注（来源版本+日期，三文档不强求数值一致）；`run_all.py` 补调用契约 docstring + 首行 `assert not rec.get("z_structurally_ok", False)` 防御性断言 |
+| 实义判定 | 纯文档/注释/断言层；`equivalence-report.md` 表格数值逐字未动；`z_structurally_ok` 三条件、5% 容差、PII、T2 准入判定式零改动 |
+| 验证 | 编码手靶向 `pytest code/pipeline/tests/test_gate_messages_honest.py -q` → 12 passed；**指挥官第 2 层抽验**：`git diff --stat` 4 文件 +11/−4 与回执一致、表格行零改动、断言上下文亲读；**全量 337 passed / 8 skipped / 0 failed（指挥官收尾跑，101.82s）**，与基线一致无新增红。派工通道：CodeBuddy 原生子智能体（默认模型），单行指针读任务书 |
+| 遗留 | **片 B 未做**：按当前 HEAD 重跑刷新 L1/L3、E4 两步门证（`cargo test --release -- --ignored` + ny=21 红证 + ny=41 绿证）、E2 干净克隆重建链；E1 择一更正依据文档内已记录的实测复跑证据（双审计官 0.1371%~0.45%），非本轮 current-HEAD 重跑。真实病例 L2 场相关 / 22 例 WSS 归档重测未复核 |
+| 回执勘误 | 编码手回执称「台账 #94–#98 盘上未检索到」——**指挥官实测 `conditions-ledger.md:429/438/448/458/468` 五条均在**，该句为检索失误，不进正本；其余三要素（命令+输出 / 改动摘要 / 主动声明未验证项）齐备 |
+| 状态 | 片 A 已修复 · 已提交（未推送，待批准）；片 B 待派 |

@@ -349,7 +349,10 @@ def structurally_ok_failure_message(rec):
     「跳过文件数（非图像/缺几何/读取失败）超过 5% 容差上限」（A2-Q3/CF1/CF2）。
     本函数只读 survey 已算好的诊断值做措辞呈现，**不重算也不改动任何判据**
     （判定式见 survey_dicom 内 z_structurally_ok，逐字节未动；D5 保留+披露）。
+    调用契约：仅在 survey 的 z_structurally_ok 为 False 时调用（见 die(2, ...) 调用点）。
     """
+    assert not rec.get("z_structurally_ok", False), (
+        "structurally_ok_failure_message 仅应在 z_structurally_ok 为 False 时调用")
     failed = ["跳过文件数（非图像/缺几何/读取失败）超过 5% 容差上限"]
     # 前两条构造性恒真；仅在（理论上）真失败时才并列为失败条件，否则只作上下文
     if not (rec.get("z_distinct_count") or 0) >= 2:
