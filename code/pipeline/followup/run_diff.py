@@ -45,6 +45,29 @@ def find_mesh(case_dir: str | Path) -> Path | None:
     return None
 
 
+def _case_kind_from_provenance(case_dir: str | Path) -> str | None:
+    """DF7 标注链补链：provenance.json 的 data_class 标明合成体模 → "synthetic"。"""
+    p = Path(case_dir) / "provenance.json"
+    if not p.is_file():
+        return None
+    try:
+        cls = str(json.loads(p.read_text(encoding="utf-8")).get("data_class", "")).lower()
+    except (OSError, ValueError):
+        return None
+    if "synthetic" in cls or "no patient" in cls:
+        return "synthetic"
+    return None
+
+
+def _solve_params(m: dict | None) -> dict | None:
+    """DF2 据实传参：mdiff 内单例指标字典含 converged/iterations 才回传，否则 None 走「未知」分支。"""
+    if not isinstance(m, dict):
+        return None
+    if m.get("converged") is None and m.get("iterations") is None:
+        return None
+    return m
+
+
 def run_pair(
     case_a: str | Path,
     case_b: str | Path,
@@ -56,6 +79,7 @@ def run_pair(
     n_slices: int = 80,
     skip_polymesh: bool = False,
     max_points: int = 40000,
+    case_kind: str | None = None,
 ) -> dict:
     a, b = Path(case_a), Path(case_b)
     sa = Path(stl_a) if stl_a else find_stl(a)
@@ -78,17 +102,28 @@ def run_pair(
     ma_metrics = metrics.load_case_metrics(a)
     mb_metrics = metrics.load_case_metrics(b)
     mdiff = metrics.diff_metrics(ma_metrics, mb_metrics)
-    card = conclusion.course_card(mdiff, registration=reg)
+
+    # DF7：显式 case_kind 优先；未给时按 provenance.json 据实回填，标注链不断在调用分支。
+    if case_kind is None:
+        case_kind = _case_kind_from_provenance(a) or _case_kind_from_provenance(b)
+
+    # DF2：mdiff["a"]/["b"] 含 converged/iterations 时据实传参；缺判据明确传 None 走「未知」分支。
+    params_a = _solve_params(mdiff.get("a"))
+    params_b = _solve_params(mdiff.get("b"))
+    card = conclusion.course_card(
+        mdiff, registration=reg, params_a=params_a, params_b=params_b, case_kind=case_kind
+    )
 
     return {
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "pair": {"a": str(a), "b": str(b), "stl_a": str(sa), "stl_b": str(sb), "mesh_a": str(ma), "mesh_b": str(mb)},
+        "case_kind": case_kind,
         "registration": reg,
         "geometry_stl": g_stl,
         "geometry_polymesh": g_mesh,
         "metrics": mdiff,
         "course_card": card,
-        "patient_followup_sentence": conclusion.patient_followup_sentence(mdiff),
+        "patient_followup_sentence": conclusion.patient_followup_sentence(mdiff, case_kind=case_kind),
     }
 
 
@@ -213,6 +248,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--slices", type=int, default=80)
     ap.add_argument("--skip-polymesh", action="store_true")
     ap.add_argument("--max-points", type=int, default=40000)
+    ap.add_argument("--case-kind", default=None,
+                    help="病例性质：patient | patient_demo | synthetic；未给时按 provenance.json 据实回填")
     args = ap.parse_args(argv)
 
     label_a = args.label_a or Path(args.a).name
@@ -230,6 +267,7 @@ def main(argv: list[str] | None = None) -> int:
         n_slices=args.slices,
         skip_polymesh=args.skip_polymesh,
         max_points=args.max_points,
+        case_kind=args.case_kind,
     )
     result["labels"] = {"a": label_a, "b": label_b}
     (out_dir / "diff.json").write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding="utf-8")
