@@ -488,3 +488,16 @@ OpenFOAM 退役（M3）须待以下条件闭合——退役不可逆（永久失
 | 审计遗留（非返工） | (a) **形式性射程偏差**：`conditions-ledger.md` 原未列 §0 可改，但 #99 系指挥官本人纯追加合并（编码手已明确回避），已在任务书 §0 补规格追认闭合；(b) **新 assert 防回归未钉**：两条现有测试 `rec` 均无 `z_structurally_ok` 键 ⇒ 断言分支未被触发，docstring 只列 `run_all.py:1208` 漏列 `server.py:2165`。建议补一条「`rec` 含 `z_structurally_ok=True` → 断言抛 AssertionError」的反例测试 + docstring 补第二调用点，走独立小补丁 |
 | 审计席回执勘误 | 审计席称「origin/master 仍 `6dbb517`、本地领先 3 个提交」——**指挥官实测领先 8 提交**（`03a2c6b`…`4af6370`），该句为 `git log` 截断误读，不进结论；其「全量套件未跑」属只读审计射程限制，全量 `337/8/0` 已由指挥官第 2 层跑过，不构成缺口 |
 | 状态 | 片 A 已修复 · 已提交（未推送，待批准）· **独立审计 0 BLOCKING 已签结**；片 B 待派 |
+
+### #100 三步契约分层 v1 — 第一步 step5 契约拆分（2026-11-07，指挥官直接改）
+
+| 项 | 内容 |
+|---|---|
+| 反例 | 用户 2026-11-07 定三步路线：①建气道模型（**不需鼻塞虚拟植入**，即「上线」）②按气流设计 **3D 打印外部佩戴鼻塞**（非手术植入）③三态对比正常人带。真 CT 实证（会话纪要十八节）：`run_all.py:807-810`、`step5_export_viewer_data.py:1390-1392` 把**第二/三步的三档占位数据**（`dP_1/2/3mm_Pa`、`volumes_cm3`、`dP_Pa`、`band_Pa`）绑进第一步 step5 契约**必需字段** ⇒ standard 档求解跑通（FlowScope `backend: custom`、ΔP 27.646 Pa）却判 `deferred_contract_incomplete` 不导出 3D。属阶段错位；且 `step3/step4` 的「鼻腔内侧壁壳层植入体」已被用户排除（需手术），物理上不等效于外部空心管鼻塞（R-1 内孔+缝隙双通道） |
+| 谁接住 | 落盘《规格-三步契约分层-v1-2026-11-07.md》；`run_all.py`：`assemble_contract` 返回 `(contract, core_missing, stage2_missing)`，S6/S7 闸门只看 `core_missing`、占位缺失只标注，`--allow-partial-viewer` 降为 quick 档几何开关（不再作闸门）；`step5`：`_META_REQ` 去 `curve`、检查只拦 `_CORE_METRICS_REQ`（7 项）、`_METRICS_REQ` 沿用原 10 项**原序**、`--ph-dir` 默认 `None` 且各使用点 None 安全；`server.py:1997` 解包适配三元组；新增 `tests/test_stage1_contract.py` 9 条（含 3 条 subprocess 行为级） |
+| 实义判定 | 纯契约/闸门/标注层；判定式（PII / 准入 / 5% 容差）零改动；红线保持——核心字段缺失仍 `SystemExit` 中止、不写盘；严禁伪造三档数字、严禁套用其他患者数字或几何；`step3/step4` 植入体实现本轮不动 |
+| 验证 | `py_compile` 通过；契约函数实证 `core_missing=[]` / `stage2_missing` 恰 6 项；**全量 346 passed / 8 skipped / 0 failed（354 tests / 0 failures / 0 errors，104.69s）**，较基线 337 + 9 条新回归；真 CT（195 层，`20261019-215629`）走 `/api/upload → /api/run {"solve":"local"}` **不传 mode、不传 quick** → run_all 日志「第一步导出：第二步占位档字段未做…不阻断第一步」，**新 state-dir 内 `step5_deferred-*.json` 数量 0**；本机 pytest capture 插件报 `ValueError: I/O operation on closed file`，需 `-s --junitxml` 取权威计数，与代码无关 |
+| 独立实现审计 | 补派只读子智能体审未提交工作树（8 项核查）。**首轮裁决有 BLOCKING 不可签结**：B1 `server.py:1997` 2 变量解包 3 元组必崩、B2 `_METRICS_REQ` 重排破坏 pA 逐字节不变、B3 新增测试全为源码子串断言且规格声称的两条行为测试不存在。**三条均已返工**（见上「谁接住」），复核 `test_stage1_contract.py` 9/0/0、全量 354/0/0/8 ⇒ **0 BLOCKING 可签结** |
+| 遗留 | **standard 档仍未出 3D**：契约放行后暴露下一层 `step5` F3 六板门禁 `board4_lr_ratio_change_le_0.1pct` FAIL（`airwayMesh` 0.2236% / `airwayCavity` 0.2571%，阈值 0.1%；standard 做 Taubin 平滑，quick 跳过平滑故板④ SKIP），`sys.exit(3)` → `status=blocked`。此前被 deferred 长期遮住，与本轮改动无关。处置待裁决：建议第一步改用原始 marching_cubes 等值面、不做视觉平滑（把「跳过平滑」从 quick 专有提升为第一步通用），不建议放宽板④ 阈值。`step5:40/47/125/38-39` 仍残留患者 A 默认值（`--vtu` / `--skin-data-js` / `SHARED_VIEWER_DATA_JS` / `case-prefix=pA`），主路径靠显式覆盖，另行登记。审计未独立复核项见规格 §9 |
+| 回执勘误 | `out/e2e-ct-run-20261107/cases/pX/step5_deferred-pX-v1.json` 是 **8080 改代码前旧实例**留下的旧文案产物，非本轮 8081 新实例结果；审计曾据工作树该文件质疑「deferred 数量 0」，口径已澄清（以 `out/e2e-stage1-20261107/` 为准） |
+| 状态 | 第一步契约分层已修复 · 已提交（未推送，待批准）· **独立审计返工后 0 BLOCKING 已签结**；F3 板④ 门禁待裁决 |

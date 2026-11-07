@@ -41,20 +41,22 @@ _ap5.add_argument("--vtu", default=os.path.expandvars(r"%DATA_ROOT%\项目\P0-�
                   help="速度场 internal.vtu（默认患者A v5 结果）")
 _ap5.add_argument("--metrics-json", default=None,
                   help="meta 契约源 JSON（本例后处理汇编；字段缺失即中止导出）")
-_ap5.add_argument("--ph-dir", default=os.path.expandvars(r"%DATA_ROOT%\项目\P0-鼻塞设计工具\阶段4-模型输出"),
-                  help="占位体 STL 目录（默认患者A 阶段4 输出）")
+_ap5.add_argument("--ph-dir", default=None,
+                  help="占位体 STL 目录（第二步产物；第一步不传——不拼占位体，"
+                       "绝不默认指向其他患者目录）")
 _ap5.add_argument("--skin-data-js", default=os.path.expandvars(r"%DATA_ROOT%\项目\P0-鼻塞设计工具\阶段5-交互查看器\skin_data.js"),
                   help="皮肤层数据（帧校验用；默认患者A skin_data.js）")
 _ap5.add_argument("--out-dir", default=None, help="输出目录（默认 pipeline/out/step5）")
-# [T-P1.5] 单算例模式：患者快速档 / 单算例病例只跑了一次求解，没有三档占位体
-#   算例，故 dP_1/2/3mm 与 pressure-flow curve 天然缺失。此时仍导出 viewer 数据
-#   （"看见自己的气道"是患者版核心需求），但三条纪律：
+# [2026-11-07 三步契约分层 v1] --single-case 不再是导出闸门：
+#   三档占位 / pressure-flow curve 属第二步可选增强，standard 档缺失也不拦截
+#   （规格 §2.2）。本开关现仅用于患者快速档：跳过 Taubin 视觉平滑（粗网格下
+#   平滑位移与体素同量级、会扭曲最窄截面）。三条标注纪律不变：
 #     ① 绝不伪造三档数字——缺失字段不写入，meta.partial=true + meta.missing 列清单；
 #     ② viewer 据此隐藏对应区块并标"本次未做"，不报错、不回落演示数据；
-#     ③ 占位档完备的病例（pA 等）不传本开关 → 走原闸门，产物逐字节不变。
+#     ③ 占位档完备的病例（pA 等）产物逐字节不变。
 _ap5.add_argument("--single-case", action="store_true",
-                  help="单算例模式：三档占位字段可缺（最小必需集齐备即导出；"
-                       "缺失项写入 meta.partial/meta.missing，供 viewer 隐藏）")
+                  help="患者快速档几何开关：跳过 Taubin 视觉平滑；[2026-11-07] "
+                       "不再是导出闸门（三档占位缺失在 standard 档也不拦截）")
 _ap5.add_argument("--voxel-z", type=float, default=None,
                   help="[回退口径] z 单元尺寸 mm（默认从 --vtu 单元几何实测；实测不出时用本值，再不行用 DS2_Z）")
 _ap5.add_argument("--mask-npz", default=None,
@@ -684,12 +686,14 @@ log("placeholders ...")
 placeholders = []
 _PH_TIERS_MISSING = []   # [T-P1.5] 本例无占位体的档位（写入 meta.missing 供 viewer 标注）
 for mm in (1, 2, 3):
-    files = sorted(glob.glob(os.path.join(PH_DIR, f"virtual-placeholder-{mm}mm*.stl")))
+    # [2026-11-07] 第一步不传 --ph-dir（PH_DIR=None）时整档缺省，不拼占位体、
+    #   不回落到任何默认患者目录，杜绝把其他患者的占位体几何拼进本例 viewer。
+    files = (sorted(glob.glob(os.path.join(PH_DIR, f"virtual-placeholder-{mm}mm*.stl")))
+             if PH_DIR else [])
     if not files:
-        # [T-P1.5] 单算例/快速档没有该档占位体 → 整档缺省：不拼空 mesh、不拿其他病例的
-        #   占位体顶替；viewer 侧该档复选框自动禁用并标"本次未做"。
+        # 整档缺省：viewer 侧该档复选框自动禁用并标"本次未做"。
         _PH_TIERS_MISSING.append(mm)
-        log(f"  {mm}mm: 无占位体 STL（{PH_DIR}）——本次未做该档")
+        log(f"  {mm}mm: 无占位体 STL（{PH_DIR or '<第一步未指定>'}）——本次未做该档")
         continue
     parts = [trimesh.load(f, force="mesh") for f in files]
     merged = trimesh.util.concatenate(parts)
@@ -1386,22 +1390,30 @@ if not ARGS5.metrics_json or not os.path.exists(ARGS5.metrics_json):
     raise SystemExit(f"!!! meta 契约源缺失：{ARGS5.metrics_json} —— 中止导出（严禁套用其他患者数字）")
 with open(ARGS5.metrics_json, "r", encoding="utf-8") as _cf:
     _contract = json.load(_cf)
-_META_REQ = ["title", "caseBaseline", "units", "metrics", "curve"]
+# [2026-11-07 三步契约分层 v1] 第一步契约 = 本例几何 + 本例流场。
+#   三档占位 / pressure-flow curve 属第二步可选增强，缺失不拦截，只如实标注。
+_META_REQ = ["title", "caseBaseline", "units", "metrics"]  # curve 整块不再必需
+_CORE_METRICS_REQ = ["dP_baseline_Pa", "dP_note", "split_L_pct", "split_R_pct",
+                     "wss_mean_Pa", "wss_p95_Pa", "resistance_total"]
+_STAGE2_METRICS_REQ = ["dP_1mm_Pa", "dP_2mm_Pa", "dP_3mm_Pa"]
+_STAGE2_CURVE_REQ = ["volumes_cm3", "dP_Pa", "band_Pa"]
+# [2026-11-07] 组装顺序**沿用原实现原序**：meta.metrics 按此顺序插入 dict，
+#   全量写盘无 sort_keys，顺序即字节 —— 占位档完备病例（pA 等）产物逐字节不变。
 _METRICS_REQ = ["dP_baseline_Pa", "dP_1mm_Pa", "dP_2mm_Pa", "dP_3mm_Pa", "dP_note",
                 "split_L_pct", "split_R_pct", "wss_mean_Pa", "wss_p95_Pa", "resistance_total"]
-_CURVE_REQ = ["volumes_cm3", "dP_Pa", "band_Pa"]
-_PLACEHOLDER_ONLY = ("dP_1mm_Pa", "dP_2mm_Pa", "dP_3mm_Pa",
-                     "volumes_cm3", "dP_Pa", "band_Pa",
-                     # meta 顶层 curve 整块缺失，单算例下视同"占位曲线未做"
-                     "curve")
-_missing = [k for k in _META_REQ if k not in _contract]
-_missing += [k for k in _METRICS_REQ if k not in _contract.get("metrics", {})]
-_missing += [k for k in _CURVE_REQ if k not in _contract.get("curve", {})]
-_hard = [k for k in _missing if k not in _PLACEHOLDER_ONLY]
-if _hard or (_missing and not ARGS5.single_case):
-    # 红线不变：核心字段缺失（或非单算例模式）→ 一律中止，严禁套用其他患者数字
-    raise SystemExit(f"!!! meta 契约字段缺失：{_missing} —— 中止导出（严禁套用其他患者数字）")
-_PARTIAL_MISSING = list(_missing)   # [T-P1.5] 单算例可缺项：只可能是占位档三档/曲线
+_CURVE_REQ = _STAGE2_CURVE_REQ
+_PLACEHOLDER_ONLY = tuple(_STAGE2_METRICS_REQ + _STAGE2_CURVE_REQ + ["curve"])
+
+_missing_core = [k for k in _META_REQ if k not in _contract]
+_missing_core += [k for k in _CORE_METRICS_REQ if k not in _contract.get("metrics", {})]
+_missing_stage2 = [k for k in _STAGE2_METRICS_REQ if k not in _contract.get("metrics", {})]
+_missing_stage2 += [k for k in _STAGE2_CURVE_REQ if k not in _contract.get("curve", {})]
+if "curve" not in _contract:
+    _missing_stage2.append("curve")
+if _missing_core:
+    # 红线不变：第一步核心字段缺失 → 一律中止，严禁套用其他患者数字
+    raise SystemExit(f"!!! 第一步核心契约字段缺失：{_missing_core} —— 中止导出（严禁套用其他患者数字）")
+_PARTIAL_MISSING = list(_missing_stage2)  # 第二步占位档未做：如实标注，不拦截
 meta = {
     "title": _contract["title"],
     "caseBaseline": _contract["caseBaseline"],
@@ -1452,7 +1464,7 @@ header = f"""\
 // 生成时间 : {gen_time}
 // 来源     : {VTU}
 //            {MASK_NPZ}
-//            {PH_DIR}\\virtual-placeholder-*.stl
+//            {PH_DIR or '<第一步未指定：不拼占位体>'}\\virtual-placeholder-*.stl
 // 坐标系   : mm（VTK 米×1000 与 mask 体素同源），已减 airwayMesh 质心
 //            CENTER(mm) = {np.round(CENTER,2).tolist()}
 // 条数统计 : airwayMesh {len(air.faces)} 面 / {len(air.vertices)} 顶点;

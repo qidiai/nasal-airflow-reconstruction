@@ -1994,7 +1994,9 @@ def _full_chain_impl(cfg, case_id, rec, out_dir, zlo, zhi):
     if os.path.isfile(vd_path):
         append_progress(out_dir, f"[W] step5 导出已存在,跳过：{vd_path}")
     else:
-        contract, missing = RA.assemble_contract(
+        # [2026-11-07 三步契约分层 v1] assemble_contract 现返回三元组；
+        #   本 S9 路径自行补齐三档占位与 curve，缺失清单不参与此处判定。
+        contract, _core_missing, _stage2_missing = RA.assemble_contract(
             _json.load(open(main_metrics, encoding="utf-8")), letter, case)
         dps_meta = [round(float(contract["metrics"]["dP_baseline_Pa"]), 2)]
         vols_curve = [0.0]

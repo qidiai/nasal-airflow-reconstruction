@@ -35,11 +35,11 @@
                            max(2, round(3.0/dz))*dz 计算，读不到 dz 则回退到
                            只降步数并在进度里如实说明。质量闸门口径一行未改
   --hu-air / --hu-head                          透传 step1（默认 -400 / -300，§5.3）
-  --ph-dir / --skin-data-js                     透传 step5（占位体/皮肤层；新病例
-                          无占位体时不传——step5 依契约完备性自动延期）
-  --allow-partial-viewer    单算例 viewer 部分导出（患者快速档）：三档占位字段可缺，
-                          仍导出 viewer（meta.partial + missing 清单），缺失区块由
-                          viewer 隐藏并标"本次未做"；核心字段缺失仍按红线中止。
+  --ph-dir / --skin-data-js                     透传 step5（占位体/皮肤层；属第二步产物，
+                          第一步不传——step5 不拼占位体，viewer 标"本次未做"）
+  --allow-partial-viewer    患者快速档几何开关：step5 跳过 Taubin 视觉平滑（粗网格）。
+                          [2026-11-07 三步契约分层 v1] 不再是导出闸门：
+                          三档占位字段属第二步可选增强，standard 档缺失也不拦截导出。
 
 内置断言（不过即停工上报，exit 2）：
   PII 头扫描（逐头 10 字段白名单 + 核心 PII 任一非空即 FAIL）
@@ -770,16 +770,26 @@ def orientation_assertions(case_stats, mask, sx, sy, sz,
 
 
 # ---------------------------------------------------------------- S6 后处理契约汇编
-# [T-P1.5] 单算例模式允许缺失的字段（与 step5 的 _PLACEHOLDER_ONLY 同口径）：
-#   仅"三档占位体"相关项；ΔP/WSS/分流/阻力等核心字段缺失一律仍按红线中止。
+# [2026-11-07 三步契约分层 v1] 第二步/第三步可选增强字段（集合内容沿用 T-P1.5，
+#   test_phase15_single_case.test_placeholder_only_fields_pinned 钉住，勿改）：
+#   三档占位体与 pressure-flow curve 属后续阶段产物，第一步导出缺它们不拦截，
+#   只如实标注 meta.partial / meta.missing。核心字段缺失一律仍按红线中止。
 PLACEHOLDER_ONLY_FIELDS = ("dP_1mm_Pa", "dP_2mm_Pa", "dP_3mm_Pa",
                            "volumes_cm3", "dP_Pa", "band_Pa")
 
+# 第一步契约必需字段（本例几何 + 本例流场）：缺一即红线中止，严禁套用其他患者数字
+CORE_META_REQ = ("title", "caseBaseline", "units", "metrics")
+CORE_METRICS_REQ = ("dP_baseline_Pa", "dP_note", "split_L_pct", "split_R_pct",
+                    "wss_mean_Pa", "wss_p95_Pa", "resistance_total")
+
 
 def assemble_contract(result_metrics, letter, case):
-    """从本例后处理 metrics.json 汇编 step5 meta 契约。
-    占位档字段（dP_1/2/3mm、curve）需占位算例——单算例缺失即标记，
-    由完备性检查决定 step5 是否导出（绝不套用其他患者数字）。
+    """从本例后处理 metrics.json 汇编 step5 meta 契约（第一步）。
+
+    返回 (contract, core_missing, stage2_missing)：
+      core_missing   —— 第一步必需字段缺失，红线，必须中止导出
+      stage2_missing —— 第二步/第三步占位档字段缺失，不拦截，只如实标注
+    [2026-11-07 三步契约分层 v1] 三档占位数据不再计入第一步完备性。
     """
     totals = result_metrics["totals"]
     wss = result_metrics.get("wss", {})
@@ -803,14 +813,13 @@ def assemble_contract(result_metrics, letter, case):
         "_resistance_note": "定流量口径（Run-A dP/Q）；等压法自然分流口径需 Run-B 等压迭代",
         "_source": "本例后处理 metrics.json（run_all 汇编）",
     }
-    # 完备性检查：step5 契约必需字段（_METRICS_REQ/_CURVE_REQ 口径）
-    required_metrics = ["dP_baseline_Pa", "dP_1mm_Pa", "dP_2mm_Pa", "dP_3mm_Pa",
-                        "dP_note", "split_L_pct", "split_R_pct",
-                        "wss_mean_Pa", "wss_p95_Pa", "resistance_total"]
-    required_curve = ["volumes_cm3", "dP_Pa", "band_Pa"]
-    missing = [k for k in required_metrics if k not in contract["metrics"]]
-    missing += [k for k in required_curve if k not in contract["curve"]]
-    return contract, missing
+    # [2026-11-07 三步契约分层 v1] 第一步完备性只查核心必需集。
+    #   三档占位 / pressure-flow curve 属第二步可选增强，缺它们不再判「契约不完备」。
+    core_missing = [k for k in CORE_METRICS_REQ if k not in contract["metrics"]]
+    stage2_missing = [k for k in PLACEHOLDER_ONLY_FIELDS
+                      if k not in contract.get("metrics", {})
+                      and k not in contract.get("curve", {})]
+    return contract, core_missing, stage2_missing
 
 
 # ---------------------------------------------------------------- S5 笔记本交接文档
@@ -1116,12 +1125,13 @@ def main():
     ap.add_argument("--optional-layers", action="store_true",
                     help="S7b/S7c：生成 step6 体渲染层 + step7 皮肤壳（默认关；"
                          "仅用于参考数据集，几何常量为患者A 写死值）")
-    # [T-P1.5] 单算例 viewer 部分导出：患者快速档 / 单算例病例只跑一次求解，三档
-    #   占位体字段（dP_1/2/3mm、pressure-flow curve）天然缺失。核心红线不变——
-    #   缺核心字段仍中止；只允许"占位档三档"缺项，缺项一律不写、由 viewer 标"本次未做"。
+    # [2026-11-07 三步契约分层 v1] --allow-partial-viewer 不再是导出闸门：
+    #   三档占位字段属第二步可选增强，standard 档缺失也不拦截（规格 §2.2）。
+    #   本开关现仅用于患者快速档：让 step5 跳过 Taubin 视觉平滑（粗网格下平滑会
+    #   扭曲最窄截面）。参数名保留以兼容既有调用与测试。
     ap.add_argument("--allow-partial-viewer", action="store_true",
-                    help="单算例模式：允许三档占位字段缺失时仍导出 viewer 数据"
-                         "（meta.partial=true + missing 清单；标准档不传本开关）")
+                    help="患者快速档几何开关：step5 跳过 Taubin 视觉平滑；"
+                         "[2026-11-07] 不再是导出闸门，三档占位字段缺失在 standard 档也不拦截")
     ap.add_argument("--allow-anatomy-inclusion", action="store_true",
                     help="T14：允许真实解剖纳入（患者C 咽部 2.77cm3）——"
                          "体积回归比闸门上带 1.06->1.30（覆盖 pC 1.1728；"
@@ -2143,7 +2153,7 @@ def run_postprocess_and_step5(manifest, result_dir, OUT_ROOT, PREFIX, CASE,
         log(f"  结果目录存在但 后处理/metrics.json 缺失——待笔记本侧后处理：{result_dir}")
         return
     result_metrics = json.load(open(metrics_json, encoding="utf-8"))
-    contract, missing = assemble_contract(result_metrics, letter, CASE)
+    contract, core_missing, stage2_missing = assemble_contract(result_metrics, letter, CASE)
     contract_path = os.path.join(OUT_ROOT, "postprocess", f"contract-{PREFIX}-{CASE}.json")
     os.makedirs(os.path.dirname(contract_path), exist_ok=True)
     with open(contract_path, "w", encoding="utf-8") as f:
@@ -2155,8 +2165,9 @@ def run_postprocess_and_step5(manifest, result_dir, OUT_ROOT, PREFIX, CASE,
         "split_L_pct": contract["metrics"]["split_L_pct"],
         "split_R_pct": contract["metrics"]["split_R_pct"],
         "resistance_total": contract["metrics"]["resistance_total"],
-        "missing_fields": missing,
-        "completeness": "COMPLETE" if not missing else "INCOMPLETE",
+        "missing_fields": core_missing,
+        "stage2_optional_missing_fields": stage2_missing,
+        "completeness": "COMPLETE" if not core_missing else "INCOMPLETE",
         # 停车判据三元组（2026-10-20 新增，源自本例 metrics.json totals；
         # 旧字段一个不改，openfoam 后端/旧归档无这些字段时为 null）
         "stop_reason_code": (result_metrics.get("totals") or {}).get("stop_reason_code"),
@@ -2167,29 +2178,28 @@ def run_postprocess_and_step5(manifest, result_dir, OUT_ROOT, PREFIX, CASE,
         f"ΔP={contract['metrics']['dP_baseline_Pa']} Pa，"
         f"分流 L/R={contract['metrics']['split_L_pct']}/{contract['metrics']['split_R_pct']}%，"
         f"R={contract['metrics']['resistance_total']}")
-    _hard_missing = [k for k in missing if k not in PLACEHOLDER_ONLY_FIELDS]
-    _partial = bool(ARGS.allow_partial_viewer) and not _hard_missing
-    if missing and not _partial:
-        log(f"  契约不完备（缺 {missing}——占位档需占位算例，单算例无法提供）"
-            "——step5 按红线中止导出（不套用其他患者数字）")
+    # [2026-11-07 三步契约分层 v1] 第一步闸门只看核心必需集。
+    #   三档占位 / pressure-flow curve 属第二步可选增强，缺它们不阻断第一步，只如实标注。
+    if core_missing:
+        log(f"  第一步核心契约字段缺失（{core_missing}）"
+            "——step5 按红线中止导出（严禁套用其他患者数字）")
         with open(os.path.join(OUT_ROOT, f"step5_deferred-{PREFIX}-{CASE}.json"),
                   "w", encoding="utf-8") as f:
             json.dump({
                 "status": "deferred_contract_incomplete",
-                "missing_fields": missing,
-                "reason": "meta 契约字段缺失——占位档（dP_1/2/3mm、pressure-flow curve）"
-                          "需占位算例（虚拟扩张+占位体仿真），本例尚无占位体设计；"
-                          "字段补齐前严禁导出 step5（红线：字段缺失即中止导出并报错）",
-                "next_step": "完成本例占位算例（step3/step4 同法）→ 重跑 run_all --result-dir <结果目录>",
+                "missing_fields": core_missing,
+                "reason": "第一步核心契约字段缺失（本例几何/流场：ΔP、WSS、分流、阻力）——"
+                          "严禁套用其他患者数字；补齐本例后处理 metrics.json 前不得导出",
+                "next_step": "补齐本例后处理 metrics.json → 重跑 run_all --result-dir <结果目录>",
             }, f, ensure_ascii=False, indent=1)
         manifest["stages"]["S7_step5"] = {"status": "deferred_contract_incomplete",
-                                          "missing_fields": missing}
+                                          "missing_fields": core_missing}
         return
-    if missing:
-        # [T-P1.5] 单算例部分导出：viewer 最小必需集（ΔP/场数据/几何）齐备 → 继续导出；
-        #   缺的只是"占位档三档"，由 viewer 隐藏并标"本次未做"。三档数字绝不伪造。
-        log(f"  [T-P1.5] 单算例部分导出：缺 {missing}"
-            "（占位档需占位算例）→ 仍导出 viewer，缺失区块标『本次未做』")
+    if stage2_missing:
+        # 三档占位/曲线属第二步产物：不拦截第一步导出，viewer 标『本次未做』。
+        # 三档数字绝不伪造、不写 0、不回落演示值。
+        log(f"  第一步导出：第二步占位档字段未做（{stage2_missing}）"
+            "——按三步路线不阻断第一步；viewer 标『本次未做』")
 
     # ---- S7 step5 条件导出 ----
     log("[S7] step5 查看器数据导出（full 模式）...")
@@ -2214,7 +2224,9 @@ def run_postprocess_and_step5(manifest, result_dir, OUT_ROOT, PREFIX, CASE,
             "--metrics-json", contract_path,
             "--out-dir", os.path.join(OUT_ROOT, "step5"),
             "--write-mode", "full"]
-    if _partial:
+    # [2026-11-07] --single-case 只由患者快速档决定（控制 step5 跳过 Taubin 视觉平滑），
+    #   不再作为导出闸门；standard 档缺第二步占位字段照常完整精度导出。
+    if ARGS.allow_partial_viewer:
         cmd5.append("--single-case")
     if ARGS.ph_dir:
         cmd5 += ["--ph-dir", ARGS.ph_dir]
@@ -2225,8 +2237,8 @@ def run_postprocess_and_step5(manifest, result_dir, OUT_ROOT, PREFIX, CASE,
     if r.returncode != 0:
         die(2, f"step5 失败（exit {r.returncode}）")
     manifest["stages"]["S7_step5"] = {
-        "status": ("exported_partial" if _partial else "exported"),
-        "partial_missing_fields": (missing if _partial else []),
+        "status": ("exported_partial" if stage2_missing else "exported"),
+        "partial_missing_fields": list(stage2_missing),
         "vtu": vtu,
         "out_dir": os.path.relpath(os.path.join(OUT_ROOT, "step5"), OUT_ROOT),
     }
