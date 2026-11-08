@@ -37,9 +37,9 @@
   --hu-air / --hu-head                          透传 step1（默认 -400 / -300，§5.3）
   --ph-dir / --skin-data-js                     透传 step5（占位体/皮肤层；属第二步产物，
                           第一步不传——step5 不拼占位体，viewer 标"本次未做"）
-  --allow-partial-viewer    患者快速档几何开关：step5 跳过 Taubin 视觉平滑（粗网格）。
-                          [2026-11-07 三步契约分层 v1] 不再是导出闸门：
-                          三档占位字段属第二步可选增强，standard 档缺失也不拦截导出。
+  --allow-partial-viewer    几何开关：step5 跳过 Taubin 视觉平滑（原始等值面）。
+                          [2026-11-07 三步契约分层 v2] 不再是导出闸门；
+                          quick 档与上传病例 standard 档均会追加，仅此一处语义。
 
 内置断言（不过即停工上报，exit 2）：
   PII 头扫描（逐头 10 字段白名单 + 核心 PII 任一非空即 FAIL）
@@ -1125,13 +1125,15 @@ def main():
     ap.add_argument("--optional-layers", action="store_true",
                     help="S7b/S7c：生成 step6 体渲染层 + step7 皮肤壳（默认关；"
                          "仅用于参考数据集，几何常量为患者A 写死值）")
-    # [2026-11-07 三步契约分层 v1] --allow-partial-viewer 不再是导出闸门：
+    # [2026-11-07 三步契约分层 v2] --allow-partial-viewer 不再是导出闸门：
     #   三档占位字段属第二步可选增强，standard 档缺失也不拦截（规格 §2.2）。
-    #   本开关现仅用于患者快速档：让 step5 跳过 Taubin 视觉平滑（粗网格下平滑会
-    #   扭曲最窄截面）。参数名保留以兼容既有调用与测试。
+    #   本开关现是「让 step5 跳过 Taubin 视觉平滑」的几何开关：quick 档与
+    #   上传病例（kind=upload）的 standard 档都会追加；--quick 的降步数/z 降采样
+    #   与产物根 /quick 由另外两个独立参数控制，与本开关无关。
+    #   参数名保留以兼容既有调用与测试。
     ap.add_argument("--allow-partial-viewer", action="store_true",
-                    help="患者快速档几何开关：step5 跳过 Taubin 视觉平滑；"
-                         "[2026-11-07] 不再是导出闸门，三档占位字段缺失在 standard 档也不拦截")
+                    help="几何开关：step5 跳过 Taubin 视觉平滑（原始等值面）；"
+                         "[2026-11-07] 非导出闸门，quick 档与上传病例 standard 档均追加")
     ap.add_argument("--allow-anatomy-inclusion", action="store_true",
                     help="T14：允许真实解剖纳入（患者C 咽部 2.77cm3）——"
                          "体积回归比闸门上带 1.06->1.30（覆盖 pC 1.1728；"

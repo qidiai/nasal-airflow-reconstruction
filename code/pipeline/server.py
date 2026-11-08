@@ -39,6 +39,7 @@
 import argparse
 import io
 import glob
+import hashlib
 import json
 import os
 import re
@@ -1428,11 +1429,51 @@ def stage_viewer_if_exported(cfg, rec, mode="standard"):
                     capture_output=True, timeout=900)
             except Exception:
                 pass
+    # [2026-11-07 三步契约分层 v2] 舞台化来源可核验：把三类产物 sha256 写进
+    #   本例产物根（非共享 registry），供验收时与 /viewer/<cid> 实际取回文件比对。
+    #   与三类文件的生成/复制在同一函数临界区内完成，不改 run_all 子进程产物。
+    _stage_names = ("viewer_data.js", "viewer.html", "viewer_single.html")
+    _sha = {}
+    for _n in _stage_names:
+        _p = os.path.join(case_web, _n)
+        if os.path.isfile(_p):
+            with open(_p, "rb") as _f:
+                _sha[_n] = hashlib.sha256(_f.read()).hexdigest()
+    if out_dir:
+        try:
+            with open(os.path.join(out_dir, "viewer_stage_sha256.json"), "w",
+                      encoding="utf-8") as _f:
+                json.dump({"case_id": rec.get("case_id"), "mode": mode,
+                           "sha256": _sha,
+                           "source": "stage_viewer_if_exported"},
+                          _f, ensure_ascii=False, indent=1)
+        except OSError:
+            pass
     return True
+
+
+def _clear_stale_staged_viewer(rec):
+    """[2026-11-07 三步契约分层 v2] 仅上传病例在 run 开始时清掉旧舞台化三类文件。
+
+    共享 WEBAPP_DIR 按 case_id 单键 last-writer-wins，旧实例/上一轮的产物会让
+    /viewer/<cid> 拿到别人的数据。pA / 内置 / demo 的 webapp/cases/<cid>/ 是
+    冻结只读副本（server.py:11、:3293/:3440），一律不动。
+    """
+    if rec.get("kind") != "upload":
+        return
+    case_web = os.path.join(WEBAPP_DIR, "cases", rec.get("case_id") or "")
+    for name in ("viewer_data.js", "viewer_single.html", "viewer.html"):
+        p = os.path.join(case_web, name)
+        try:
+            if os.path.isfile(p):
+                os.remove(p)
+        except OSError:
+            pass
 
 
 def run_chain_thread(cfg, case_id, solve, result_dir, mode="standard"):
     rec = get_case_record(cfg, case_id)
+    _clear_stale_staged_viewer(rec)
     out_dir = rec.get("out_dir") or ""
     # 决策 3：quick 的整条链产物根 = <out_dir>/quick（standard 产物逐字节不动）
     out_root = run_out_root(rec, mode) or out_dir
@@ -1450,10 +1491,6 @@ def run_chain_thread(cfg, case_id, solve, result_dir, mode="standard"):
         cmd.append("--quick")
         dz = case_slice_dz(rec)
         qz = RA.quick_voxel_z(dz) if dz else None
-        # [T-P1.5] 快速档只有一次求解，天然没有三档占位体字段——允许 step5
-        #   单算例部分导出（meta.partial + missing），否则患者只看得到数字、没有 3D。
-        #   standard 路径不传本开关：占位档完备病例的闸门与产物逐字节不变。
-        cmd.append("--allow-partial-viewer")
         if qz:
             cmd += ["--voxel-z", "%g" % qz]
             append_progress(out_root, "[W] 快速档：voxel-z=%gmm"
@@ -1461,6 +1498,15 @@ def run_chain_thread(cfg, case_id, solve, result_dir, mode="standard"):
         else:
             append_progress(out_root, "[W] 快速档：读不到源层厚——网格不降采样，"
                                       "只降步数，预计更慢")
+    # [2026-11-07 三步契约分层 v2] 开放现成开关给第一步主路径：
+    #   2502ff1 后本开关已非导出闸门，只是「让 step5 跳过 Taubin 视觉平滑」的几何开关。
+    #   --quick（300 步 + z 降采样）与 --voxel-z 仍严格锁在上面的 quick 分支内；
+    #   产物根由 mode 单独决定（run_out_root），故上传病例 standard 档仍是
+    #   1500 步全精度 + 产物根不变，只是几何用原始 marching_cubes 等值面。
+    #   只对 kind=="upload"（网页上传 / 服务器目录导入）开放；pA / 内置 / 合成病例
+    #   不追加，仍做平滑，viewer_data.js / six_boards 逐字节不变。
+    if mode == "quick" or rec.get("kind") == "upload":
+        cmd.append("--allow-partial-viewer")
     if result_dir:
         cmd += ["--result-dir", result_dir]
     if getattr(cfg, "optional_layers", False):

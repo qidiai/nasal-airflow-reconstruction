@@ -122,12 +122,17 @@ def _run_step5(root, contract_path, single_case):
 
 
 def test_standard_without_single_case_is_not_blocked_by_contract(tmp_path):
-    """规格「契约闸门解耦」行为级钉子：standard 档（不带 --single-case）、契约只有
-    第一步核心字段时，**不得**再被「字段缺失即中止」旧闸门拦下。
+    """契约层行为级钉子：step5 **不带** --single-case、契约只有第一步核心字段时，
+    **不得**被「字段缺失即中止」旧闸门拦下。
 
-    诚实边界：当前 standard 档仍可能因 F3 六板门禁（板④ Taubin 平滑左右比）
-    sys.exit(3) 停工（规格 §8 未达成项，属下一层阻断）。本用例只钉契约层放行，
-    不把 F3 门禁失败算作契约回归，也不谎称 3D 已导出。
+    口径说明（2026-11-07 v2）：本用例是 subprocess 直跑 step5，测的是
+    「契约检查与 ARGS5.single_case 解耦」，**与 server 实际给 run_all 传什么参数无关**。
+    v2 实施后 server.run_chain_thread 对 kind=="upload" 的 standard 档会传
+    --allow-partial-viewer（→ step5 --single-case，跳过 Taubin 视觉平滑），
+    由 test_stage1_v2_flags.py 钉住。不要把本用例读成「实现里 standard 不带开关」。
+
+    诚实边界：不带 --single-case 的 step5 仍执行 Taubin 平滑，可能撞 F3 板④
+    sys.exit(3)；本用例只钉契约层放行，允许「门禁越限」出现，不谎称 3D 已导出。
     """
     h = _zero_streamline_helpers()
     root = str(tmp_path)
