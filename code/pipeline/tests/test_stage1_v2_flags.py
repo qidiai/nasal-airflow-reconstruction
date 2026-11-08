@@ -104,3 +104,33 @@ def test_clear_stale_only_for_upload(monkeypatch, tmp_path):
         SRV._clear_stale_staged_viewer(_rec(kind))
         assert all((case / n).read_text(encoding="utf-8") == "frozen" for n in names), \
             f"{kind} 的冻结副本不得被清理"
+
+
+def test_quick_emits_voxel_z_when_slice_dz_available(monkeypatch):
+    """复核第 7 项：quick 档读到有效源层厚 ⇒ cmd 带 --voxel-z（= quick_voxel_z(dz)
+    的 %g 值）、仍带 --quick，且 --allow-partial-viewer 只追加一次。"""
+    rec = _rec("upload")
+    cid = rec["case_id"]
+    seen = {}
+
+    def fake_run(cmd, **kwargs):
+        seen["cmd"] = cmd
+        return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(SRV, "subprocess", types.SimpleNamespace(run=fake_run))
+    monkeypatch.setattr(SRV, "get_case_record", lambda cfg, c: dict(rec))
+    monkeypatch.setattr(SRV, "_clear_stale_staged_viewer", lambda r: None)
+    monkeypatch.setattr(SRV, "append_progress", lambda *a, **k: None)
+    monkeypatch.setattr(SRV, "load_registry", lambda cfg: {cid: dict(rec)})
+    monkeypatch.setattr(SRV, "save_registry", lambda cfg, reg: None)
+    monkeypatch.setattr(SRV, "stage_viewer_if_exported", lambda *a, **k: False)
+    monkeypatch.setattr(SRV, "_session_purge", lambda *a, **k: None)
+    monkeypatch.setattr(SRV, "case_slice_dz", lambda r: 0.35)
+    monkeypatch.setattr(SRV.RA, "quick_voxel_z", lambda dz: 3.15)
+
+    SRV.run_chain_thread(types.SimpleNamespace(), cid, "local", None, mode="quick")
+    cmd = seen["cmd"]
+
+    assert "--quick" in cmd
+    assert _arg(cmd, "--voxel-z") == "3.15"
+    assert cmd.count("--allow-partial-viewer") == 1

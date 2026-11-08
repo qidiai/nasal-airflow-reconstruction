@@ -57,6 +57,8 @@ Thumbs.db
 # ---- 患者衍生数据文件（查看器单文件内嵌 CFD 场/简化网格）不进仓库 ----
 **/webapp/cases/**/viewer_single.html
 **/webapp/cases/**/viewer_data.js
+# 舞台化模板页同样内嵌患者数据，不进仓库
+**/webapp/cases/**/viewer.html
 **/webapp/models/**
 **/webapp/models/airway_pA.glb
 **/webapp/models/airway_pB.glb

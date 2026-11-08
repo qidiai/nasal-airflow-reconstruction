@@ -1439,16 +1439,35 @@ def stage_viewer_if_exported(cfg, rec, mode="standard"):
         if os.path.isfile(_p):
             with open(_p, "rb") as _f:
                 _sha[_n] = hashlib.sha256(_f.read()).hexdigest()
+    # [2026-11-07 复核 §4 补丁 2 / §6 勘误 2] 源↔舞台化产物一致性硬校验：
+    #   vd 是 step5 源产物，case_web/viewer_data.js 是刚 copy2 的舞台化产物，
+    #   二者逐字节应相同；仅当两文件都存在时比对，结果作可选键写入，不阻断导出。
+    _staged_vd = os.path.join(case_web, "viewer_data.js")
+    _stage_source_match = None
+    if os.path.isfile(vd) and os.path.isfile(_staged_vd):
+        def _sha256_file(p):
+            with open(p, "rb") as fp:
+                return hashlib.sha256(fp.read()).hexdigest()
+
+        _stage_source_match = (_sha256_file(vd) == _sha256_file(_staged_vd))
+        if not _stage_source_match:
+            append_progress(out_dir,
+                            "[W] 源↔舞台化产物不一致：step5/viewer_data.js 与 "
+                            "webapp/cases/%s/viewer_data.js sha256 不同"
+                            % rec.get("case_id"))
     if out_dir:
         try:
+            _doc = {"case_id": rec.get("case_id"), "mode": mode,
+                    "sha256": _sha,
+                    "source": "stage_viewer_if_exported"}
+            if _stage_source_match is not None:
+                _doc["stage_source_match"] = _stage_source_match
             with open(os.path.join(out_dir, "viewer_stage_sha256.json"), "w",
                       encoding="utf-8") as _f:
-                json.dump({"case_id": rec.get("case_id"), "mode": mode,
-                           "sha256": _sha,
-                           "source": "stage_viewer_if_exported"},
-                          _f, ensure_ascii=False, indent=1)
-        except OSError:
-            pass
+                json.dump(_doc, _f, ensure_ascii=False, indent=1)
+        except OSError as e:
+            append_progress(out_dir,
+                            "[W] 舞台化 sha256 记录写入失败：%s" % e)
     return True
 
 
