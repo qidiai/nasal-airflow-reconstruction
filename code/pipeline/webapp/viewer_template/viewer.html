@@ -15,9 +15,9 @@ header{flex:0 0 46px;display:flex;align-items:center;justify-content:space-betwe
 #app-title{font-size:15px;font-weight:600;letter-spacing:.5px}
 #hdr-right{font-size:11px;color:var(--dim);text-align:right;line-height:1.4}
 main{flex:1;display:flex;min-height:0} /* T10-F2：不写 flex-wrap——实测 wrap 会让行交叉尺寸退化为 max-content（1920 画布撑到 2115px、720 竖屏画布高度归零）；窄屏改由 @media 列向布局承担 */
-#canvas-wrap{position:relative;flex:1 1 480px;min-width:0;background:linear-gradient(180deg,#0a1628 0%,#020814 100%)} /* T8-P0 R4：深蓝→近黑临床工作站渐变底，经 alpha 透明清屏透出 */ /* T10-F2：弹性化，窄屏可整行换出 */
+#canvas-wrap{position:relative;flex:1 1 480px;min-width:0;background:linear-gradient(180deg,#101d31 0%,#060e1e 100%)} /* T8-P0 R4：深蓝→近黑临床工作站渐变底，经 alpha 透明清屏透出 */ /* T10-F2：弹性化，窄屏可整行换出 */
 #glcanvas{position:absolute;top:0;left:0;width:100%;height:100%;display:block;touch-action:none}
-#vignette{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;background:radial-gradient(ellipse at 50% 46%,rgba(0,0,0,0) 42%,rgba(2,8,20,.30) 72%,rgba(2,8,20,.62) 100%)} /* 暗角：纯 CSS 叠加层，不进渲染管线、不吃帧率 */
+#vignette{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;background:radial-gradient(ellipse at 50% 46%,rgba(0,0,0,0) 42%,rgba(2,8,20,.22) 72%,rgba(2,8,20,.45) 100%)} /* 暗角：纯 CSS 叠加层，不进渲染管线、不吃帧率 */
 #toolbar{position:absolute;top:10px;left:10px;display:flex;gap:8px}
 #toolbar button{background:#1a222bcc;color:var(--text);border:1px solid var(--line);border-radius:4px;padding:5px 10px;font-size:12px;cursor:pointer}
 #toolbar button:hover{border-color:#4d6472}
@@ -216,25 +216,25 @@ footer{flex:0 0 32px;display:flex;align-items:center;justify-content:center;back
 
       <section class="card">
         <h2>方法学</h2>
-        <div class="methodology" id="methodology-box">几何：合成示例数据（gen_demo_data.py 参数化模型，非患者 CT；真实管线口径：鼻窦 CT 各向同性 → HU&lt;-400 空气域阈值 → 体素六面体正交网格）
+        <div class="methodology" id="methodology-box">几何：由本例 CT 序列重建（鼻窦 CT 各向同性 → HU&lt;-400 空气域阈值 → 体素六面体正交网格）
 头部外形（受扫描视野限制：颅顶/枕后/颈项未完整采集）
 仿真：OpenFOAM simpleFoam 稳态层流 @15 L/min；ν=1.8e-5 m²/s
 验证：通量闭合 0.44%；ΔP 稳定性 1.36%；双机双后处理互验；三轮模型审计
 色标：流线/切片/壳层 = 速度 m/s（0–动态上限）；CT 窗控 = HU（显示用）；CT 染色 = 密度分档（显示用）
-口径：全部为仿真结果（非临床结论）；占位壳层为仿真工况（非推荐）
-侧向：分侧数字按患者自身左右显示（面对患者判读，患者左=画面右）；分侧通气分配与分侧压降为演示口径、随加载数据变化（本仓库为合成示例数据，非患者数据；以页面加载的 viewer_data.js meta 为准）；临床意义待主诊医师复核，不作诊断依据；画面方位导航用工具条「患者左/患者右」按钮</div>
+口径：全部为仿真结果（非临床结论）
+侧向：分侧数字按患者自身左右显示（面对患者判读，患者左=画面右）；分侧通气分配与分侧压降为演示口径、随加载数据变化（以页面加载的 viewer_data.js meta 为准）；临床意义待主诊医师复核，不作诊断依据；画面方位导航用工具条「患者左/患者右」按钮</div>
       </section>
 
       <section class="card" id="ct-thumb-card" style="display:none">
         <h2>CT 缩略图</h2>
         <div id="ct-thumbs"></div>
-        <div class="caption" id="ct-thumb-caption">本模型由此重建（合成示例数据 · gen_demo_data.py 参数化模型，非患者 CT）</div>
+        <div class="caption" id="ct-thumb-caption">本模型由此 CT 序列重建</div>
       </section>
 
       <section class="card">
         <h2>图层控制</h2>
         <label class="chk" id="row-skin" style="display:none"><input type="checkbox" id="cb-skin"> 头部外形（皮肤壳）<span class="info-i" title="由同一 CT 全视野重建：颅顶/枕后/颈项超出扫描视野，断面以暗灰显示并描边">ⓘ</span></label>
-        <label class="chk"><input type="checkbox" id="cb-breath-anim" checked> 呼吸动画（吸入 ⇄ 呼气）<span class="info-i" title="按 4 秒周期演示：0–2 秒吸入（沿流线正向），2–4 秒呼气（沿流线反向）；局部流速越快粒子走得越快（与流线同色标 青→黄）。关闭后只保留静态流线与箭头">ⓘ</span></label>
+        <label class="chk"><input type="checkbox" id="cb-breath-anim" checked> 呼吸动画（吸入 ⇄ 呼气）<span class="info-i" title="按 4 秒周期演示：0–2 秒吸入（沿流线正向），2–4 秒呼气（沿流线反向）；局部流速越快粒子走得越快（与流线同色标 青→黄）。关闭后只保留静态流线；开启时流动拖尾头亮尾暗，方向随吸/呼翻转">ⓘ</span></label>
         <div class="caliber" style="margin:-2px 0 4px 24px">按 4 秒周期演示：吸入 → 呼气（方向相反）</div>
         <label class="chk"><input type="checkbox" id="cb-cavity" checked> 鼻腔本体</label>
         <label class="chk"><input type="checkbox" id="cb-sinus" checked> 鼻窦<span class="info-i" title="鼻窦区气流接近零是生理现象（自然口细小，近乎死腔）——本仿真域包含鼻窦">ⓘ</span></label>
@@ -252,7 +252,7 @@ footer{flex:0 0 32px;display:flex;align-items:center;justify-content:center;back
       </section>
     </aside>
   </main>
-  <footer id="disclaimer">科研与康复参考 · 非医疗器械 · 仿真几何禁止人体使用 | 数据：合成示例数据（本仓库不含任何患者数据）| 科研演示</footer>
+  <footer id="disclaimer">科研与康复参考 · 非医疗器械 · 仿真几何禁止人体使用 | 数据：本机上传的本例 CT（数据不出机）| 科研演示</footer>
 </div>
 
 <!--
@@ -1283,42 +1283,26 @@ return LineSegments2;
   var resUnit = (meta.units && meta.units.resistance) ? ' ' + meta.units.resistance : '';
   set('m-res', fmt(M.resistance_total) + resUnit);
 
-  /* ---------- 3b. [T-P1.5] 单算例部分导出：缺失区块标"本次未做" ----------
-     仅当 viewer_data.js 的 meta.partial=true（本例只跑了一次求解、无三档占位体算例）
-     时生效。原则：不报错、不回落演示数据、不显示假数字——缺什么就标什么。
+  /* ---------- 3b. 第一步收敛：没做的第二步占位壳层，直接从界面移除 ----------
+     meta.partial=true（本例只跑一次求解、无三档占位体算例）时生效。
+     原则：没做的就不摆上界面——不加「本次未做」标注、不挂提示横幅，
+     三档仿真工况 ΔP 与 1/2/3mm 仿真工况壳层整组隐藏。
+     方案对比入口与 ΔP-占位曲线卡由模板 CSS 默认隐藏（同一收敛口径）。
      占位档完备的病例（meta.partial 不存在）走原逻辑，一字未改。 */
   if (meta.partial) {
     var missList = (meta.missing || []);
+    /* 三档仿真工况 ΔP：整块（含其后的说明行）隐藏，不再半透明留着 */
     var triBox = document.querySelector('.tri');
     if (triBox) {
-      triBox.style.opacity = '0.45';
-      triBox.title = '本例只跑了一次求解，没有三档占位体算例——三档压降本次未做';
+      triBox.style.display = 'none';
+      if (triBox.nextElementSibling) { triBox.nextElementSibling.style.display = 'none'; }
     }
-    if (triBox && triBox.nextElementSibling) {
-      triBox.nextElementSibling.textContent = '三档仿真工况 ΔP（本次未做）';
-    }
-    /* 占位壳层：本来就没有网格（下面 phMeshes 为空 → 复选框自动禁用），这里补文字标注 */
+    /* 1/2/3mm 仿真工况壳层：整行隐藏（本来就没有网格） */
     ['1', '2', '3'].forEach(function (mm) {
       var cb = document.getElementById('cb-ph-' + mm);
-      if (!cb) { return; }
-      var lab = cb.parentNode;
-      if (lab && !lab.querySelector('.ph-notdone')) {
-        var tag = document.createElement('span');
-        tag.className = 'ph-notdone';
-        tag.textContent = '（本次未做）';
-        tag.style.color = '#d29922';
-        lab.appendChild(tag);
-      }
+      if (cb && cb.parentNode) { cb.parentNode.style.display = 'none'; }
     });
-    var pbadge = document.createElement('div');
-    pbadge.id = 'partial-badge';
-    pbadge.textContent = '本次仅显示气道与流场（未做三档占位体对比）';
-    pbadge.style.cssText = 'position:fixed;top:10px;left:50%;transform:translateX(-50%);' +
-      'z-index:999;padding:5px 14px;border-radius:999px;font-size:13px;' +
-      'color:#ffe6b8;background:rgba(64,40,20,.86);border:1px solid #d29922aa;' +
-      'box-shadow:0 2px 8px rgba(0,0,0,.45);pointer-events:none';
-    document.body.appendChild(pbadge);
-    console.info('[viewer] 单算例部分导出：未做区块 = ' + (missList.join('、') || '（未列出）'));
+    console.info('[viewer] 第一步收敛：未做的占位壳层 UI 已不显示；missing=' + (missList.join('、') || '（未列出）'));
   }
 
   /* ---------- 4. 手绘 SVG 曲线（无图表库）：x=占位体积cm³，y=ΔP Pa（Y轴 0-80） ---------- */
@@ -1399,9 +1383,9 @@ return LineSegments2;
      分层 = 环境光（保底）+ 半球光（冷色天光/地面反光，给曲面上下两段不同色温）
      + 主光（从前下方向打，照亮鼻背/面中）+ 冷色补光 + 上方轮廓光。
      T9-2 朝向结论保留：本数据 +Y 是枕后、-Y 才是面部，主光必须从 -Y 打。 */
-  scene.add(new THREE.AmbientLight(0xdbe8f7, 0.42));
+  scene.add(new THREE.AmbientLight(0xdbe8f7, 0.52));
   scene.add(new THREE.HemisphereLight(0xcfe8ff, 0x16222e, 0.8));
-  var dl1 = new THREE.DirectionalLight(0xffffff, 1.5); dl1.position.set(1, -1.6, 1.2); scene.add(dl1);
+  var dl1 = new THREE.DirectionalLight(0xffffff, 1.15); dl1.position.set(1, -1.6, 1.2); scene.add(dl1);
   var dl2 = new THREE.DirectionalLight(0x86b6ff, 0.55); dl2.position.set(-1, 0.4, -1); scene.add(dl2);
   var dl3 = new THREE.DirectionalLight(0xe8f4ff, 0.7); /* 上方 30° 仰角轮廓光；仅作用于 MeshStandard 材质，流线 Line2 不受光照；不新增 render pass */
   dl3.position.set(0, -50, 86.6); scene.add(dl3);
@@ -1489,12 +1473,12 @@ return LineSegments2;
   var matCavity = new THREE.MeshStandardMaterial({
     color: CAVITY_COLOR, side: THREE.DoubleSide, flatShading: false,
     transparent: true, opacity: CAVITY_OPACITY, depthWrite: true,
-    roughness: 0.38, metalness: 0.15, emissive: 0x07182c, emissiveIntensity: 0.45
+    roughness: 0.5, metalness: 0.08, emissive: 0x07182c, emissiveIntensity: 0.45
   });
   var matSinus = new THREE.MeshStandardMaterial({
     color: SINUS_COLOR, side: THREE.DoubleSide, flatShading: false,
     transparent: true, opacity: SINUS_OPACITY, depthWrite: true,
-    roughness: 0.42, metalness: 0.10, emissive: 0x061a22, emissiveIntensity: 0.45
+    roughness: 0.52, metalness: 0.06, emissive: 0x061a22, emissiveIntensity: 0.45
   });
   addFresnelRim(matCavity, 0.40, 0xbfe9ff);
   addFresnelRim(matSinus, 0.32, 0xa8e6ff);
@@ -1667,7 +1651,8 @@ return LineSegments2;
   scene.add(gLines);
   scene.add(gPickLines);
 
-  /* T-BLUE 流向箭头：Line2 只表达"一条线"，走向要靠箭头读出来。
+  /* [已停用] T-BLUE 固定方向标记：下方 buildFlowArrows 不再执行（见内注释）。
+     气流方向改由流动粒子层的拖尾表达（头亮尾暗、随吸/呼相位翻转）。
      每 ARROW_STEP 个折点放一个小锥体，朝向 = 到下一点的切线；颜色跟速度色标（青→黄）。
      走 InstancedMesh（一次 draw call），不逐个建 Mesh。
      instanceColor 在本版 three(r160) 里只在 vertex shader 里累乘进 vColor，fragment 的
@@ -1691,6 +1676,9 @@ return LineSegments2;
     if (arrowMesh.instanceColor) { arrowMesh.instanceColor.needsUpdate = true; }
   }
   (function buildFlowArrows() {
+    /* 固定方向标记已移除：锥体几何恒朝吸气相，与呼气相反向气流矛盾。
+       气流方向由下方粒子层的拖尾表达，这里不再创建/渲染任何静态箭头。 */
+    return;
     var lines = DATA.streamlines || [], li, i, k, pts, n, v;
     if (!lines.length) { return; }
     var mn = [1e9, 1e9, 1e9], mx = [-1e9, -1e9, -1e9];
@@ -2370,13 +2358,9 @@ return LineSegments2;
   bindChk('cb-cavity', cavity || airway, true);
   bindChk('cb-sinus', sinus, true);
   bindChk('cb-lines', gLines, true);
-  /* 流向箭头与流线同开关。箭头是独立 InstancedMesh，绝不可塞进 gLines:
-     gLines.children[i] 必须与 DATA.streamlines[i] 1:1 同序（remapColors 与探针按下标对齐）。 */
-  (function bindArrowVisibility() {
-    var el = document.getElementById('cb-lines');
-    gArrows.visible = el ? el.checked : true;
-    if (el) { el.addEventListener('change', function () { gArrows.visible = el.checked; }); }
-  })();
+  /* 固定方向标记已移除：gArrows 为空组、不进 scene；气流方向由粒子拖尾表达。
+     gLines.children[i] 仍须与 DATA.streamlines[i] 1:1 同序（remapColors 与探针按下标对齐）。 */
+  gArrows.visible = false;
   bindChk('cb-slices', gSlices, false);
   ['1', '2', '3'].forEach(function (mm) {
     var el = document.getElementById('cb-ph-' + mm);
@@ -2439,12 +2423,11 @@ return LineSegments2;
     if (!isFinite(n)) { return fmt(v); }
     return (n * flowK).toFixed(2);
   }
-  /* [T-P1.5] 单算例部分导出：三档压降本来就不存在 → 标"本次未做"
-     （不写 0、不借用别的病例数字，也不显示假的 "— Pa"）。占位档完备的病例
-     PARTIAL_VIEW=false → 与改版前逐字一致。 */
+  /* 第一步收敛：没做的三档压降不摆上界面（.tri 已整块隐藏），
+     单元格也不写「本次未做」字样；占位档完备的病例与改版前逐字一致。 */
   var PARTIAL_VIEW = !!(meta.partial);
   function dpCell(v) {
-    if (PARTIAL_VIEW && (v === undefined || v === null)) { return '本次未做'; }
+    if (PARTIAL_VIEW && (v === undefined || v === null)) { return ''; }
     return dpDisp(v) + ' Pa';
   }
   function updateMetricsFlow() {
@@ -2502,8 +2485,8 @@ return LineSegments2;
        · 2–4s 呼气相：沿流线反向推进（u 减小，朝鼻前庭方向）——不淡出，始终可见且方向相反
        · 相内瞬时速度 ∝ sin(π·相位进度/2s)：相位两端为 0 → 相变处速度连续、位置不跳变
        · 每粒再乘局部流速归一化 vN（快流处快）与 flowK（流量滑杆一改，粒子同步变快）
-     不动的部分：静态流线/箭头几何与配色、取景、面板结构、材质、数据契约；粒子仍是一个
-     BufferGeometry + 一个 THREE.Points（单 draw call）、总数 ≤ BREATH_MAX_PTS、挂在既有 rAF 上。
+     不动的部分：静态流线几何与配色、取景、面板结构、数据契约；粒子仍是一个
+     BufferGeometry + 一个 THREE.LineSegments（单 draw call）、总数 ≤ BREATH_MAX_PTS、挂在既有 rAF 上。
      弧长记录 {p,cum,total,sp} 只有一份，粒子层与流速探针（speedAtU）共用。 */
   var BREATH_PERIOD = 4;         /* 一个完整呼吸周期（秒） */
   var BREATH_HALF = 2;           /* 半周期：0–2s 吸气、2–4s 呼气 */
@@ -2512,7 +2495,7 @@ return LineSegments2;
   var BREATH_MIN_PER_LINE = 3;
   var BREATH_U_MIN = 0.12;       /* 局部流速≈0 时保留的推进比——"慢流"要慢，不能停 */
   var BREATH_RATE = 0.26;        /* 相位推进率(1/s)：满速粒子约 3.8s 跑完一遍，半周期≈18% 弧长 */
-  var BREATH_PT_SIZE = 3.8;      /* 屏幕像素（sizeAttenuation:false，55–60% 取景下可辨） */
+  /* 粒子改为带拖尾的 LineSegments，不再用 Points 圆点尺寸 */
 
   var breathData = [];           /* 流线弧长记录 {p,cum,total,sp}：本层与探针共用同一份 */
   (DATA.streamlines || []).forEach(function (sl) {
@@ -2540,9 +2523,16 @@ return LineSegments2;
     return Number(rec.sp[Math.min(n - 1, Math.max(0, Math.round(u * (n - 1))))]) || 0;
   }
 
-  /* 粒子几何：一个 BufferGeometry + 一个 THREE.Points（单 draw call），按弧长等距撒点 */
+  /* 粒子几何：Line2 粗线段（LineSegments2 + LineMaterial），单 draw call。
+     每粒子一段带方向的短拖尾：头 = 当前 u 位置，尾 = 沿流向退后 TAIL_U；头亮尾暗，
+     拖尾随吸/呼相位翻转。线宽用屏幕像素（WebGL 原生 LineBasicMaterial 的 linewidth
+     恒为 1px 改不动，故复用模板内已内联的 Line2 三件套）。
+     每帧只写已建好的 interleaved buffer 并置 needsUpdate，不调 setPositions/setColors
+     重建（后者会新建 buffer + 重算包围盒/球，3000 段 ×60fps 太重）。 */
+  var TAIL_U = 0.022;          /* 拖尾占全弧长的比例（约 5~6 帧位移）：太小看不出、太大会糊成实线 */
+  var TAIL_LINEWIDTH_PX = 1.5; /* 相对原 1px 细线加粗 1.5 倍 */
   var ptLineOf = [], ptU = [], ptPerLine = 0, ptCount = 0;
-  var ptGeo = null, ptMat = null, ptPts = null, ptPosA = null;
+  var ptGeo = null, ptMat = null, ptPts = null, ptPosA = null, ptColA = null;
   var breathT = 0;        /* 周期内时间 0..BREATH_PERIOD */
   var breathPhase = 0;    /* +1 吸气相 / -1 呼气相 */
   var breathFrameDu = 0;  /* 本帧带符号平均位移（弧长坐标 u/帧）：验收探针读它判正负 */
@@ -2556,23 +2546,26 @@ return LineSegments2;
       for (i2 = 0; i2 < per; i2 += 1) { ptLineOf.push(li); ptU.push(i2 / per); ptCount += 1; }
     }
     if (!ptCount) { return; } /* 空数据：不建粒子、不报错（勾选框随后置灰） */
-    ptGeo = new THREE.BufferGeometry();
-    ptGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(ptCount * 3), 3));
-    ptGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(ptCount * 3), 3));
-    ptPosA = ptGeo.attributes.position.array;
-    ptMat = new THREE.PointsMaterial({
-      size: BREATH_PT_SIZE, sizeAttenuation: false, vertexColors: true,
-      transparent: true, opacity: 0.95, depthTest: false, depthWrite: false
+    ptGeo = new T10_LINE2.LineSegmentsGeometry();
+    ptPosA = new Float32Array(ptCount * 6);   /* 段端点 [头xyz, 尾xyz] × N */
+    ptColA = new Float32Array(ptCount * 6);   /* 段颜色 [头rgb, 尾rgb] × N */
+    ptGeo.setPositions(ptPosA);               /* 建 instanceStart/End，共享同一 interleaved buffer */
+    ptGeo.setColors(ptColA);                 /* 建 instanceColorStart/End，同上 */
+    ptMat = new T10_LINE2.LineMaterial({
+      vertexColors: true, linewidth: TAIL_LINEWIDTH_PX, worldUnits: false,
+      depthTest: false, transparent: true, opacity: 0.95,
+      resolution: new THREE.Vector2(1, 1)   /* resize() 里随视口联动 */
     });
-    ptPts = new THREE.Points(ptGeo, ptMat);
+    ptPts = new T10_LINE2.LineSegments2(ptGeo, ptMat);
     ptPts.frustumCulled = false; /* 位置逐帧变，关掉剔除省一次包围球重算；单 draw call 本就便宜 */
-    ptPts.renderOrder = 4;       /* 表面(0)/轮廓(1)/流线(2)/箭头(3) 之上——"在流"是最上层提示 */
+    ptPts.renderOrder = 4;       /* 表面(0)/轮廓(1)/流线(2) 之上——"在流"是最上层提示 */
     ptPts.visible = false;       /* 首帧由 breathApplyVisibility() 按开关定档 */
     scene.add(ptPts);
     breathStep(0);               /* 先落一次位置/颜色，避免首帧粒子堆在原点 */
   })();
 
-  /* 单遍推进：带符号步长 → 弧长坐标 → 位置 → 颜色（不额外分配；dt=0 时只按当前色标重刷颜色） */
+  /* 单遍推进：带符号步长 → 弧长坐标 → 头/尾位置 → 头亮尾暗（不额外分配）。
+     dt=0 时只按当前色标重刷颜色；拖尾方向随吸/呼相位翻转。 */
   function breathStep(dt) {
     if (!ptGeo) { return; }
     var inhale = breathT < BREATH_HALF;
@@ -2580,8 +2573,8 @@ return LineSegments2;
     var dir = inhale ? 1 : -1;
     breathPhase = dir;
     var env = Math.sin(Math.PI * pT / BREATH_HALF);           /* 0→1→0：相变处为 0，位置连续 */
-    var i, rec, u, sp, vN, f, stp, sum = 0, c;
-    var col = ptGeo.attributes.color.array;
+    var i, o, rec, u, uTail, tailLen, sp, vN, f, stp, sum = 0, c;
+    var pos = ptPosA, col = ptColA;
     for (i = 0; i < ptCount; i += 1) {
       rec = breathData[ptLineOf[i]];
       u = ptU[i];
@@ -2596,14 +2589,24 @@ return LineSegments2;
         ptU[i] = u;
         sum += stp;
       }
+      o = i * 6;                                              /* 每粒子 2 顶点（头、尾）各 3 分量 */
+      /* 头：当前位置，本色亮 */
       posAtU(rec, u, breathTmp);
-      ptPosA[i * 3] = breathTmp[0]; ptPosA[i * 3 + 1] = breathTmp[1]; ptPosA[i * 3 + 2] = breathTmp[2];
-      c = speedRamp(0.42 + 0.58 * vN); /* 与流线同色标（青→黄）；低流速不上深蓝——暗底看不见粒子 */
-      col[i * 3] = c[0]; col[i * 3 + 1] = c[1]; col[i * 3 + 2] = c[2];
+      pos[o] = breathTmp[0]; pos[o + 1] = breathTmp[1]; pos[o + 2] = breathTmp[2];
+      /* 尾：沿流向退后 TAIL_U。dir=+1 吸气 → 尾在 u 小侧；dir=-1 呼气 → 尾在 u 大侧。
+         两端把拖尾自然收短，避免 u 越过 0/1 时绕到另一端、画出横穿整条流线的长线 */
+      tailLen = dir > 0 ? Math.min(TAIL_U, u) : Math.min(TAIL_U, 1 - u);
+      uTail = u - dir * tailLen;
+      posAtU(rec, uTail, breathTmp);
+      pos[o + 3] = breathTmp[0]; pos[o + 4] = breathTmp[1]; pos[o + 5] = breathTmp[2];
+      c = speedRamp(0.42 + 0.58 * vN); /* 与流线同色标（青→黄）；低流速不上深蓝——暗底看不见 */
+      col[o] = c[0]; col[o + 1] = c[1]; col[o + 2] = c[2];                       /* 头：本色 */
+      col[o + 3] = c[0] * 0.12; col[o + 4] = c[1] * 0.12; col[o + 5] = c[2] * 0.12; /* 尾：暗，方向由亮端读出 */
     }
     if (dt > 0) { breathFrameDu = sum / ptCount; }
-    ptGeo.attributes.position.needsUpdate = true;
-    ptGeo.attributes.color.needsUpdate = true;
+    /* Start/End 共享同一个 interleaved buffer，各置一次即可（不重建） */
+    ptGeo.attributes.instanceStart.data.needsUpdate = true;
+    ptGeo.attributes.instanceColorStart.data.needsUpdate = true;
   }
 
   /* 开关：默认开；prefers-reduced-motion:reduce → 默认关，运行中切到 reduce 自动关 */
@@ -2652,7 +2655,7 @@ return LineSegments2;
     breathPhaseEl.style.display = 'flex';
     var inhale = breathT < BREATH_HALF;
     var pT = inhale ? breathT : breathT - BREATH_HALF;
-    /* 箭头是吸气参考方向，不翻转箭头几何；呼气相只在相位标签旁提示「（反向）」 */
+    /* 拖尾方向随相位翻转（呼气相整体反向），相位标签旁同步提示「（反向）」 */
     var next = inhale ? '吸入' : '呼气（反向）';
     if (next !== breathLabel) { if (breathLabelEl) { breathLabelEl.textContent = next; } breathLabel = next; }
     if (breathFillEl) { breathFillEl.style.width = ((pT / BREATH_HALF) * 100).toFixed(1) + '%'; }
@@ -2766,6 +2769,7 @@ function resize() {
     camera.updateProjectionMatrix();
     /* F1：Line2 线宽=屏幕像素，resolution 必须随视口联动；A/B 为左右半帧渲染，取半宽与 aspect 同口径 */
     fatMat.resolution.set(vw, h);
+    if (ptMat) { ptMat.resolution.set(vw, h); } /* 流动拖尾 Line2 线宽同口径随视口联动 */
   }
   window.addEventListener('resize', resize);
   resize();

@@ -1200,8 +1200,11 @@ def main():
     manifest["assertions"]["pii"] = "PASS" if pii["pass"] else "SELF_USE_WAIVED"
     if not pii["pass"]:
         log(f"  [本人本机自用] S0 检出 {pii['fail_count']} 项身份字段，已留痕并按 m1-local 语义放行，不停工")
-    log(f"  PASS：{pii['files']} 头全过；PatientID 值域={pii['pid_values']}；"
-        f"非空字段={pii['pii_nonempty_summary'] or '无'}")
+        log(f"  SELF_USE_WAIVED：{pii['files']} 头，检出 {pii['fail_count']} 项身份字段；"
+            f"PatientID 值域={pii['pid_values']}；非空字段={pii['pii_nonempty_summary'] or '无'}")
+    else:
+        log(f"  PASS：{pii['files']} 头全过；PatientID 值域={pii['pid_values']}；"
+            f"非空字段={pii['pii_nonempty_summary'] or '无'}")
 
     # ---- S1 DICOM 头普查 ----
     log("[S1] DICOM 头普查 ...")
