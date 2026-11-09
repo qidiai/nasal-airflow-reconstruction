@@ -576,3 +576,16 @@ OpenFOAM 退役（M3）须待以下条件闭合——退役不可逆（永久失
 | 流程合规性 | 严格乐团七环齐备：任务书 → 派编码手 Worker（非主会话直改）→ Worker 回执三要素 → 第 2 层抽验 → 第 3 层独立只读审计 → 台账 → 指挥官提交。审计 5 条勘误（抽验 CMD-B 两平台 EXIT 均 2、抽验提交面 `??` 实为 79、任务书 §0 实为 ahead 1 未推送、§3.6 M 数应为 5、CMD-C 无需勘误）已如实登记；抽验文档与任务书口径未倒推成已合规 |
 | 非阻断登记 / 诚实边界 | ① **PII 前置门 422 仍会拒收带姓名的真实 CT** —— 按用户「数据问题后置」本笔**零碰**（`server.py`/`run_all.py` 零入 diff），README QUICKSTART ④ 已补「检出身份字段返回 422、请先自行匿名化、闸门调整属后续数据合规议题」的诚实提示，未被误写为已解决。② standard 档 viewer 3D 导出仍要求完整占位档契约，FlowScope 不产这些字段 → 「出 3D」以 quick 档/`--allow-partial-viewer` 为条件，README/从零复现已如实写明。③ 未真跑完整 bootstrap 全链（20 分钟级 `--solve local` 合成 CT 冒烟）、未在 Linux 实机（非 WSL）执行 ELF、未在 Windows 实机执行 `bootstrap.ps1`、未跑患者真实 CT 端到端、macOS/ARM 未覆盖。④ 本笔闭合的是**求解器可用性断点**，不等于「上传任意 CT 无条件出 3D」 |
 | 状态 | **「拉下来就跑」求解器断点已闭合**（Win/Linux x86_64 干净 clone 无 Rust 可 `auto→custom`）· 独立审计 0 BLOCKING 可签结 · 全量 355/8/0 · 已本地提交 `b2baaf1`（**未推送**，待用户批准；推送前须再跑 §10 可见性闸门） |
+
+### #107 本人本机上传自己的 CT 出 3D 气道模型（2026-11-09，用户「不考虑数据问题，只考虑下载自己传自己的 CT 可以出气道模型」）
+
+| 项 | 内容 |
+|---|---|
+| 反例 | 用户把验收口径钉死为「用户下载 → 自己传自己的 CT → 可以出气道模型」，明确**不再讨论数据合规**。基线实证：起本地服务 POST `/api/upload` 传一份带姓名/ID/生日的合成 CT（48 切片，模拟本人 CT、不牵扯真实患者数据）→ **HTTP 422** `gate=PII 头扫描（上传前置）`，「检出患者身份字段，请先脱敏后再上传」。即 #106 闭合的是**求解器**断点，主路径最后一环仍断 |
+| 根因 | 三道 `scan_pii` 门叠加，且都与代码自身 m1-local 语义矛盾（`server.py:14` 注释「m1-local 真实患者数据」、`evaluate_consent` local 分支直接 `release=True`）：① `/api/upload` 前置门 `server.py:2974`（HR-1 11-05 加，动机「避免原始 DICOM 在本机 uploads/ 留存」）② `_register_case` 注册链 `server.py:2201` ③ `run_all.py:1197` S0 `die(2)`。合成 CT 因 `make_synthetic_ct.py` 主动把 10 字段置空才过得去，真实本人 CT 必被拦 |
+| 谁接住 | 用户选 A（真跑全链）+「现在不考虑数据问题了…只考虑用户下载自己传自己的 ct 可以出气道模型」。主会话直改（非派工），沿用 `run_all.py` 既有「上传病例专用开关」模式 |
+| 实义判定 | 新增默认关闭的 `--allow-self-pii`（`run_all.py:1142`）：S0 仍扫描、结果记入 `manifest`，但 m1-local 网页上传病例不因本人身份字段停工；`server.py:1531` 仅对 `kind=="upload"` 追加该开关。两处拦截分支（2974/2201）加 `cfg.only_synthetic` 条件——**m2-cloud 原 fail-closed 语义逐字不变**，`scan_pii` 函数本身一行未改。`server.py:2300` 成功响应原本硬编码 `pii.pass=True`，改为回传真实 `pii["pass"]` 并按情况给消息，避免对患者谎报「扫描 PASS」 |
+| 验证 | **端到端真跑（决定性）**：干净服务 `--mode m1-local --state-dir <隔离目录>`，同一份带姓名/ID/生日的 48 切片 CT 走 `/api/upload` → **200**（`status=segmented`、`pii.pass=false` 如实）→ `/api/run` **202** → 进度 **done**（`exit_code=0`，35.7s）→ `/api/metrics` **200** → `/viewer` **200** → `state3/cases/pX/step5/viewer_data.js` **205680 B**（含 `positions`/`dP_Pa`，真实几何+指标）。manifest `assertions.pii = SELF_USE_WAIVED`（如实留痕，未谎报 PASS）。全量 **363 tests / 0 failures / 0 errors / 8 skipped**（exit 0），与基线一致无回归 |
+| 诚实边界 | ① 扫描与留痕**全部保留**（`rec["pii"]`/consent/manifest 照常记录 FAIL），只是 m1-local 不拦截；未删任何闸门、未改判定式本身。② 云形态上传仍代码级 503、PII 仍 fail-closed。③ 仅 Windows 本机 + 合成 CT（注入身份字段）实证；未在 Linux 实机、未用真实患者 CT、未跑 `bootstrap.ps1`、macOS/ARM 未覆盖。④ 未真跑完整 bootstrap 7 步全链，本笔跑的是 Web 上传主路径 |
+| 口径变更（supersede，只加注不删历史） | **本笔废弃** #105 状态行「下一动作 = L2-b 脱敏（须用户拍板）后重跑 5 批」，及 #106「PII 前置门零碰 / 数据合规后置 / README ④ 请先自行匿名化」口径。用户 11-09 明确「不考虑数据问题了，只考虑下载自己传自己的 CT 可以出气道模型」，且早前纠正「用户自己上传的它应该可以看到自己的」。历史行保留原样不改，以本节为准。README ④、`从零复现.md` §3/§5 已同步 |
+| 状态 | **「下载 → 传自己的 CT → 出 3D 气道模型」主路径已实证跑通** · 全量 363/0/0/8 无回归 · 本地提交（**未推送**，待用户批准；推送前须跑 §10 可见性闸门） |

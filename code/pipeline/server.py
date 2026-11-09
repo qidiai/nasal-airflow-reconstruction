@@ -1526,6 +1526,9 @@ def run_chain_thread(cfg, case_id, solve, result_dir, mode="standard"):
     #   不追加，仍做平滑，viewer_data.js / six_boards 逐字节不变。
     if mode == "quick" or rec.get("kind") == "upload":
         cmd.append("--allow-partial-viewer")
+    if rec.get("kind") == "upload":
+        # 本人本机自用：S0 仍扫描留痕，不因头内本人身份字段停工
+        cmd.append("--allow-self-pii")
     if result_dir:
         cmd += ["--result-dir", result_dir]
     if getattr(cfg, "optional_layers", False):
@@ -2193,7 +2196,9 @@ def _register_case(cfg, dicom_dir, prefix, case_name, label, kind, case_id_val,
             append_progress(out_dir, "[W] !!! consent_record.json 落档失败：%r"
                             "（授权记录缺失 → 云形态将按 fail-closed 拦截）" % (e,))
 
-    if not pii["pass"]:
+    # 本人本机自用（m1-local）：扫描结果照常记入 rec/consent/manifest，
+    # 但不拦；云形态（only_synthetic）保留原 fail-closed 拦截语义。
+    if cfg.only_synthetic and not pii["pass"]:
         rec.update(status="blocked", gate="PII 头扫描（run_all 同款闸门）",
                    gate_failures=[digest_pii_fail(f) for f in pii.get("fails", [])][:10],
                    exit_code=2)
@@ -2294,9 +2299,12 @@ def _register_case(cfg, dicom_dir, prefix, case_name, label, kind, case_id_val,
     return jsonify({"case_id": rec["case_id"], "status": "segmented",
                     "kind": kind, "prefix": prefix,
                     "label": label,
-                    "pii": {"files": pii.get("files", 0), "pass": True},
+                    "pii": {"files": pii.get("files", 0), "pass": pii["pass"]},
                     "survey": rec.get("survey"),
-                    "message": "PII 扫描 PASS + step1 完成；可 POST /api/run 启动全链"})
+                    "message": ("PII 扫描 PASS + step1 完成；可 POST /api/run 启动全链"
+                                if pii["pass"] else
+                                "PII 扫描检出本人身份字段（本机本人自用，已留痕放行）"
+                                " + step1 完成；可 POST /api/run 启动全链")})
 
 
 # ---------------------------------------------------------------- 上传序列自动识别  [SERIES-AUTOSELECT]
@@ -2964,7 +2972,9 @@ def build_app(cfg):
                        "fails": [["-", "PII", str(e), "scan_pii 停工（目录无可扫描头）"]]}
         except Exception:  # noqa: BLE001
             pii_pre = None
-        if pii_pre is not None and not pii_pre.get("pass", True):
+        # 本人本机自用（m1-local）：扫描照常执行、结果留痕，但不因头内本人
+        # 身份字段拒收；云形态（only_synthetic）保留原拦截语义不变。
+        if cfg.only_synthetic and pii_pre is not None and not pii_pre.get("pass", True):
             shutil.rmtree(up_dir, ignore_errors=True)
             return jsonify({
                 "status": "blocked",

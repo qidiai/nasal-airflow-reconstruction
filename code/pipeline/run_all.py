@@ -1139,6 +1139,10 @@ def main():
                          "体积回归比闸门上带 1.06->1.30（覆盖 pC 1.1728；"
                          "DeepSeek round2 §5.3-1 实验在案：咽部系真实解剖，"
                          "无实验可回避）；下带 <0.94 与 >1.30 照常硬停")
+    ap.add_argument("--allow-self-pii", action="store_true",
+                    help="本人本机自用（m1-local 网页上传）：S0 仍扫描并留痕，"
+                         "但不因 DICOM 头内本人身份字段停工；默认关闭，"
+                         "命令行/内置/合成/云形态行为逐字节不变")
     # T15A：交付物回传（可选终步）——未指定则仅末尾打印回传提醒
     ap.add_argument("--publish", default=None, metavar="<共享目录>",
                     help="T15A：所有步骤完成后，把交付物（算例 zip / "
@@ -1190,10 +1194,12 @@ def main():
     log("[S0] PII 头扫描 ...")
     pii = scan_pii(DICOM_DIR)
     manifest["stages"]["S0_pii_scan"] = pii
-    if not pii["pass"]:
+    if not pii["pass"] and not ARGS.allow_self_pii:
         manifest["assertions"]["pii"] = "FAIL"
         die(2, f"PII 头扫描 FAIL ×{pii['fail_count']}（首条：{pii['fails'][0] if pii['fails'] else '?'}）——停工上报")
-    manifest["assertions"]["pii"] = "PASS"
+    manifest["assertions"]["pii"] = "PASS" if pii["pass"] else "SELF_USE_WAIVED"
+    if not pii["pass"]:
+        log(f"  [本人本机自用] S0 检出 {pii['fail_count']} 项身份字段，已留痕并按 m1-local 语义放行，不停工")
     log(f"  PASS：{pii['files']} 头全过；PatientID 值域={pii['pid_values']}；"
         f"非空字段={pii['pii_nonempty_summary'] or '无'}")
 
