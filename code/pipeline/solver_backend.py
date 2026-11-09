@@ -76,11 +76,27 @@ def log(msg):
 def flowscope_path():
     """返回 FlowScope 可执行文件路径（不存在返回空串）。
 
-    优先级：环境变量 ``FLOWSCOPE_BIN`` → ``solver/target/release/flowscope[.exe]``。
+    优先级：环境变量 ``FLOWSCOPE_BIN`` → ``solver/bin/`` 平台预编译二进制
+    → ``solver/target/release/flowscope[.exe]`` 自构建产物。
     """
+    import platform
+
     env = os.environ.get("FLOWSCOPE_BIN", "")
     if env and os.path.isfile(env):
         return env
+    # 按平台探测随仓库分发的预编译二进制：仅 Windows x86_64 / Linux x86_64。
+    # 其它平台（macOS / aarch64 等）不匹配，回退到下方 target/release 自构建
+    # 路径，绝不把 ELF/PE 误喂给非对应平台。
+    machine = platform.machine().lower()
+    bin_dir = os.path.join(SOLVER_DIR, "bin")
+    if os.name == "nt" and machine in ("x86_64", "amd64"):
+        prebuilt = os.path.join(bin_dir, "flowscope-win-x64.exe")
+        if os.path.isfile(prebuilt):
+            return prebuilt
+    elif sys.platform.startswith("linux") and machine == "x86_64":
+        prebuilt = os.path.join(bin_dir, "flowscope-linux-x64")
+        if os.path.isfile(prebuilt):
+            return prebuilt
     exe = "flowscope.exe" if os.name == "nt" else "flowscope"
     p = os.path.join(SOLVER_DIR, "target", "release", exe)
     return p if os.path.isfile(p) else ""

@@ -8,7 +8,8 @@
 #   SKIP_SOLVE=1   冒烟只跑到算例+断言（--solve skip），不做 CFD 求解
 #   MAX_ITER=300   冒烟求解步数上限（默认 300；合成小算例实测几十秒内收敛）
 #
-# 步骤：Python/venv → pip 依赖 → cargo 构建 FlowScope → 合成 CT →
+# 步骤：Python/venv → pip 依赖 → 探测本平台预编译 FlowScope 二进制
+#       （命中即无需 cargo；缺失时才 cargo build --release）→ 合成 CT →
 #       pA 查看器产物（干净克隆补合成占位，失败仅 WARN）→ pytest 冒烟 →
 #       run_all 全链路冒烟（合成数据）。每步打印 [OK]/[FAIL]
 #       与耗时；任一步失败以非零退出并给出中文提示。幂等，可重复执行。
@@ -59,11 +60,29 @@ T=$(now)
 "$VENV_PY" -m pip install -q -r "$REQ_FILE" || step_fail "pip 依赖安装" "exit $?——检查网络或 requirements.txt"
 step_ok "pip 依赖" "$(( $(now) - T ))" "已装齐（重复执行为 already satisfied）"
 
-# ---------------------------------------------------------- [3/7] cargo 构建 FlowScope
-echo; echo "[3/7] Rust 求解器 FlowScope（cargo build --release）"
+# ---------------------------------------------------------- [3/7] FlowScope 预编译二进制优先，缺失才 cargo 构建
+echo; echo "[3/7] Rust 求解器 FlowScope（优先用仓库预编译二进制，无需 cargo）"
 T=$(now)
 CAN_SOLVE=0
-if command -v cargo >/dev/null 2>&1; then
+HAS_PREBUILT=0
+# 探测本平台随仓库分发的预编译二进制：仅 Linux x86_64 → flowscope-linux-x64；
+# macOS / ARM / 其它平台一律不命中，回退到下方 cargo 自构建路径。
+UNAME_S="$(uname -s 2>/dev/null || echo unknown)"
+UNAME_M="$(uname -m 2>/dev/null || echo unknown)"
+PREBUILT=""
+case "$UNAME_S" in
+    Linux)
+        case "$UNAME_M" in
+            x86_64|amd64) PREBUILT="$SOLVER_DIR/bin/flowscope-linux-x64" ;;
+        esac
+        ;;
+esac
+if [ -n "$PREBUILT" ] && [ -f "$PREBUILT" ]; then
+    chmod +x "$PREBUILT" 2>/dev/null || true   # Linux clone 后 NTFS 不保留可执行位
+    step_ok "FlowScope 预编译二进制（无需 cargo）" "$(( $(now) - T ))" "$PREBUILT"
+    CAN_SOLVE=1
+    HAS_PREBUILT=1
+elif command -v cargo >/dev/null 2>&1; then
     if ( cd "$SOLVER_DIR" && cargo build --release --quiet ) && [ -x "$FLOW_EXE" ]; then
         step_ok "FlowScope 构建" "$(( $(now) - T ))" "$FLOW_EXE"
         CAN_SOLVE=1
@@ -71,7 +90,7 @@ if command -v cargo >/dev/null 2>&1; then
         step_warn "FlowScope 构建" "cargo build 失败——CFD 求解不可用，冒烟降级为 --solve skip"
     fi
 else
-    step_warn "FlowScope 构建" "未安装 cargo（Rust）——CFD 求解不可用，冒烟降级为 --solve skip；装 Rust 后重跑本脚本即可解锁全链"
+    step_warn "FlowScope 构建" "本平台无预编译二进制且未安装 cargo（Rust）——CFD 求解不可用，冒烟降级为 --solve skip；装 Rust 后重跑本脚本即可解锁全链"
 fi
 
 # ---------------------------------------------------------- [4/7] 合成 CT
@@ -102,7 +121,9 @@ step_ok "pytest 冒烟" "$(( $(now) - T ))" "test_quickstart 全绿"
 echo; echo "[7/7] run_all 全链路冒烟（合成数据）"
 T=$(now)
 RUN_ALL="$REPO/code/pipeline/run_all.py"
-if [ "$CAN_SOLVE" = "1" ] && [ "$SKIP_SOLVE" != "1" ]; then
+# 有预编译二进制（HAS_PREBUILT=1）→ 必须 --solve local，绝不降级 skip；
+# 否则沿用 CAN_SOLVE 与用户显式 SKIP_SOLVE 的原判定（保留 cargo 自构建 / 手动跳过路径）。
+if [ "$HAS_PREBUILT" = "1" ] || { [ "$CAN_SOLVE" = "1" ] && [ "$SKIP_SOLVE" != "1" ]; }; then
     MODE="--solve local --backend auto --max-iter $MAX_ITER --allow-partial-viewer"
     "$VENV_PY" "$RUN_ALL" --dicom-dir "$SYNTH_CT" --case-prefix sA --case smoke \
         --solve local --backend auto --max-iter "$MAX_ITER" --allow-partial-viewer \

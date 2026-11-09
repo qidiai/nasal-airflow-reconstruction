@@ -7,7 +7,8 @@
 #   -SkipSolve     冒烟只跑到算例+断言（--solve skip），不做 CFD 求解
 #   -MaxIter <N>   冒烟求解步数上限（默认 300；合成小算例实测几十秒内收敛）
 #
-# 步骤：Python/venv → pip 依赖 → cargo 构建 FlowScope → 合成 CT →
+# 步骤：Python/venv → pip 依赖 → 探测本平台预编译 FlowScope 二进制
+#       （命中即无需 cargo；缺失时才 cargo build --release）→ 合成 CT →
 #       pA 查看器产物（干净克隆补合成占位，失败仅 WARN）→ pytest 冒烟 →
 #       run_all 全链路冒烟（合成数据）。每步打印 [OK]/[FAIL]
 #       与耗时；任一步失败以非零退出并给出中文提示。幂等，可重复执行。
@@ -80,11 +81,22 @@ try {
     if ($LASTEXITCODE -ne 0) { Step-Fail "pip 依赖安装" "exit $LASTEXITCODE——检查网络或 requirements.txt" }
     Step-Ok "pip 依赖" $t.Elapsed.TotalSeconds.ToString("0.0") "已装齐（重复执行为 already satisfied）"
 
-    # ---------------------------------------------------------- [3/7] cargo 构建 FlowScope
-    Write-Host "`n[3/7] Rust 求解器 FlowScope（cargo build --release）"
+    # ---------------------------------------------------------- [3/7] FlowScope 预编译二进制优先，缺失才 cargo 构建
+    Write-Host "`n[3/7] Rust 求解器 FlowScope（优先用仓库预编译二进制，无需 cargo）"
     $t = [System.Diagnostics.Stopwatch]::StartNew()
     $script:CanSolve = $false
-    if (Get-Command cargo -ErrorAction SilentlyContinue) {
+    $script:HasPrebuilt = $false
+    # 探测本平台随仓库分发的预编译二进制：仅 Windows x86_64（AMD64）→ flowscope-win-x64.exe；
+    # ARM / 其它架构一律不命中，回退到下方 cargo 自构建路径。
+    $arch = "$env:PROCESSOR_ARCHITECTURE"
+    if ("$env:PROCESSOR_ARCHITEW6432") { $arch = "$env:PROCESSOR_ARCHITEW6432" }
+    $prebuilt = ""
+    if ($arch -eq "AMD64") { $prebuilt = Join-Path $SolverDir "bin\flowscope-win-x64.exe" }
+    if ($prebuilt -and (Test-Path $prebuilt)) {
+        Step-Ok "FlowScope 预编译二进制（无需 cargo）" $t.Elapsed.TotalSeconds.ToString("0.0") $prebuilt
+        $script:CanSolve = $true
+        $script:HasPrebuilt = $true
+    } elseif (Get-Command cargo -ErrorAction SilentlyContinue) {
         Push-Location $SolverDir
         try { cargo build --release --quiet 2>&1 | Out-Null; $rc = $LASTEXITCODE }
         finally { Pop-Location }
@@ -95,7 +107,7 @@ try {
             Step-Warn "FlowScope 构建" "cargo build 失败（exit $rc）——CFD 求解不可用，冒烟降级为 --solve skip"
         }
     } else {
-        Step-Warn "FlowScope 构建" "未安装 cargo（Rust）——CFD 求解不可用，冒烟降级为 --solve skip；装 Rust 后重跑本脚本即可解锁全链"
+        Step-Warn "FlowScope 构建" "本平台无预编译二进制且未安装 cargo（Rust）——CFD 求解不可用，冒烟降级为 --solve skip；装 Rust 后重跑本脚本即可解锁全链"
     }
 
     # ---------------------------------------------------------- [4/7] 合成 CT
@@ -129,7 +141,9 @@ try {
     Write-Host "`n[7/7] run_all 全链路冒烟（合成数据）"
     $t = [System.Diagnostics.Stopwatch]::StartNew()
     $runAll = Join-Path $Repo "code\pipeline\run_all.py"
-    if ($script:CanSolve -and -not $SkipSolve) {
+    # 有预编译二进制（HasPrebuilt）→ 必须 --solve local，绝不降级 skip；
+    # 否则沿用 CanSolve 与用户显式 -SkipSolve 的原判定（保留 cargo 自构建 / 手动跳过路径）。
+    if ($script:HasPrebuilt -or ($script:CanSolve -and -not $SkipSolve)) {
         $mode = "--solve local --backend auto --max-iter $MaxIter --allow-partial-viewer"
         & $VenvPy $runAll --dicom-dir $SynthCt --case-prefix sA --case smoke `
             --solve local --backend auto --max-iter $MaxIter --allow-partial-viewer `

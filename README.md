@@ -6,18 +6,96 @@
 
 本项目由 **患者社区 K-Hub** 发布。
 
-## QUICKSTART（10 分钟开箱）
+## QUICKSTART（患者 / 医生自用 · 把仓库拉下来就能跑）
 
-**一条命令装机自检（推荐，2026-11 新增）**：
+> 本项目前期为**纯本地**形态：把仓库拿到自己电脑上，本机运行、数据不出机，
+> 我们不提供云端服务，也不需要你懂代码。Windows 与 Linux 的求解器已**预编译好
+> 随仓库分发**（`code/solver/bin/`），因此**无需安装 Rust / WSL / OpenFOAM**。
+> 但 **Python 3.10+ 与 pip 依赖（requirements.txt）仍是必需的**（下面的自检脚本会自动装好），
+> 并非「无需任何依赖」；也并非「任意平台开箱即用」，平台边界见下。
 
-```bash
-powershell -ExecutionPolicy Bypass -File scripts\bootstrap.ps1   # Windows（Linux/Mac: bash scripts/bootstrap.sh）
+**平台边界（如实）**：预编译二进制仅覆盖 **Windows x86_64** 与 **Linux x86_64**。
+macOS、ARM（含 Apple Silicon、ARM Linux）及其它架构没有预编译二进制，需自行安装
+Rust 后 `cargo build --release` 构建（见 `code/solver/bin/README.md`）；Linux 克隆后
+首次使用须给二进制补可执行位 `chmod +x code/solver/bin/flowscope-linux-x64`
+（`bootstrap.sh` 会自动补这一步）。
+
+### ① 拿到仓库
+
+把仓库克隆或下载解压到自己电脑（`git clone <仓库地址>`，或下载 ZIP 解压），
+然后进入解压出来的目录。仓库内不含任何患者数据。
+
+### ② 一条命令装机自检（按你的系统选一条）
+
+Windows（在仓库目录打开 PowerShell）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\bootstrap.ps1
 ```
 
-自动完成 venv/依赖安装/FlowScope 求解器构建（无 cargo 则降级跳过 CFD）/
-合成 CT 生成/pytest 冒烟/`run_all` 全链路冒烟，每步打印 [OK]/[FAIL] 与耗时。
-分步命令、上传自有 CT 的两种方式（Web 工作台 / 命令行）与常见报错排错，
-见 [从零复现.md](从零复现.md)。
+Linux x86_64（在仓库目录打开终端）：
+
+```bash
+bash scripts/bootstrap.sh
+```
+
+自检脚本自动完成 7 步：Python 虚拟环境 → pip 依赖 → **探测并使用预编译 FlowScope
+（命中即「无需 cargo」）** → 合成 CT → 查看器演示产物 → pytest 冒烟 →
+`run_all` 全链路冒烟（`--solve local` 真跑一次 CFD）。每步打印 [OK]/[FAIL] 与耗时，
+任一步失败以非零退出并给出中文提示；幂等，可重复执行。
+自检全程使用**合成 CT**，不代表真实病例结果。分步命令见文末附录。
+
+### ③ 启动 Web 工作台
+
+```powershell
+# Windows
+.venv\Scripts\python.exe code\pipeline\server.py
+```
+```bash
+# Linux
+.venv/bin/python code/pipeline/server.py
+```
+
+默认只监听本机 `127.0.0.1:8080`（演示安全），浏览器打开 **http://127.0.0.1:8080**。
+
+### ④ 上传自己的 CT
+
+在工作台页面上传**整个 .dcm 序列**（DICOM 目录），选择 `solve=local` 开跑。
+数据全程留在本机，不上传外网。**注意**：当前版本上传前会扫 DICOM 头，检出患者身份字段
+（姓名/ID/生日等）会返回 422 并清理上传文件——若遇到，请先自行匿名化再上传；
+该前置闸门的调整属数据合规议题，后续版本处理（详见 [从零复现.md](从零复现.md) §3）。
+
+### ⑤ 查看 3D 结果
+
+进度到 `done` 后，打开 `/viewer/<病例号>` 查看可交互 3D 气道查看器，
+`/api/metrics` 给出压降、左右通气分配、壁面剪切等指标。
+（standard 档只认完整契约，缺占位档字段时会诚实显示「待解算/待结果回传」；
+quick 档可看交互查看器。详见 [从零复现.md](从零复现.md) §3。）
+
+### ⑥ 验证通过的标准
+
+- 自检脚本 exit 0：第 3 步显示 `[OK] FlowScope 预编译二进制（无需 cargo）`、
+  第 7 步为 `--solve local`（不是降级 `--solve skip`）；
+- Web 链路：`/api/upload` 200 → `/api/run` 202 → 进度 `done` →
+  `/api/metrics` 200 → `/viewer` 200；
+- 冒烟产物 `out/run-sA-smoke/` 下 `run_all_manifest-*.json` 的 `exit_code=0`。
+
+完整分步命令、历史实测耗时（合成 CT 环境、2026-11-02、历史实测 107.7s / exit 0，
+仅作历史记录、非性能承诺）与排错表见 [从零复现.md](从零复现.md)。
+
+### ⑦ 常见报错（速查，完整表见 从零复现.md §5）
+
+| 现象 | 处理 |
+|---|---|
+| `[FAIL] 未找到 Python` | 安装 Python 3.10+ 后重跑自检脚本 |
+| `[WARN] …降级为 --solve skip` | 说明本平台既无预编译二进制、又未装 Rust/cargo；按上方平台边界自构建，或换 Windows/Linux x86_64 |
+| `没有可用的求解后端` / exit 3 | 确认 `code/solver/bin/` 下本平台二进制存在；Linux 补 `chmod +x` |
+| `Address already in use`（8080 被占） | `python code\pipeline\server.py --port 8123` 换端口 |
+| `.ps1` 中文乱码 / 解析错误 | 该脚本须存为 UTF-8 with BOM（本仓库已带），勿用无 BOM 编辑器另存 |
+
+---
+
+### 附录：手动分步命令（与 bootstrap 等价，供逐步排查时参考）
 
 ```bash
 py -3 -m venv .venv && .venv\Scripts\activate   # ① 虚拟环境（Linux/Mac: python3 -m venv .venv && source .venv/bin/activate）
@@ -124,7 +202,7 @@ python code/pipeline/run_all.py --dicom-dir <CT目录>  # 一键总控编排（s
 
 | backend | 行为 |
 |---|---|
-| `custom` | 自研 FlowScope（`code/solver/target/release/flowscope[.exe]`，M2 产物）直接求解；**无需 WSL/OpenFOAM** |
+| `custom` | 自研 FlowScope（`code/solver/bin/` 预编译二进制〔Windows/Linux x86_64 随仓库分发〕或 `code/solver/target/release/flowscope[.exe]` 自构建产物）直接求解；**无需 WSL/OpenFOAM**（探测顺序见 `code/pipeline/solver_backend.py` 的 `flowscope_path()`） |
 | `openfoam` | 生成算例后在 WSL 运行 `Allrun`（`simpleFoam`）；保留为对拍基准 |
 | `auto`（默认） | 找到 FlowScope 可执行文件即用 `custom`，否则回退 `openfoam` |
 
