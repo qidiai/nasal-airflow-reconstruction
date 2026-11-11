@@ -15,9 +15,9 @@ header{flex:0 0 46px;display:flex;align-items:center;justify-content:space-betwe
 #app-title{font-size:15px;font-weight:600;letter-spacing:.5px}
 #hdr-right{font-size:11px;color:var(--dim);text-align:right;line-height:1.4}
 main{flex:1;display:flex;min-height:0} /* T10-F2：不写 flex-wrap——实测 wrap 会让行交叉尺寸退化为 max-content（1920 画布撑到 2115px、720 竖屏画布高度归零）；窄屏改由 @media 列向布局承担 */
-#canvas-wrap{position:relative;flex:1 1 480px;min-width:0;background:linear-gradient(180deg,#101d31 0%,#060e1e 100%)} /* T8-P0 R4：深蓝→近黑临床工作站渐变底，经 alpha 透明清屏透出 */ /* T10-F2：弹性化，窄屏可整行换出 */
+#canvas-wrap{position:relative;flex:1 1 480px;min-width:0;background:linear-gradient(180deg,#0a1628 0%,#020814 100%)} /* T8-P0 R4：深蓝→近黑临床工作站渐变底，经 alpha 透明清屏透出 */ /* T10-F2：弹性化，窄屏可整行换出 */
 #glcanvas{position:absolute;top:0;left:0;width:100%;height:100%;display:block;touch-action:none}
-#vignette{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;background:radial-gradient(ellipse at 50% 46%,rgba(0,0,0,0) 42%,rgba(2,8,20,.22) 72%,rgba(2,8,20,.45) 100%)} /* 暗角：纯 CSS 叠加层，不进渲染管线、不吃帧率 */
+#vignette{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;background:radial-gradient(ellipse at 50% 46%,rgba(0,0,0,0) 42%,rgba(2,8,20,.30) 72%,rgba(2,8,20,.62) 100%)} /* 暗角：纯 CSS 叠加层，不进渲染管线、不吃帧率 */
 #toolbar{position:absolute;top:10px;left:10px;display:flex;gap:8px}
 #toolbar button{background:#1a222bcc;color:var(--text);border:1px solid var(--line);border-radius:4px;padding:5px 10px;font-size:12px;cursor:pointer}
 #toolbar button:hover{border-color:#4d6472}
@@ -1383,9 +1383,9 @@ return LineSegments2;
      分层 = 环境光（保底）+ 半球光（冷色天光/地面反光，给曲面上下两段不同色温）
      + 主光（从前下方向打，照亮鼻背/面中）+ 冷色补光 + 上方轮廓光。
      T9-2 朝向结论保留：本数据 +Y 是枕后、-Y 才是面部，主光必须从 -Y 打。 */
-  scene.add(new THREE.AmbientLight(0xdbe8f7, 0.52));
+  scene.add(new THREE.AmbientLight(0xdbe8f7, 0.42));
   scene.add(new THREE.HemisphereLight(0xcfe8ff, 0x16222e, 0.8));
-  var dl1 = new THREE.DirectionalLight(0xffffff, 1.15); dl1.position.set(1, -1.6, 1.2); scene.add(dl1);
+  var dl1 = new THREE.DirectionalLight(0xffffff, 1.5); dl1.position.set(1, -1.6, 1.2); scene.add(dl1);
   var dl2 = new THREE.DirectionalLight(0x86b6ff, 0.55); dl2.position.set(-1, 0.4, -1); scene.add(dl2);
   var dl3 = new THREE.DirectionalLight(0xe8f4ff, 0.7); /* 上方 30° 仰角轮廓光；仅作用于 MeshStandard 材质，流线 Line2 不受光照；不新增 render pass */
   dl3.position.set(0, -50, 86.6); scene.add(dl3);
@@ -1473,12 +1473,12 @@ return LineSegments2;
   var matCavity = new THREE.MeshStandardMaterial({
     color: CAVITY_COLOR, side: THREE.DoubleSide, flatShading: false,
     transparent: true, opacity: CAVITY_OPACITY, depthWrite: true,
-    roughness: 0.5, metalness: 0.08, emissive: 0x07182c, emissiveIntensity: 0.45
+    roughness: 0.38, metalness: 0.15, emissive: 0x07182c, emissiveIntensity: 0.45
   });
   var matSinus = new THREE.MeshStandardMaterial({
     color: SINUS_COLOR, side: THREE.DoubleSide, flatShading: false,
     transparent: true, opacity: SINUS_OPACITY, depthWrite: true,
-    roughness: 0.52, metalness: 0.06, emissive: 0x061a22, emissiveIntensity: 0.45
+    roughness: 0.42, metalness: 0.10, emissive: 0x061a22, emissiveIntensity: 0.45
   });
   addFresnelRim(matCavity, 0.40, 0xbfe9ff);
   addFresnelRim(matSinus, 0.32, 0xa8e6ff);
